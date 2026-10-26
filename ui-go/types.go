@@ -546,6 +546,8 @@ type EnvironmentData struct {
 type HostInfo struct {
 	Name       string `json:"name"`
 	IP         string `json:"ip"`
+	PrivateIP  string `json:"private_ip"`
+	PublicIP   string `json:"public_ip"`
 	Port       string `json:"port"`
 	ConnectCmd string `json:"connect_cmd"`
 	Role       string `json:"role"`

@@ -219,7 +219,7 @@ The environment file must contain `PCSM_SOURCE_URI`, `PCSM_TARGET_URI`, `PCSM_SO
 
 ## plgm Load Generator
 
-If the inventory contains a `plgm` host, `main.yml` installs [plgm](https://github.com/Percona-Lab/percona-load-generator-mongodb) (Percona Load Generator for MongoDB) through `plgm_install.yml`. The playbook downloads the pinned `plgm-linux-amd64` release (`plgm_version`), verifies it against `plgm_sha256`, links it to `/usr/local/bin/plgm`, and runs the plgm Web UI as the `plgm` systemd service (`plgm --webui --webui-port {{ plgm_webui_port }}`). plgm only publishes x86_64 Linux binaries, so the play fails on other architectures. To upgrade, change `plgm_version` and `plgm_sha256` in `group_vars/all.yml`.
+If the inventory contains a `plgm` host, `main.yml` installs [plgm](https://github.com/Percona-Lab/percona-load-generator-mongodb) (Percona Load Generator for MongoDB) through `plgm_install.yml`. The playbook looks up the latest plgm release through the GitHub API (from the Ansible controller), downloads its `plgm-linux-amd64` asset into `/opt/plgm/<tag>`, verifies it against the SHA-256 digest GitHub publishes for the asset, links it to `/usr/local/bin/plgm`, and runs the plgm Web UI as the `plgm` systemd service (`plgm --webui --webui-port {{ plgm_webui_port }}`). plgm only publishes x86_64 Linux binaries, so the play fails on other architectures. Rerunning `plgm_install.yml` upgrades an existing host to the newest release.
 
 plgm is not preconfigured. Its Web UI listens on `127.0.0.1:9999` on the plgm host only, and the generated ssh_config forwards it to your workstation:
 

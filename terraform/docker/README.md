@@ -354,7 +354,7 @@ Terraform mounts the file read-only and never reads its contents, so the URIs ar
 
 ## Simulating a workload with plgm
 
-- When `enable_plgm = true`, a dedicated `<prefix>-plgm` container runs the [plgm](https://github.com/Percona-Lab/percona-load-generator-mongodb) Web UI. The image installs the pinned `plgm_version` release (verified against `plgm_sha256`) on `plgm_os_image` (Alpine).
+- When `enable_plgm = true`, a dedicated `<prefix>-plgm` container runs the [plgm](https://github.com/Percona-Lab/percona-load-generator-mongodb) Web UI. The image installs the latest plgm release, resolved through the GitHub API at plan time and verified against the SHA-256 digest GitHub publishes for the asset, on `plgm_os_image` (Alpine). The image is rebuilt on the next apply whenever a newer release is available.
 - plgm only publishes linux-amd64 binaries, so the image is always built for `linux/amd64`. On Apple Silicon it runs under emulation; throughput numbers there are not representative.
 - The Web UI is published on the host loopback only: open `http://localhost:9999` (change with `plgm_external_port`). The environment page in the sandbox UI links to it.
 - plgm is not preconfigured. In its Web UI, enter a connection string reachable from the Docker network, for example `mongodb://root:percona@<prefix>-cl01-mongos00:27017/?authSource=admin`, choose or define a workload, and launch it. In auto sharding mode plgm creates and shards its own collections on sharded clusters.

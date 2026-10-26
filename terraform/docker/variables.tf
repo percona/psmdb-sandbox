@@ -328,18 +328,6 @@ variable "plgm_external_port" {
   description = "Host port (bound to 127.0.0.1) that serves the plgm Web UI"
 }
 
-variable "plgm_version" {
-  type        = string
-  default     = "v5.1.0"
-  description = "plgm release tag to install"
-}
-
-variable "plgm_sha256" {
-  type        = string
-  default     = "000704e5f7bb3a0cc60d264dae87f8f0881b53d3be63d21b520406a7ac518a0a"
-  description = "SHA-256 of plgm-linux-amd64.tar.gz for plgm_version"
-}
-
 variable "prefix" {
   type        = string
   default     = ""

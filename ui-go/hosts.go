@@ -83,6 +83,8 @@ func collectDockerHosts(envID string, env *Environment) ([]HostInfo, []ServiceUR
 		hosts = append(hosts, HostInfo{
 			Name:       name,
 			IP:         ip,
+			PrivateIP:  ip,
+			PublicIP:   "—",
 			Port:       port,
 			ConnectCmd: connectCmd,
 			Role:       role,
@@ -333,6 +335,7 @@ func collectCloudHosts(envID string, env *Environment) ([]HostInfo, []MongoConnI
 		}
 	}
 	hosts = uniqueHosts(hosts)
+	applyHostAddresses(hosts, env.Platform, readStateHostAddresses(tfstatePath(envID, env.Platform)))
 
 	var mongoConns []MongoConnInfo
 	user, pass := mongoAdminCredentials(env)

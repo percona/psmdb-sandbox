@@ -126,12 +126,11 @@ pcsm_version: "0.9.0"
 pcsm_repo: release
 
 # plgm (Percona Load Generator for MongoDB) is provisioned only when the
-# inventory contains [plgm]. The pinned release binary (linux-amd64) is verified
-# against plgm_sha256. The Web UI listens on 127.0.0.1:plgm_webui_port and is
-# reached through the SSH LocalForward in the generated ssh_config.
+# inventory contains [plgm]. The latest GitHub release binary (linux-amd64) is
+# installed and verified against the SHA-256 digest GitHub publishes for it.
+# The Web UI listens on 127.0.0.1:plgm_webui_port and is reached through the
+# SSH LocalForward in the generated ssh_config.
 # https://github.com/Percona-Lab/percona-load-generator-mongodb
-plgm_version: v5.1.0
-plgm_sha256: 000704e5f7bb3a0cc60d264dae87f8f0881b53d3be63d21b520406a7ac518a0a
 plgm_webui_port: 9999
 
 ##########

@@ -8,6 +8,30 @@
 # http://localhost:<plgm_external_port>. Connect plgm to the cluster from its UI.
 #############
 
+# Resolve the latest plgm release and the SHA-256 digest GitHub publishes for
+# its linux-amd64 asset
+data "http" "plgm_latest_release" {
+  count = var.enable_plgm ? 1 : 0
+  url   = "https://api.github.com/repos/Percona-Lab/percona-load-generator-mongodb/releases/latest"
+  request_headers = {
+    Accept = "application/vnd.github+json"
+  }
+
+  lifecycle {
+    postcondition {
+      condition     = self.status_code == 200
+      error_message = "Could not look up the latest plgm release (HTTP ${self.status_code})."
+    }
+  }
+}
+
+locals {
+  plgm_release = var.enable_plgm ? jsondecode(data.http.plgm_latest_release[0].response_body) : null
+  plgm_asset   = var.enable_plgm ? one([for a in local.plgm_release.assets : a if a.name == "plgm-linux-amd64.tar.gz"]) : null
+  plgm_version = var.enable_plgm ? local.plgm_release.tag_name : ""
+  plgm_sha256  = var.enable_plgm ? trimprefix(try(local.plgm_asset.digest, ""), "sha256:") : ""
+}
+
 locals {
   plgm_platform        = "linux/amd64" # plgm only publishes linux-amd64 binaries
   plgm_webui_port      = 9999
@@ -16,8 +40,8 @@ locals {
   plgm_os_repository   = var.enable_plgm ? replace(data.docker_registry_image.plgm_os[0].name, "/(@sha256:[a-f0-9]+|:[^/]+)$/", "") : ""
   plgm_dockerfile_content = templatefile("${path.module}/plgm.Dockerfile.tmpl", {
     plgm_os_image   = var.enable_plgm ? "${local.plgm_os_repository}@${data.docker_registry_image.plgm_os[0].sha256_digest}" : ""
-    plgm_version    = var.plgm_version
-    plgm_sha256     = var.plgm_sha256
+    plgm_version    = local.plgm_version
+    plgm_sha256     = local.plgm_sha256
     plgm_webui_port = local.plgm_webui_port
     plgm_proxy_port = local.plgm_proxy_port
   })
@@ -55,13 +79,20 @@ resource "docker_image" "plgm" {
   keep_locally = true
   triggers = {
     os_digest    = data.docker_registry_image.plgm_os[0].sha256_digest
-    plgm_version = var.plgm_version
-    plgm_sha256  = var.plgm_sha256
+    plgm_version = local.plgm_version
+    plgm_sha256  = local.plgm_sha256
   }
   build {
     context    = path.module
     dockerfile = "${local.plgm_dockerfile_name}.Dockerfile"
     platform   = local.plgm_platform
+  }
+
+  lifecycle {
+    precondition {
+      condition     = can(regex("^[0-9a-f]{64}$", local.plgm_sha256))
+      error_message = "plgm release ${local.plgm_version} has no plgm-linux-amd64.tar.gz asset with a SHA-256 digest."
+    }
   }
 }
 

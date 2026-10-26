@@ -14,6 +14,29 @@
           - ansible_facts['architecture'] == 'x86_64'
         fail_msg: "plgm only ships linux-amd64 release binaries; host architecture is {{ ansible_facts['architecture'] }}"
 
+    - name: Look up the latest plgm release
+      uri:
+        url: https://api.github.com/repos/Percona-Lab/percona-load-generator-mongodb/releases/latest
+        headers:
+          Accept: application/vnd.github+json
+        return_content: yes
+      register: plgm_latest_release
+      delegate_to: localhost
+      become: no
+      run_once: yes
+
+    - name: Select the plgm linux-amd64 release asset
+      set_fact:
+        plgm_version: "{{ plgm_latest_release.json.tag_name }}"
+        plgm_asset: "{{ plgm_latest_release.json.assets | selectattr('name', 'equalto', 'plgm-linux-amd64.tar.gz') | list | first | default({}) }}"
+
+    - name: Require a published SHA-256 digest for the plgm asset
+      assert:
+        that:
+          - plgm_asset.browser_download_url is defined
+          - (plgm_asset.digest | default('')) is match('sha256:[0-9a-f]{64}$')
+        fail_msg: "plgm release {{ plgm_version }} has no plgm-linux-amd64.tar.gz asset with a SHA-256 digest"
+
     - name: Install archive tools
       package:
         name:
@@ -29,11 +52,11 @@
         group: root
         mode: "0755"
 
-    - name: Download pinned plgm release
+    - name: Download plgm {{ plgm_version }}
       get_url:
-        url: "https://github.com/Percona-Lab/percona-load-generator-mongodb/releases/download/{{ plgm_version }}/plgm-linux-amd64.tar.gz"
+        url: "{{ plgm_asset.browser_download_url }}"
         dest: "{{ plgm_install_dir }}/plgm-linux-amd64.tar.gz"
-        checksum: "sha256:{{ plgm_sha256 }}"
+        checksum: "{{ plgm_asset.digest }}"
         mode: "0644"
 
     - name: Unpack plgm release

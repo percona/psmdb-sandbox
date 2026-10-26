@@ -1234,16 +1234,18 @@ function renderHosts(data) {
           <table class="hosts-table">
             <thead><tr>
               <th class="sortable" data-col="0" onclick="sortHostsTable(this)">Name <span class="sort-icon">↕</span></th>
-              <th class="sortable" data-col="1" onclick="sortHostsTable(this)">IP / Address <span class="sort-icon">↕</span></th>
-              <th class="sortable" data-col="2" onclick="sortHostsTable(this)">Port <span class="sort-icon">↕</span></th>
-              <th class="sortable" data-col="3" onclick="sortHostsTable(this)">Role <span class="sort-icon">↕</span></th>
+              <th class="sortable" data-col="1" onclick="sortHostsTable(this)">Private IP <span class="sort-icon">↕</span></th>
+              <th class="sortable" data-col="2" onclick="sortHostsTable(this)">Public IP <span class="sort-icon">↕</span></th>
+              <th class="sortable" data-col="3" onclick="sortHostsTable(this)">Port <span class="sort-icon">↕</span></th>
+              <th class="sortable" data-col="4" onclick="sortHostsTable(this)">Role <span class="sort-icon">↕</span></th>
               <th>Action</th>
             </tr></thead>
             <tbody>`;
       groups[grp].forEach(h => {
         html += `<tr>
           <td class="host-name">${escHtml(h.name)}</td>
-          <td class="host-ip"><code>${escHtml(h.ip)}</code></td>
+          <td class="host-ip"><code>${escHtml(h.private_ip || h.ip || '—')}</code></td>
+          <td class="host-ip"><code>${escHtml(h.public_ip || '—')}</code></td>
           <td><code>${escHtml(h.port || '—')}</code></td>
           <td><span class="role-badge role-${escHtml(h.role)}">${escHtml(h.role)}</span></td>
           <td>
