@@ -287,6 +287,14 @@
         - replset_member_to_add | bool
         - not arbiter | default(false)
 
+    - name: Restore SELinux contexts on MongoDB paths
+      include_tasks: tasks/selinux_mongo_paths.yml
+      vars:
+        selinux_mongo_paths: "{{ [mongod_path, mongod_log_path] + ([audit_log_path | dirname] if enable_audit_effective | bool else []) }}"
+      when:
+        - replset_member_to_add | bool
+        - not arbiter | default(false)
+
     - name: Set up keyfile for encryption at rest
       copy:
         dest: "{{ encryption_keyfile }}"
@@ -308,11 +316,23 @@
         - not arbiter | default(false)
 
     - name: Wait for MongoDB port on new replica set member
-      wait_for:
-        host: 127.0.0.1
-        port: "{{ mongo_port }}"
-        delay: 1
-        timeout: 60
+      block:
+        - name: Wait for MongoDB port on new replica set member
+          wait_for:
+            host: 127.0.0.1
+            port: "{{ mongo_port }}"
+            delay: 1
+            timeout: 60
+      rescue:
+        - name: Collect mongod startup diagnostics
+          shell: systemctl status mongod --no-pager -l; journalctl -u mongod --no-pager -n 50
+          register: mongod_diagnostics
+          changed_when: false
+          failed_when: false
+
+        - name: Report mongod startup failure
+          fail:
+            msg: "mongod is not listening on port {{ mongo_port }}:\n{{ mongod_diagnostics.stdout }}"
       when:
         - replset_member_to_add | bool
         - not arbiter | default(false)

@@ -1,0 +1,12 @@
+---
+# Directories the MongoDB packages do not ship (for example /var/log/mongo with
+# the official packages) inherit the parent's SELinux type, which the confined
+# mongod/mongos cannot use. Apply the labels the system policy defines.
+- name: Restore SELinux contexts on MongoDB paths
+  become: yes
+  shell: |
+    if command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then
+      restorecon -Rv {{ selinux_mongo_paths | unique | map('quote') | join(' ') }}
+    fi
+  register: selinux_mongo_restorecon
+  changed_when: "'Relabeled' in selinux_mongo_restorecon.stdout"

@@ -99,6 +99,11 @@
         group: "{{ mongo_os_group }}"
       when: enable_audit_effective | bool
 
+    - name: Restore SELinux contexts on MongoDB paths
+      include_tasks: tasks/selinux_mongo_paths.yml
+      vars:
+        selinux_mongo_paths: "{{ [mongod_log_path] + ([audit_log_path | dirname] if enable_audit_effective | bool else []) }}"
+
     - name: Configure mongo shell alias
       lineinfile:
         path: /etc/profile
@@ -144,20 +149,6 @@
       notify:
         - reload systemd
         - restart mongos
-
-    - name: Set SELinux to disabled until reboot
-      command: /usr/sbin/setenforce 0
-      when:
-        - ansible_facts['selinux'] is defined
-        - ansible_facts['selinux']['status'] | default('disabled') == 'enabled'
-      ignore_errors: yes
-
-    - name: Disable SELinux permanently
-      lineinfile:
-        path: "{{ ansible_facts['selinux']['config_file'] }}"
-        regexp: '^SELINUX='
-        line: 'SELINUX=disabled'
-      when: ansible_facts['selinux'] is defined and ansible_facts['selinux']['config_file'] is defined
 
     - name: Apply pending mongos handlers
       meta: flush_handlers

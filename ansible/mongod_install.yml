@@ -129,6 +129,11 @@
         state: directory
       when: enable_audit_effective | bool
 
+    - name: Restore SELinux contexts on MongoDB paths
+      include_tasks: tasks/selinux_mongo_paths.yml
+      vars:
+        selinux_mongo_paths: "{{ [mongod_path, mongod_log_path] + ([audit_log_path | dirname] if enable_audit_effective | bool else []) }}"
+
     - name: Set up keyfile for encryption at rest
       become: yes
       copy:
@@ -158,11 +163,24 @@
       when: mongodb_primary | default(false)
 
     - name: Wait for MongoDB port
-      wait_for:
-        host: 127.0.0.1
-        port: "{{ mongo_port }}"
-        delay: 1
-        timeout: 60
+      block:
+        - name: Wait for MongoDB port
+          wait_for:
+            host: 127.0.0.1
+            port: "{{ mongo_port }}"
+            delay: 1
+            timeout: 60
+      rescue:
+        - name: Collect mongod startup diagnostics
+          become: yes
+          shell: systemctl status mongod --no-pager -l; journalctl -u mongod --no-pager -n 50
+          register: mongod_diagnostics
+          changed_when: false
+          failed_when: false
+
+        - name: Report mongod startup failure
+          fail:
+            msg: "mongod is not listening on port {{ mongo_port }}:\n{{ mongod_diagnostics.stdout }}"
 
     - name: Initialize replica set
       become: yes

@@ -43,7 +43,7 @@
         that:
           - "'User=mongodb' in router_service"
           - "'Group=mongodb' in router_service"
-          - "'chown mongodb:mongodb /var/run/mongos.pid' in router_service"
+          - "'RuntimeDirectory=mongos' in router_service"
           - "'Type=forking' in router_service"
       vars:
         mongodb_distribution: community
