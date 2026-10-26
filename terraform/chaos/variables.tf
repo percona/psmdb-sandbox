@@ -161,6 +161,12 @@ variable "port_to_forward" {
   description = "Local port number to forward via SSH to access PMM UI over localhost"
 }
 
+variable "plgm_local_port" {
+  type        = string
+  default     = "29999"
+  description = "Local port forwarded via SSH to the plgm Web UI (127.0.0.1:9999 on the plgm host)"
+}
+
 #############
 # PMM
 #############
@@ -413,35 +419,35 @@ variable "ca_volume_size" {
   }
 }
 
-variable "enable_ycsb" {
+variable "enable_plgm" {
   type        = bool
   default     = false
-  description = "Deploy a dedicated YCSB workload generator VM."
+  description = "Deploy a dedicated plgm load generator VM."
 }
 
-variable "default_ycsb_host" {
-  description = "Base YCSB host name"
+variable "default_plgm_host" {
+  description = "Base plgm host name"
   type        = string
-  default     = "ycsb"
+  default     = "plgm"
 }
 
 locals {
-  ycsb_host = "${var.prefix}-${var.default_ycsb_host}"
+  plgm_host = "${var.prefix}-${var.default_plgm_host}"
 }
 
-variable "ycsb_cpu_cores" {
+variable "plgm_cpu_cores" {
   default     = 2
-  description = "Number of CPU cores for the YCSB instance"
+  description = "Number of CPU cores for the plgm instance"
 }
 
-variable "ycsb_memory_gb" {
+variable "plgm_memory_gb" {
   default     = 4
-  description = "Memory in GB for the YCSB instance"
+  description = "Memory in GB for the plgm instance"
 }
 
-variable "ycsb_volume_size" {
+variable "plgm_volume_size" {
   default     = 20
-  description = "Root disk size in GB for the YCSB instance"
+  description = "Root disk size in GB for the plgm instance"
 }
 
 #############
@@ -511,6 +517,38 @@ locals {
 variable "backup_retention" {
   default     = 2
   description = "Days to keep backups in SeaweedFS bucket"
+}
+
+# Existing S3-compatible bucket, used for PBM when enable_seaweedfs = false.
+variable "existing_bucket_name" {
+  description = "Name of an existing S3-compatible bucket to use for PBM backups when enable_seaweedfs = false. Leave empty to skip backup storage."
+  type        = string
+  default     = ""
+}
+
+variable "existing_bucket_endpoint" {
+  description = "Endpoint URL of the existing bucket (e.g. https://s3.example.com:9000). Leave empty for AWS S3."
+  type        = string
+  default     = ""
+}
+
+variable "existing_bucket_region" {
+  description = "Region of the existing bucket (defaults to us-east-1)."
+  type        = string
+  default     = ""
+}
+
+variable "existing_bucket_access_key" {
+  description = "Access key ID with read/write access to the existing bucket."
+  type        = string
+  default     = ""
+}
+
+variable "existing_bucket_secret_key" {
+  description = "Secret access key for the existing bucket."
+  type        = string
+  default     = ""
+  sensitive   = true
 }
 
 #############

@@ -1,16 +1,16 @@
-# Public IP for YCSB
-resource "azurerm_public_ip" "ycsb" {
-  count               = var.enable_ycsb ? 1 : 0
-  name                = "${local.ycsb_host}-public-ip"
+# Public IP for plgm
+resource "azurerm_public_ip" "plgm" {
+  count               = var.enable_plgm ? 1 : 0
+  name                = "${local.plgm_host}-public-ip"
   location            = var.location
   resource_group_name = local.resource_group_name
   allocation_method   = "Dynamic"
   depends_on          = [time_sleep.wait_after_rg]
 }
 
-resource "azurerm_network_interface" "ycsb_nic" {
-  count               = var.enable_ycsb ? 1 : 0
-  name                = "${local.ycsb_host}-nic"
+resource "azurerm_network_interface" "plgm_nic" {
+  count               = var.enable_plgm ? 1 : 0
+  name                = "${local.plgm_host}-nic"
   location            = var.location
   resource_group_name = local.resource_group_name
 
@@ -18,15 +18,15 @@ resource "azurerm_network_interface" "ycsb_nic" {
     name                          = "internal"
     subnet_id                     = azurerm_subnet.subnet.id
     private_ip_address_allocation = "Dynamic"
-    public_ip_address_id          = azurerm_public_ip.ycsb[0].id
+    public_ip_address_id          = azurerm_public_ip.plgm[0].id
   }
 
   depends_on = [time_sleep.wait_after_rg]
 }
 
-resource "azurerm_network_security_group" "ycsb_nsg" {
-  count               = var.enable_ycsb ? 1 : 0
-  name                = "${local.ycsb_host}-nsg"
+resource "azurerm_network_security_group" "plgm_nsg" {
+  count               = var.enable_plgm ? 1 : 0
+  name                = "${local.plgm_host}-nsg"
   location            = var.location
   resource_group_name = local.resource_group_name
 
@@ -45,21 +45,21 @@ resource "azurerm_network_security_group" "ycsb_nsg" {
   depends_on = [time_sleep.wait_after_rg]
 }
 
-resource "azurerm_network_interface_security_group_association" "ycsb_nsg_assoc" {
-  count                     = var.enable_ycsb ? 1 : 0
-  network_interface_id      = azurerm_network_interface.ycsb_nic[0].id
-  network_security_group_id = azurerm_network_security_group.ycsb_nsg[0].id
+resource "azurerm_network_interface_security_group_association" "plgm_nsg_assoc" {
+  count                     = var.enable_plgm ? 1 : 0
+  network_interface_id      = azurerm_network_interface.plgm_nic[0].id
+  network_security_group_id = azurerm_network_security_group.plgm_nsg[0].id
 }
 
-resource "azurerm_linux_virtual_machine" "ycsb" {
-  count               = var.enable_ycsb ? 1 : 0
-  name                = local.ycsb_host
+resource "azurerm_linux_virtual_machine" "plgm" {
+  count               = var.enable_plgm ? 1 : 0
+  name                = local.plgm_host
   location            = var.location
   resource_group_name = local.resource_group_name
-  size                = var.ycsb_type
+  size                = var.plgm_type
   admin_username      = var.my_ssh_user
   network_interface_ids = [
-    azurerm_network_interface.ycsb_nic[0].id,
+    azurerm_network_interface.plgm_nic[0].id,
   ]
 
   admin_ssh_key {
@@ -81,16 +81,16 @@ resource "azurerm_linux_virtual_machine" "ycsb" {
 
   custom_data = base64encode(<<EOT
 #!/bin/bash
-hostnamectl set-hostname "${local.ycsb_host}"
+hostnamectl set-hostname "${local.plgm_host}"
 echo "127.0.0.1 $(hostname) localhost" > /etc/hosts
 EOT
   )
 
   tags = {
-    role = "ycsb"
+    role = "plgm"
   }
 
   depends_on = [
-    azurerm_network_interface_security_group_association.ycsb_nsg_assoc[0]
+    azurerm_network_interface_security_group_association.plgm_nsg_assoc[0]
   ]
 }

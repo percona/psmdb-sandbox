@@ -103,7 +103,7 @@ file. At minimum, review:
 - instance types, AMI, EBS sizes, and `use_spot_instances`
 - backup bucket naming and retention
 - network rules, noting that `source_ranges` currently applies only to the dedicated CA host
-- optional PMM, CA/TLS, LDAP, and YCSB settings
+- optional PMM, CA/TLS, LDAP, and plgm load generator settings
 
 The checked-in `rs.tfvars` is an example standalone replica-set configuration.
 
@@ -132,6 +132,25 @@ replsets = {
 
 Save the example as `minimum.tfvars` or use the checked-in file and pass
 `-var-file=minimum.tfvars` to Terraform commands.
+
+### Hardware for benchmarks
+
+All settings are global to the deployment and optional; unset values keep the
+defaults. Root volume and placement settings apply to MongoDB nodes and the
+plgm client only.
+
+| Variable | Default | Notes |
+|---|---|---|
+| `data_disk_type` | `gp2` | Also `gp3`, `io1`, `io2`, `st1`, `sc1` (`st1`/`sc1` need at least 125 GB) |
+| `data_disk_iops` | unset | `gp3` (3000–16000), `io1`/`io2` (defaults to 3000) |
+| `data_disk_throughput` | unset | MiB/s, `gp3` only (125–1000) |
+| `configsvr_disk_type` | `data_disk_type` | IOPS/throughput only apply when it equals `data_disk_type` |
+| `boot_disk_type`, `boot_disk_size` | AMI default | Root volume; MongoDB logs live here |
+| `compact_placement` | `false` | Cluster placement group; requires `subnet_count = 1` |
+| `use_spot_instances` | `false` | One-time spot for MongoDB nodes. Not suitable for benchmarks |
+| `plgm_type` | `t3.medium` | Size it so the client is not the bottleneck |
+| `plgm_local_port` | `29999` | Local port forwarded by the generated ssh_config to the plgm Web UI |
+| `labels` | `{}` | Extra tags on every resource (provider `default_tags`) |
 
 ## Deploy
 

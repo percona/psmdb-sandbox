@@ -218,3 +218,48 @@ variable "subnet_cidr" {
   type    = string
   default = "10.128.0.0/20"
 }
+
+#############################
+# Benchmark hardware tunables
+#############################
+
+variable "data_disk_iops" {
+  type    = number
+  default = null
+}
+
+variable "data_disk_throughput" {
+  type    = number
+  default = null
+}
+
+variable "boot_disk_type" {
+  type    = string
+  default = null
+}
+
+variable "boot_disk_size" {
+  type    = number
+  default = null
+}
+
+variable "placement_group" {
+  type        = string
+  default     = null
+  description = "Cluster placement group for all instances"
+}
+
+variable "configsvr_disk_type" {
+  type    = string
+  default = "gp2"
+}
+
+variable "configsvr_disk_iops" {
+  type    = number
+  default = null
+}
+
+variable "configsvr_disk_throughput" {
+  type    = number
+  default = null
+}

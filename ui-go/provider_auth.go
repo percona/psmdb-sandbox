@@ -427,6 +427,9 @@ func providerAuthHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		status := checkProviderAuth(platform)
+		if status.OK {
+			go prefetchCloudImages(platform) // warm the image selector for the new credentials
+		}
 		writeJSON(w, 200, status)
 	case http.MethodGet:
 		writeJSON(w, 200, checkProviderAuth(platform))

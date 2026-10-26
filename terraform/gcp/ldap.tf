@@ -6,7 +6,8 @@ resource "google_compute_instance" "ldap" {
   for_each     = var.ldap_servers
   name         = local.ldap_hosts[each.key]
   machine_type = each.value.machine_type
-  zone         = data.google_compute_zones.available.names[0]
+  zone         = local.zones[0]
+  labels       = var.labels
   tags         = ["${local.ldap_hosts[each.key]}"]
   boot_disk {
     initialize_params {

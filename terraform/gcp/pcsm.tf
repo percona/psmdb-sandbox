@@ -2,7 +2,8 @@ resource "google_compute_instance" "pcsm" {
   count        = var.enable_pcsm ? 1 : 0
   name         = local.pcsm_host
   machine_type = var.pcsm_type
-  zone         = data.google_compute_zones.available.names[0]
+  zone         = local.zones[0]
+  labels       = var.labels
   tags         = [local.pcsm_host]
 
   boot_disk {

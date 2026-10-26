@@ -97,7 +97,7 @@
 <div class="service-url-row" id="service-url-row">
   <span id="service-url-buttons">{{range .ServiceURLs}}
   <a class="btn btn-outline" href="{{.URL}}" target="_blank" rel="noopener noreferrer"
-     title="{{.URL}}">🔗 {{.Label}}</a>
+     title="{{if .Hint}}{{.Hint}}{{else}}{{.URL}}{{end}}">🔗 {{.Label}}{{if .Hint}} <span aria-hidden="true">ⓘ</span>{{end}}</a>
   {{end}}</span>
 </div>
 {{else}}
@@ -188,29 +188,6 @@
     <p style="color:var(--color-muted)">Loading…</p>
   </div>
 </div>
-
-{{if .YcsbEnabled}}
-<section class="form-section ycsb-panel" id="ycsb-panel" {{if not .YcsbAvailable}}style="display:none"{{end}}>
-  <div class="section-header"><h2>YCSB Load Generator</h2><span class="field-tip" data-tip="Shared settings for the selected cluster or replica set.">ⓘ</span></div>
-  <div class="form-row">
-    <div class="form-group"><label for="ycsb-target">Target</label><select id="ycsb-target" onchange="refreshYcsbStatus()">{{range .SortedClusters}}<option value="cluster:{{.Name}}" {{if and (eq $.YcsbLoad.TargetKind "cluster") (eq $.YcsbLoad.Target .Name)}}selected{{end}}>Cluster: {{.Name}}</option>{{end}}{{range .SortedReplsets}}<option value="replset:{{.Name}}" {{if and (eq $.YcsbLoad.TargetKind "replset") (eq $.YcsbLoad.Target .Name)}}selected{{end}}>Replica set: {{.Name}}</option>{{end}}</select></div>
-    <div class="form-group"><label for="ycsb-workload">Workload</label><select id="ycsb-workload"><option value="workloade" {{if eq .YcsbLoad.Workload "workloade"}}selected{{end}}>Workload E (scan-heavy)</option><option value="workloada" {{if eq .YcsbLoad.Workload "workloada"}}selected{{end}}>Workload A (read/update)</option></select></div>
-    <div class="form-group"><label for="ycsb-record-count">Records</label><input id="ycsb-record-count" type="number" min="1" max="100000000" value="{{.YcsbLoad.RecordCount}}"></div>
-  </div>
-  <div class="form-row">
-    <div class="form-group"><label for="ycsb-max-scan">Max scan length</label><input id="ycsb-max-scan" type="number" min="1" max="1000000" value="{{.YcsbLoad.MaxScanLength}}"></div>
-    <div class="form-group"><label for="ycsb-scan-distribution">Scan distribution</label><select id="ycsb-scan-distribution"><option value="uniform" {{if eq .YcsbLoad.ScanLengthDistribution "uniform"}}selected{{end}}>Uniform</option><option value="constant" {{if eq .YcsbLoad.ScanLengthDistribution "constant"}}selected{{end}}>Constant</option></select></div>
-    <div class="form-group"><label for="ycsb-threads">Threads</label><input id="ycsb-threads" type="number" min="1" max="256" value="{{.YcsbLoad.Threads}}"></div>
-  </div>
-  <div class="form-row">
-    <div class="form-group"><label for="ycsb-rate">Target ops/sec</label><input id="ycsb-rate" type="number" min="1" max="1000000" value="{{.YcsbLoad.TargetOpsPerSecond}}"></div>
-    <div class="form-group"><label for="ycsb-duration">Duration (seconds)</label><input id="ycsb-duration" type="number" min="1" max="86400" value="{{.YcsbLoad.DurationSeconds}}"></div>
-    <div class="form-group"><label><input id="ycsb-reset" type="checkbox" {{if .YcsbLoad.ResetBeforeLoad}}checked{{end}}> Reset before Insert Data</label></div>
-  </div>
-  <div class="action-buttons" style="margin-top:.5rem"><button class="btn btn-outline" id="ycsb-save-config" onclick="saveYcsbConfig()" {{if not .YcsbAvailable}}disabled{{end}}>Save Settings</button><button class="btn btn-outline ycsb-load-btn" id="ycsb-load-button" onclick="runSelectedYcsbAction('load')" {{if not .YcsbAvailable}}disabled{{end}}>Insert Data</button><button class="btn btn-outline ycsb-start-btn" id="ycsb-start-button" onclick="runSelectedYcsbAction('start')" {{if not .YcsbAvailable}}disabled{{end}}>Start Load</button><button class="btn btn-outline ycsb-stop-btn" id="ycsb-stop-button" onclick="runSelectedYcsbAction('stop')" disabled>Stop Load</button></div>
-  <div id="ycsb-config-message" class="status-meta" style="margin-top:.5rem"></div>
-</section>
-{{end}}
 
 {{if .Env.Config.ClusterSync.Enabled}}
 <section class="form-section" id="clustersync-panel" {{if not .ClusterSyncAvailable}}style="display:none"{{end}}>
@@ -378,11 +355,6 @@ let currentClusterSyncStatus = null;
 let pcsmActionInFlight = false;
 const CHAOS_GUARDED_ACTIONS = new Set(['deploy', 'stop', 'restart', 'destroy']);
 
-function selectedYcsbTarget() {
-  const [kind, ...name] = document.getElementById('ycsb-target').value.split(':');
-  return { kind, target: name.join(':') };
-}
-
 async function refreshClusterSyncStatus() {
   const panel = document.getElementById('clustersync-panel');
   if (!panel || panel.style.display === 'none') return;
@@ -501,45 +473,6 @@ function clusterSyncActionAllowed(action, fromFailure) {
 async function showClusterSyncLogs() {
   const pre = document.getElementById('pcsm-logs'); pre.style.display = '';
   try { const data = await apiFetch(`/api/environment/${ENV_ID}/clustersync/log`); pre.textContent = data.log || 'No logs.'; } catch (err) { pre.textContent = err.message; }
-}
-function ycsbProfile() {
-  const target = selectedYcsbTarget();
-  return {
-    target_kind: target.kind, target: target.target,
-    record_count: Number(document.getElementById('ycsb-record-count').value),
-    workload: document.getElementById('ycsb-workload').value,
-    max_scan_length: Number(document.getElementById('ycsb-max-scan').value),
-    scan_length_distribution: document.getElementById('ycsb-scan-distribution').value,
-    threads: Number(document.getElementById('ycsb-threads').value),
-    target_ops_per_second: Number(document.getElementById('ycsb-rate').value),
-    duration_seconds: Number(document.getElementById('ycsb-duration').value),
-    reset_before_load: document.getElementById('ycsb-reset').checked,
-  };
-}
-async function saveYcsbConfig() {
-  const message = document.getElementById('ycsb-config-message');
-  try {
-    const resp = await fetch(`/api/environment/${ENV_ID}/ycsb/config`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(ycsbProfile()) });
-    const data = await resp.json();
-    if (!resp.ok) throw new Error(data.error || 'Could not save YCSB settings');
-    message.textContent = 'YCSB settings saved.';
-    return true;
-  } catch (err) { message.textContent = err.message; alert(err.message); return false; }
-}
-function setSelectedYcsbButtonState(running) {
-  const available = isYcsbAvailable();
-  const saveButton = document.getElementById('ycsb-save-config');
-  if (saveButton) saveButton.disabled = !available;
-  document.getElementById('ycsb-load-button').disabled = !available || running;
-  document.getElementById('ycsb-start-button').disabled = !available || running;
-  document.getElementById('ycsb-start-button').textContent = running ? 'Load Running' : 'Start Load';
-  document.getElementById('ycsb-stop-button').disabled = !running;
-}
-async function runSelectedYcsbAction(action) {
-  if (action === 'load' && document.getElementById('ycsb-reset').checked && !confirm('Insert Data will drop the selected YCSB database and recreate it. Continue?')) return;
-  if (!await saveYcsbConfig()) return;
-  const target = selectedYcsbTarget();
-  await runYcsbAction(target.kind, target.target, action);
 }
 
 function confirmDestroy() { document.getElementById('destroy-modal').style.display = 'flex'; }
@@ -898,7 +831,6 @@ function setProgressLabel(action) {
   const labels = {
     deploy: 'Deploying', provision: 'Provisioning', configure: 'Installing',
     restart: 'Restarting', stop: 'Stopping', reset: 'Resetting', destroy: 'Destroying',
-    ycsb_load: 'Inserting YCSB data', ycsb_start: 'Starting YCSB load', ycsb_stop: 'Stopping YCSB load',
   };
   lbl.textContent = action ? `${labels[action] || ('Running: ' + action)}…` : 'Running…';
 }
@@ -968,10 +900,6 @@ function setStatus(status) {
   label.textContent = overrides[status] || status.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
-function isYcsbAvailable() {
-  return ycsbAvailable;
-}
-
 function getStatusBadgeClass(status) {
   if (status === 'success' || status.includes('success')) return 'badge-success';
   if (status.startsWith('fail') || status === 'error' || status.includes('failed')) return 'badge-danger';
@@ -1021,84 +949,16 @@ async function refreshEnvStatus() {
   try {
     const data = await apiFetch(`/api/environment/${ENV_ID}/status`);
     if (data.status) setStatus(data.status);
-    if (document.getElementById('ycsb-panel')) {
-      const wasAvailable = ycsbAvailable;
-      ycsbAvailable = !!data.ycsb_available;
-      document.getElementById('ycsb-panel').style.display = ycsbAvailable ? '' : 'none';
-      if (!ycsbAvailable) setSelectedYcsbButtonState(false);
-      else if (!wasAvailable) await refreshYcsbStatus();
-    }
   } catch (_) { /* ignore – status bar keeps the last known value */ }
-}
-
-function setYcsbButtonState(kind, target, running) {
-  if (document.getElementById('ycsb-panel')) {
-    const selected = selectedYcsbTarget();
-    if (selected.kind === kind && selected.target === target) setSelectedYcsbButtonState(running);
-    return;
-  }
-  const selector = `.ycsb-actions[data-ycsb-kind="${CSS.escape(kind)}"][data-ycsb-target="${CSS.escape(target)}"]`;
-  const container = document.querySelector(selector);
-  if (!container) return;
-  const available = isYcsbAvailable();
-  const loadBtn = container.querySelector('.ycsb-load-btn');
-  const startBtn = container.querySelector('.ycsb-start-btn');
-  const stopBtn = container.querySelector('.ycsb-stop-btn');
-  if (loadBtn) {
-    loadBtn.disabled = !available || !!running;
-  }
-  if (startBtn) {
-    startBtn.disabled = !available || !!running;
-    startBtn.textContent = running ? 'Load Running' : 'Start Load';
-    startBtn.classList.toggle('btn-secondary', !!running);
-  }
-  if (stopBtn) {
-    stopBtn.disabled = !running;
-  }
-}
-
-async function refreshYcsbStatus() {
-  if (!isYcsbAvailable()) {
-    if (document.getElementById('ycsb-panel')) setSelectedYcsbButtonState(false);
-    return;
-  }
-  try {
-    const data = await apiFetch(`/api/environment/${ENV_ID}/ycsb/status`);
-    const running = data.running || {};
-    if (document.getElementById('ycsb-panel')) {
-      const selected = selectedYcsbTarget();
-      setSelectedYcsbButtonState(!!running[`${selected.kind}:${selected.target}`]);
-      return;
-    }
-    document.querySelectorAll('.ycsb-actions').forEach(container => {
-      const kind = container.dataset.ycsbKind;
-      const target = container.dataset.ycsbTarget;
-      const key = `${kind}:${target}`;
-      setYcsbButtonState(kind, target, !!running[key]);
-    });
-  } catch (_) {
-    // Leave the current button state as-is if the status probe fails.
-  }
 }
 
 // Current status tracked client-side so we can gate confirmations.
 let currentStatus = {{json .Env.Status}};
-let ycsbAvailable = {{json .YcsbAvailable}};
-let ycsbStatusPollTimer = null;
+let envStatusPollTimer = null;
 
-function startYcsbStatusPolling() {
-  stopYcsbStatusPolling();
-  ycsbStatusPollTimer = setInterval(() => {
-    refreshEnvStatus();
-    refreshYcsbStatus();
-  }, 5000);
-}
-
-function stopYcsbStatusPolling() {
-  if (ycsbStatusPollTimer !== null) {
-    clearInterval(ycsbStatusPollTimer);
-    ycsbStatusPollTimer = null;
-  }
+function startEnvStatusPolling() {
+  if (envStatusPollTimer !== null) clearInterval(envStatusPollTimer);
+  envStatusPollTimer = setInterval(refreshEnvStatus, 5000);
 }
 
 // Actions that require confirmation when environment is already running.
@@ -1180,65 +1040,6 @@ async function executeAction(action) {
   }
 }
 
-async function runYcsbAction(kind, target, action) {
-  if (activeEventSource) { activeEventSource.close(); activeEventSource = null; }
-  const progressAction = `ycsb_${action}`;
-  showTerminalSection(progressAction);
-  clearTerminal();
-  setButtonsDisabled(true);
-  appendToTerminal(`▶ Running YCSB ${action} for ${kind} ${target}…`);
-  setJobBadge('running');
-
-  try {
-    const resp = await fetch(`/api/environment/${ENV_ID}/ycsb`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind, target, action }),
-    });
-    const data = await resp.json();
-    if (!resp.ok) {
-      appendToTerminal(`Error: ${data.error || 'Unknown error'}`);
-      if (resp.status === 409 && action === 'start') {
-        alert(data.error || 'YCSB workload is already running');
-      }
-      setButtonsDisabled(false);
-      await refreshYcsbStatus();
-      hideProgressIndicator();
-      return;
-    }
-    setStatus(data.status);
-
-    const es = new EventSource(`/api/job/${data.job_id}/stream`);
-    activeEventSource = es;
-    currentJobId = data.job_id;
-    es.addEventListener('message', ev => appendToTerminal(JSON.parse(ev.data)));
-    es.addEventListener('done', async ev => {
-      const s = JSON.parse(ev.data);
-      setJobBadge(s);
-      appendToTerminal(`\n✔ Job finished: ${s}`);
-      es.close(); activeEventSource = null; setButtonsDisabled(false);
-      hideProgressIndicator();
-      await refreshEnvStatus();
-      await refreshYcsbStatus();
-      loadHosts();
-		await refreshClusterSyncPanel();
-    });
-    es.onerror = () => {
-      appendToTerminal('\n⚠ Stream connection lost.');
-      es.close(); activeEventSource = null; setButtonsDisabled(false);
-      hideProgressIndicator();
-      refreshEnvStatus();
-      refreshYcsbStatus();
-    };
-  } catch (err) {
-    appendToTerminal(`Network error: ${err.message}`);
-    setButtonsDisabled(false);
-    if (action === 'start') await refreshYcsbStatus();
-    hideProgressIndicator();
-    refreshYcsbStatus();
-  }
-}
-
 async function cancelJob() {
   if (!currentJobId) return;
   const btn = document.getElementById('btn-cancel-job');
@@ -1272,7 +1073,6 @@ async function cancelJob() {
       es.close(); activeEventSource = null; setButtonsDisabled(false);
       hideProgressIndicator();
       await refreshEnvStatus();
-      await refreshYcsbStatus();
       loadHosts();
 		await refreshClusterSyncPanel();
     });
@@ -1280,20 +1080,18 @@ async function cancelJob() {
   } else {
     // Job already completed before page load – refresh status bar to reflect final state.
     refreshEnvStatus();
-    refreshYcsbStatus();
     loadHosts();
 		refreshClusterSyncPanel();
   }
   {{else}}
   // No job history yet but environment may already have hosts.
   refreshEnvStatus();
-  refreshYcsbStatus();
   loadHosts();
 	refreshClusterSyncPanel();
   {{end}}
 })();
 
-startYcsbStatusPolling();
+startEnvStatusPolling();
 
 // ─── Hosts & Connections ──────────────────────────────────────────────────────
 
@@ -1321,7 +1119,7 @@ function updateServiceURLButtons(serviceUrls) {
   const container = document.getElementById('service-url-buttons');
   if (!container || !serviceUrls || serviceUrls.length === 0) return;
   container.innerHTML = serviceUrls.map(svc =>
-    `<a class="btn btn-outline" href="${escHtml(svc.url)}" target="_blank" rel="noopener noreferrer" title="${escHtml(svc.url)}">🔗 ${escHtml(svc.label)}</a>`
+    `<a class="btn btn-outline" href="${escHtml(svc.url)}" target="_blank" rel="noopener noreferrer" title="${escHtml(svc.hint || svc.url)}">🔗 ${escHtml(svc.label)}${svc.hint ? ' <span aria-hidden="true">ⓘ</span>' : ''}</a>`
   ).join('\n');
   const row = document.getElementById('service-url-row');
   if (row) row.style.display = '';
@@ -1436,16 +1234,18 @@ function renderHosts(data) {
           <table class="hosts-table">
             <thead><tr>
               <th class="sortable" data-col="0" onclick="sortHostsTable(this)">Name <span class="sort-icon">↕</span></th>
-              <th class="sortable" data-col="1" onclick="sortHostsTable(this)">IP / Address <span class="sort-icon">↕</span></th>
-              <th class="sortable" data-col="2" onclick="sortHostsTable(this)">Port <span class="sort-icon">↕</span></th>
-              <th class="sortable" data-col="3" onclick="sortHostsTable(this)">Role <span class="sort-icon">↕</span></th>
+              <th class="sortable" data-col="1" onclick="sortHostsTable(this)">Private IP <span class="sort-icon">↕</span></th>
+              <th class="sortable" data-col="2" onclick="sortHostsTable(this)">Public IP <span class="sort-icon">↕</span></th>
+              <th class="sortable" data-col="3" onclick="sortHostsTable(this)">Port <span class="sort-icon">↕</span></th>
+              <th class="sortable" data-col="4" onclick="sortHostsTable(this)">Role <span class="sort-icon">↕</span></th>
               <th>Action</th>
             </tr></thead>
             <tbody>`;
       groups[grp].forEach(h => {
         html += `<tr>
           <td class="host-name">${escHtml(h.name)}</td>
-          <td class="host-ip"><code>${escHtml(h.ip)}</code></td>
+          <td class="host-ip"><code>${escHtml(h.private_ip || h.ip || '—')}</code></td>
+          <td class="host-ip"><code>${escHtml(h.public_ip || '—')}</code></td>
           <td><code>${escHtml(h.port || '—')}</code></td>
           <td><span class="role-badge role-${escHtml(h.role)}">${escHtml(h.role)}</span></td>
           <td>

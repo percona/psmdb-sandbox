@@ -5,7 +5,22 @@ resource "aws_instance" "arbiter" {
     ansible-group = var.replset_tag
     environment   = var.env_tag
   }
-  instance_type               = var.arbiter_type
+  instance_type   = var.arbiter_type
+  placement_group = var.placement_group
+  root_block_device {
+    volume_type = var.boot_disk_type
+    volume_size = var.boot_disk_size
+  }
+  dynamic "instance_market_options" {
+    for_each = var.use_spot_instances ? [1] : []
+    content {
+      market_type = "spot"
+      spot_options {
+        instance_interruption_behavior = "terminate"
+        spot_instance_type             = "one-time"
+      }
+    }
+  }
   subnet_id                   = data.aws_subnet.details[(var.data_nodes_per_replset + each.value) % var.subnet_count].id
   ami                         = lookup(var.image, var.region)
   associate_public_ip_address = true

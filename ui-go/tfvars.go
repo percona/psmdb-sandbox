@@ -203,7 +203,10 @@ func writeTfvars(envID, platform string, cfg Config) error {
 			write("}")
 		}
 
-		writeVar("enable_ycsb", cfg.EnableYcsb)
+		writeVar("enable_plgm", cfg.EnablePlgm)
+		if cfg.EnablePlgm {
+			writeOptStr("plgm_local_port", cfg.PlgmLocalPort)
+		}
 
 		if platform == "chaos" {
 			// CHAOS-specific vars
@@ -259,10 +262,18 @@ func writeTfvars(envID, platform string, cfg Config) error {
 				writeVar("ca_memory_gb", intDefault(cfg.CAMemoryGb, 4))
 				writeVar("ca_volume_size", intDefault(cfg.CAVolumeSize, 20))
 			}
-			// SeaweedFS
-			enableSeaweedFS := cfg.EnableSeaweedFS != nil && *cfg.EnableSeaweedFS
-			if cfg.EnableSeaweedFS != nil {
-				writeVar("enable_seaweedfs", *cfg.EnableSeaweedFS)
+			// Backup storage: SeaweedFS VM or an existing S3-compatible bucket.
+			backupStorage := chaosBackupStorage(cfg)
+			enableSeaweedFS := backupStorage == chaosBackupSeaweedFS
+			if cfg.EnableSeaweedFS != nil || cfg.EnableBackup != nil {
+				writeVar("enable_seaweedfs", enableSeaweedFS)
+			}
+			if backupStorage == chaosBackupExisting && strings.TrimSpace(cfg.ExistingBucketName) != "" {
+				writeOptStr("existing_bucket_name", strings.TrimSpace(cfg.ExistingBucketName))
+				writeOptStr("existing_bucket_endpoint", strings.TrimSpace(cfg.ExistingBucketEndpoint))
+				writeOptStr("existing_bucket_region", strings.TrimSpace(cfg.ExistingBucketRegion))
+				writeOptStr("existing_bucket_access_key", strings.TrimSpace(cfg.ExistingBucketAccessKey))
+				writeOptStr("existing_bucket_secret_key", cfg.ExistingBucketSecretKey)
 			}
 			if enableSeaweedFS {
 				writeOptStr("seaweedfs_access_key", cfg.SeaweedFSAccessKey)
@@ -303,6 +314,24 @@ func writeTfvars(envID, platform string, cfg Config) error {
 			}
 
 			// Backup
+			if platform == "aws" || platform == "gcp" || platform == "azure" {
+				enabled := backupEnabled(cfg)
+				createBucket := enabled && boolDefault(cfg.CreateBackupBucket, true)
+				writeVar("create_backup_bucket", createBucket)
+				if enabled && !createBucket && strings.TrimSpace(cfg.ExistingBucketName) != "" {
+					writeOptStr("existing_bucket_name", strings.TrimSpace(cfg.ExistingBucketName))
+					switch platform {
+					case "aws":
+						writeOptStr("existing_bucket_region", strings.TrimSpace(cfg.ExistingBucketRegion))
+						writeOptStr("existing_bucket_access_key", strings.TrimSpace(cfg.ExistingBucketAccessKey))
+					case "gcp":
+						writeOptStr("existing_bucket_access_key", strings.TrimSpace(cfg.ExistingBucketAccessKey))
+					case "azure":
+						writeOptStr("existing_storage_account", strings.TrimSpace(cfg.ExistingStorageAccount))
+					}
+					writeOptStr("existing_bucket_secret_key", cfg.ExistingBucketSecretKey)
+				}
+			}
 			writeOptStr("default_bucket_name", cfg.DefaultBucketName)
 			writeOptStr("backup_retention", func() string {
 				if cfg.BackupRetention != 0 {
@@ -321,6 +350,10 @@ func writeTfvars(envID, platform string, cfg Config) error {
 			writeOptStr("arbiter_type", cfg.ArbiterType)
 			writeOptStr("replsetsvr_type", cfg.ReplsetSvrType)
 			writeOptInt("replsetsvr_volume_size", cfg.ReplsetSvrVolumeSize)
+			writeOptStr("plgm_type", cfg.PlgmType)
+			if platform == "aws" || platform == "gcp" {
+				writeHardwareTfvars(platform, cfg, write, writeVar)
+			}
 
 			regionKey := cfg.Region
 			if platform == "azure" {
@@ -375,10 +408,11 @@ func writeTfvars(envID, platform string, cfg Config) error {
 	} else {
 		// Docker-only
 		writeOptStr("network_name", cfg.NetworkName)
-		writeVar("enable_ycsb", cfg.EnableYcsb)
-		writeOptStr("ycsb_image", cfg.YcsbImage)
-		writeOptStr("ycsb_os_image", cfg.YcsbOsImage)
-		writeOptStr("ycsb_container_suffix", cfg.YcsbContainerSuffix)
+		writeVar("enable_plgm", cfg.EnablePlgm)
+		writeOptStr("plgm_image", cfg.PlgmImage)
+		writeOptStr("plgm_os_image", cfg.PlgmOsImage)
+		writeOptStr("plgm_container_suffix", cfg.PlgmContainerSuffix)
+		writeOptInt("plgm_external_port", cfg.PlgmExternalPort)
 	}
 
 	// ── Docker credential helpers ─────────────────────────────────────────────

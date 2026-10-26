@@ -2,7 +2,9 @@ resource "aws_ebs_volume" "cfg_disk" {
   for_each          = local.cfg_members
   availability_zone = data.aws_subnet.details[each.value % var.subnet_count].availability_zone
   size              = var.configsvr_volume_size
-  type              = var.data_disk_type
+  type              = var.configsvr_disk_type
+  iops              = local.configsvr_disk_iops
+  throughput        = local.configsvr_disk_throughput
   tags = {
     Name        = "${var.cluster_name}-${var.configsvr_tag}0${each.value}-data"
     environment = var.env_tag
@@ -10,11 +12,26 @@ resource "aws_ebs_volume" "cfg_disk" {
 }
 
 resource "aws_instance" "cfg" {
-  for_each      = local.cfg_members
-  ami           = lookup(var.image, var.region)
-  instance_type = var.configsvr_type
-  subnet_id     = data.aws_subnet.details[each.value % var.subnet_count].id
-  key_name      = var.my_key_pair
+  for_each        = local.cfg_members
+  ami             = lookup(var.image, var.region)
+  instance_type   = var.configsvr_type
+  placement_group = var.placement_group
+  root_block_device {
+    volume_type = var.boot_disk_type
+    volume_size = var.boot_disk_size
+  }
+  dynamic "instance_market_options" {
+    for_each = var.use_spot_instances ? [1] : []
+    content {
+      market_type = "spot"
+      spot_options {
+        instance_interruption_behavior = "terminate"
+        spot_instance_type             = "one-time"
+      }
+    }
+  }
+  subnet_id = data.aws_subnet.details[each.value % var.subnet_count].id
+  key_name  = var.my_key_pair
   tags = {
     Name          = "${var.cluster_name}-${var.configsvr_tag}0${each.value}"
     ansible-group = "cfg"

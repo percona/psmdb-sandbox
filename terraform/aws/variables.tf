@@ -159,6 +159,12 @@ variable "port_to_forward" {
   description = "Local port number to forward via SSH to access PMM UI over localhost"
 }
 
+variable "plgm_local_port" {
+  type        = string
+  default     = "29999"
+  description = "Local port forwarded via SSH to the plgm Web UI (127.0.0.1:9999 on the plgm host)"
+}
+
 #############
 # PMM
 #############
@@ -332,33 +338,60 @@ locals {
   ca_host = "${var.prefix}-${var.default_ca_host}"
 }
 
-variable "enable_ycsb" {
+variable "enable_plgm" {
   type        = bool
   default     = false
-  description = "Deploy a dedicated YCSB workload generator instance."
+  description = "Deploy a dedicated plgm load generator instance."
 }
 
-variable "default_ycsb_host" {
-  description = "Base YCSB host name"
+variable "default_plgm_host" {
+  description = "Base plgm host name"
   type        = string
-  default     = "ycsb"
+  default     = "plgm"
 }
 
 locals {
-  ycsb_host = "${var.prefix}-${var.default_ycsb_host}"
+  plgm_host = "${var.prefix}-${var.default_plgm_host}"
 }
 
-variable "ycsb_type" {
+variable "plgm_type" {
   default     = "t3.medium"
-  description = "EC2 instance type of the YCSB server"
+  description = "EC2 instance type of the plgm server"
 }
 
 #############
 # Backup
 #############
 
-locals {
-  storage_endpoint = "https://s3.${var.region}.amazonaws.com"
+variable "create_backup_bucket" {
+  description = "Create an S3 bucket (plus IAM user/keys) for PBM backups. When false, set existing_bucket_* to use an existing bucket, or leave them empty to skip cloud backup storage."
+  type        = bool
+  default     = true
+}
+
+variable "existing_bucket_name" {
+  description = "Name of an existing S3 bucket to use for PBM backups when create_backup_bucket = false. Leave empty to skip cloud backup storage."
+  type        = string
+  default     = ""
+}
+
+variable "existing_bucket_region" {
+  description = "Region of the existing S3 bucket (defaults to var.region)."
+  type        = string
+  default     = ""
+}
+
+variable "existing_bucket_access_key" {
+  description = "Access key ID with read/write access to the existing bucket."
+  type        = string
+  default     = ""
+}
+
+variable "existing_bucket_secret_key" {
+  description = "Secret access key for the existing bucket."
+  type        = string
+  default     = ""
+  sensitive   = true
 }
 
 variable "default_bucket_name" {
@@ -398,6 +431,53 @@ variable "use_spot_instances" {
 variable "data_disk_type" {
   default     = "gp2"
   description = "EBS volume type for MongoDB data disks (gp2, gp3, io1, io2, st1, sc1)"
+}
+
+variable "data_disk_iops" {
+  type        = number
+  default     = null
+  description = "Provisioned IOPS for data volumes. Applied to gp3, io1 and io2 (io1/io2 default to 3000 when unset)."
+}
+
+variable "data_disk_throughput" {
+  type        = number
+  default     = null
+  description = "Provisioned throughput (MiB/s) for data volumes. Applied to gp3 only."
+}
+
+variable "configsvr_disk_type" {
+  type        = string
+  default     = null
+  description = "EBS volume type for config server data volumes. Defaults to data_disk_type. Provisioned IOPS/throughput only apply when it equals data_disk_type."
+}
+
+variable "boot_disk_type" {
+  type        = string
+  default     = null
+  description = "Root volume type for MongoDB nodes and the plgm client (e.g. gp3). Defaults to the AMI setting."
+}
+
+variable "boot_disk_size" {
+  type        = number
+  default     = null
+  description = "Root volume size (GB) for MongoDB nodes and the plgm client. Defaults to the AMI size. MongoDB logs are written to the root volume."
+}
+
+variable "compact_placement" {
+  type        = bool
+  default     = false
+  description = "Launch MongoDB nodes and the plgm client in a cluster placement group (single AZ, low latency). Requires subnet_count = 1."
+
+  validation {
+    condition     = !var.compact_placement || var.subnet_count == 1
+    error_message = "compact_placement requires subnet_count = 1 (a cluster placement group lives in a single availability zone)."
+  }
+}
+
+variable "labels" {
+  type        = map(string)
+  default     = {}
+  description = "Extra tags applied to every resource created by this configuration (e.g. bench_run, mongo_version)."
 }
 
 ################

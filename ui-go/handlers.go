@@ -17,8 +17,6 @@ import (
 )
 
 const dockerReplsetPortStep = 20
-const ycsbMinLoadDurationSeconds = 600
-const ycsbTargetOpsPerSecond = 1000
 const defaultChaosAPIURL = "https://chaos.int.percona.com/api/compute/proxmox-instances"
 
 func chaosTokenSecretsDir() string {
@@ -309,6 +307,12 @@ func configureHandler(w http.ResponseWriter, r *http.Request) {
 	if platform == "chaos" && envID == "" {
 		cfg.DeleteAfterDays = 7
 	}
+	if cfg.EnableBackup == nil && envID == "" {
+		// New environments start with backups off; ticking the toggle turns on
+		// the PBM agent everywhere.
+		off := false
+		cfg.EnableBackup = &off
+	}
 	if cfg.CAPlacement == "" {
 		cfg.CAPlacement = "dedicated"
 	}
@@ -325,6 +329,7 @@ func configureHandler(w http.ResponseWriter, r *http.Request) {
 		EnvID:                           envID,
 		Config:                          cfg,
 		Regions:                         defaultRegions(platform),
+		PreloadedImages:                 preloadedImages(platform),
 		DefaultAuditFilter:              defaultAuditFilter,
 		OSUser:                          osUser,
 		DockerDefaultPmmExternalPort:    dockerDefaultPmmExternalPort,
@@ -350,23 +355,6 @@ func configureHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func ycsbDeploymentReady(env *Environment) bool {
-	if env == nil || env.Status == "deleted" {
-		return false
-	}
-	if env.LastAppliedConfig != nil {
-		return true
-	}
-	for _, event := range env.History {
-		if event.Action == "deploy" && event.Status == "success" {
-			return true
-		}
-	}
-	// Backward-compatible fallback for state files created before deploy history
-	// and LastAppliedConfig were persisted.
-	return env.Status == "running" || env.Status == "deploy_success"
-}
-
 func clusterSyncDeploymentReady(env *Environment) bool {
 	return env != nil && env.Config.ClusterSync.Enabled && env.LastAppliedConfig != nil && env.LastAppliedConfig.ClusterSync.Enabled && (env.Status == "running" || env.Status == "deploy_success")
 }
@@ -390,500 +378,9 @@ func environmentHandler(w http.ResponseWriter, r *http.Request) {
 		SortedClusters:       sortedClusters(env.Config.Clusters),
 		SortedReplsets:       sortedReplsets(env.Config.Replsets),
 		ServiceURLs:          configServiceURLs(envID, env),
-		YcsbEnabled:          env.Config.EnableYcsb,
-		YcsbAvailable:        ycsbDeploymentReady(env),
-		YcsbLoad:             normalizedYcsbLoadConfig(env.YcsbLoad),
 		ClusterSync:          normalizedClusterSyncConfig(env.Config.ClusterSync),
 		ClusterSyncAvailable: clusterSyncDeploymentReady(env),
 	})
-}
-
-// PUT /api/environment/{env_id}/ycsb/config
-func environmentYCSBConfigHandler(w http.ResponseWriter, r *http.Request) {
-	envID := r.PathValue("env_id")
-	if !envIDRe.MatchString(envID) {
-		jsonError(w, 400, "invalid environment ID")
-		return
-	}
-	state, _ := loadState()
-	env, ok := state[envID]
-	if !ok {
-		jsonError(w, 404, "environment not found")
-		return
-	}
-	var cfg YcsbLoadConfig
-	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
-		jsonError(w, 400, "invalid JSON: "+err.Error())
-		return
-	}
-	if cfg.RecordCount < 1 || cfg.RecordCount > 100000000 || cfg.MaxScanLength < 1 || cfg.MaxScanLength > 1000000 || cfg.Threads < 1 || cfg.Threads > 256 || cfg.TargetOpsPerSecond < 1 || cfg.TargetOpsPerSecond > 1000000 || cfg.DurationSeconds < 1 || cfg.DurationSeconds > 86400 {
-		jsonError(w, 400, "YCSB values are outside the allowed range")
-		return
-	}
-	if cfg.Workload != "workloada" && cfg.Workload != "workloade" {
-		jsonError(w, 400, "workload must be workloada or workloade")
-		return
-	}
-	if cfg.ScanLengthDistribution != "uniform" && cfg.ScanLengthDistribution != "constant" {
-		jsonError(w, 400, "invalid scan length distribution")
-		return
-	}
-	if cfg.TargetKind != "cluster" && cfg.TargetKind != "replset" {
-		jsonError(w, 400, "target kind must be cluster or replset")
-		return
-	}
-	if cfg.TargetKind == "cluster" {
-		if _, ok := env.Config.Clusters[cfg.Target]; !ok {
-			jsonError(w, 400, "unknown cluster target")
-			return
-		}
-	}
-	if cfg.TargetKind == "replset" {
-		if _, ok := env.Config.Replsets[cfg.Target]; !ok {
-			jsonError(w, 400, "unknown replica set target")
-			return
-		}
-	}
-	env.YcsbLoad = cfg
-	env.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-	state[envID] = env
-	if err := saveState(state); err != nil {
-		jsonError(w, 500, "state save failed: "+err.Error())
-		return
-	}
-	writeJSON(w, 200, map[string]interface{}{"config": cfg})
-}
-
-type ycsbActionRequest struct {
-	Target string `json:"target"`
-	Kind   string `json:"kind"`
-	Action string `json:"action"`
-}
-
-type ycsbStatusResponse struct {
-	Running map[string]bool `json:"running"`
-}
-
-func ycsbDockerContainerName(envID string, env *Environment) string {
-	prefix := strDefault(env.Config.Prefix, envID)
-	if prefix == "" {
-		prefix = envID
-	}
-	return prefix + "-ycsb"
-}
-
-func ycsbDockerMongoContainerName(envID string, env *Environment, kind, target string) string {
-	prefix := strDefault(env.Config.Prefix, envID)
-	if kind == "cluster" {
-		return fmt.Sprintf("%s-%s-mongos00", prefix, target)
-	}
-	return fmt.Sprintf("%s-%s-svr0", prefix, target)
-}
-
-func ycsbCloudHost(envID string, env *Environment) string {
-	tfDir := filepath.Join(terraformDir, env.Platform)
-	filePrefix := strDefault(env.Config.Prefix, envID)
-	var names []string
-	for name := range env.Config.Clusters {
-		names = append(names, name)
-	}
-	for name := range env.Config.Replsets {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		p := filepath.Join(tfDir, filePrefix+"_inventory_"+name)
-		content, err := os.ReadFile(p)
-		if err != nil {
-			continue
-		}
-		for _, h := range parseInventoryHosts(string(content), name, strDefault(env.Config.MySSHUser, "ec2-user"), strings.TrimSpace(env.Config.SSHPrivateKeyPath)) {
-			if h.Role == "ycsb" {
-				return h.Name
-			}
-		}
-	}
-	return ""
-}
-
-func ycsbDockerMongoURL(envID string, env *Environment, kind, target string) (string, error) {
-	user, pass := mongoAdminCredentials(env)
-	if kind == "cluster" {
-		cfg, ok := env.Config.Clusters[target]
-		if !ok {
-			return "", fmt.Errorf("unknown cluster %q", target)
-		}
-		prefix := strDefault(env.Config.Prefix, envID)
-		if prefix == "" {
-			prefix = envID
-		}
-		mongosPort := 27017
-		if cfg.MongosCount == 0 {
-			cfg.MongosCount = 2
-		}
-		return fmt.Sprintf("mongodb://%s:%s@%s-%s-mongos00:%d/?authSource=admin",
-			urlQueryEscape(user), urlQueryEscape(pass), prefix, target, mongosPort), nil
-	}
-	if kind == "replset" {
-		cfg, ok := env.Config.Replsets[target]
-		if !ok {
-			return "", fmt.Errorf("unknown replica set %q", target)
-		}
-		memberCount := cfg.DataNodesPerReplset
-		if memberCount == 0 {
-			memberCount = 2
-		}
-		basePort := cfg.ReplsetPort
-		if basePort == 0 {
-			basePort = 27017
-		}
-		var members []string
-		for i := 0; i < memberCount; i++ {
-			members = append(members, fmt.Sprintf("%s-svr%d:%d", target, i, basePort+i))
-		}
-		prefix := strDefault(env.Config.Prefix, envID)
-		if prefix != "" {
-			for i, member := range members {
-				members[i] = prefix + "-" + member
-			}
-		}
-		replsetName := target
-		if prefix != "" {
-			replsetName = prefix + "-" + target
-		}
-		return fmt.Sprintf("mongodb://%s:%s@%s/?replicaSet=%s&authSource=admin",
-			urlQueryEscape(user), urlQueryEscape(pass), strings.Join(members, ","), replsetName), nil
-	}
-	return "", fmt.Errorf("unknown target kind %q", kind)
-}
-
-func ycsbCloudMongoURL(envID string, env *Environment, kind, target string) (string, error) {
-	hosts, _, _ := collectCloudHosts(envID, env)
-	user, pass := mongoAdminCredentials(env)
-	if kind == "cluster" {
-		mongosHosts := hostsWithRole(hosts, target, "mongos")
-		if len(mongosHosts) == 0 {
-			return "", fmt.Errorf("no mongos hosts found for cluster %q", target)
-		}
-		return fmt.Sprintf("mongodb://%s:%s@%s/?authSource=admin",
-			urlQueryEscape(user), urlQueryEscape(pass), mongosHosts[0].Name+":27017"), nil
-	}
-	if kind == "replset" {
-		rsHosts := hostsWithRole(hosts, target, "mongod")
-		if len(rsHosts) == 0 {
-			return "", fmt.Errorf("no mongod hosts found for replica set %q", target)
-		}
-		var members []string
-		for _, h := range rsHosts {
-			members = append(members, h.Name+":27017")
-		}
-		return fmt.Sprintf("mongodb://%s:%s@%s/?replicaSet=%s&authSource=admin",
-			urlQueryEscape(user), urlQueryEscape(pass), strings.Join(members, ","), cloudReplsetName(env, target)), nil
-	}
-	return "", fmt.Errorf("unknown target kind %q", kind)
-}
-
-func ycsbWorkloadArgs(binary, action, workloadPath, mongoURL string, cfg YcsbLoadConfig) string {
-	cfg = normalizedYcsbLoadConfig(cfg)
-	common := fmt.Sprintf("%s %s mongodb -P %s -p recordcount=%d -p mongodb.url=%s -p maxscanlength=%d -p scanlengthdistribution=%s", binary, action, workloadPath, cfg.RecordCount, shellQuote(mongoURL), cfg.MaxScanLength, cfg.ScanLengthDistribution)
-	if action == "run" {
-		operationCount := cfg.DurationSeconds * cfg.TargetOpsPerSecond
-		return fmt.Sprintf("%s -s -p operationcount=%d -target %d -threads %d", common, operationCount, cfg.TargetOpsPerSecond, cfg.Threads)
-	}
-	return common
-}
-
-func ycsbStartCommand(binary, workloadPath, mongoURL string, cfg YcsbLoadConfig) string {
-	workload := ycsbWorkloadArgs(binary, "run", workloadPath, mongoURL, cfg)
-	wrapper := fmt.Sprintf(`child=""; cleanup(){ if [ -n "$child" ]; then kill "$child" 2>/dev/null || true; fi; rm -f /tmp/ycsb-run.pid /tmp/ycsb-child.pid; }; echo $$ > /tmp/ycsb-run.pid; trap cleanup INT TERM; %s & child=$!; echo "$child" > /tmp/ycsb-child.pid; i=0; while [ "$i" -lt 20 ]; do if kill -0 "$child" 2>/dev/null; then break; fi; i=$((i+1)); sleep 0.25; done; if ! kill -0 "$child" 2>/dev/null; then echo 'YCSB workload failed to start'; cleanup; exit 1; fi`, workload)
-	return fmt.Sprintf(`rm -f /tmp/ycsb-run.log /tmp/ycsb-run.pid /tmp/ycsb-child.pid; nohup sh -c %s > /tmp/ycsb-run.log 2>&1 < /dev/null & launcher=$!; echo "$launcher" > /tmp/ycsb-run.pid; i=0; while [ "$i" -lt 20 ]; do if [ -f /tmp/ycsb-child.pid ] && kill -0 "$(cat /tmp/ycsb-child.pid 2>/dev/null)" 2>/dev/null; then echo 'YCSB workload started (minimum 10 minutes)'; exit 0; fi; if ! kill -0 "$launcher" 2>/dev/null; then echo 'YCSB workload failed to start'; tail -n 20 /tmp/ycsb-run.log || true; exit 1; fi; i=$((i+1)); sleep 0.25; done; echo 'YCSB workload failed to start'; tail -n 20 /tmp/ycsb-run.log || true; exit 1`, shellQuote(wrapper))
-}
-
-func ycsbResetCommand(envID string, env *Environment, kind, target, mongoURL string) string {
-	if env.Platform == "docker" {
-		mongoContainer := ycsbDockerMongoContainerName(envID, env, kind, target)
-		user, pass := mongoAdminCredentials(env)
-		port := 27017
-		if kind == "replset" {
-			if cfg, ok := env.Config.Replsets[target]; ok && cfg.ReplsetPort > 0 {
-				port = cfg.ReplsetPort
-			}
-		}
-		resetURL := fmt.Sprintf("mongodb://%s:%s@127.0.0.1:%d/?authSource=admin", urlQueryEscape(user), urlQueryEscape(pass), port)
-		return fmt.Sprintf("docker exec %s mongosh %s --quiet --eval %s", shellQuote(mongoContainer), shellQuote(resetURL), shellQuote("db.getSiblingDB('ycsb').dropDatabase()"))
-	}
-
-	hosts, _, _ := collectCloudHosts(envID, env)
-	var resetHost string
-	if kind == "cluster" {
-		clusterHosts := hostsWithRole(hosts, target, "mongos")
-		if len(clusterHosts) > 0 {
-			resetHost = clusterHosts[0].Name
-		}
-	} else if kind == "replset" {
-		replsetHosts := hostsWithRole(hosts, target, "mongod")
-		if len(replsetHosts) > 0 {
-			resetHost = replsetHosts[0].Name
-		}
-	}
-	if resetHost == "" {
-		return ""
-	}
-
-	resetArgs := "mongosh " + shellQuote(mongoURL) + " --quiet"
-	if topologyUsesTLS(env.Config, target) {
-		resetArgs += " --tls --tlsCertificateKeyFile /etc/ssl/client.pem --tlsCAFile /etc/ssl/test-ca.pem"
-	}
-	resetArgs += " --eval " + shellQuote("db.getSiblingDB('ycsb').dropDatabase()")
-	return fmt.Sprintf("ssh %s %s", shellQuote(resetHost), shellQuote(resetArgs))
-}
-
-func ycsbLoadCommand(binary, workloadPath, mongoURL string, cfg YcsbLoadConfig) string {
-	load := ycsbWorkloadArgs(binary, "load", workloadPath, mongoURL, cfg)
-	// YCSB can report insert errors while still exiting zero. Preserve its output
-	// and make those errors visible to the job runner as a failed command.
-	return fmt.Sprintf("rm -f /tmp/ycsb-load.log; %s > /tmp/ycsb-load.log 2>&1; rc=$?; cat /tmp/ycsb-load.log; if [ \"$rc\" -ne 0 ] || grep -Eq 'Return=ERROR|INSERT-FAILED|Exception while trying bulk insert|Error inserting' /tmp/ycsb-load.log; then exit 1; fi", load)
-}
-
-func ycsbProcessPattern() string {
-	return "site.ycsb.Client"
-}
-
-func ycsbStopCommand() string {
-	return `ycsb='site.ycsb.'; client='Client'; is_ycsb_pid(){ pid="$1"; [ -r "/proc/$pid/cmdline" ] || return 1; cmd="$(tr '\000' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)"; case "$cmd" in *"$ycsb$client"*) return 0;; esac; return 1; }; ycsb_pids(){ for proc in /proc/[0-9]*; do pid="${proc##*/}"; if is_ycsb_pid "$pid"; then printf '%s\n' "$pid"; fi; done; }; stopped=0; if [ -f /tmp/ycsb-child.pid ]; then child="$(cat /tmp/ycsb-child.pid 2>/dev/null || true)"; if is_ycsb_pid "$child" && kill "$child" 2>/dev/null; then stopped=1; fi; fi; if [ -f /tmp/ycsb-run.pid ]; then pid="$(cat /tmp/ycsb-run.pid 2>/dev/null || true)"; if kill "$pid" 2>/dev/null; then stopped=1; fi; fi; for pid in $(ycsb_pids); do if kill -TERM "$pid" 2>/dev/null; then stopped=1; fi; done; sleep 1; for pid in $(ycsb_pids); do kill -KILL "$pid" 2>/dev/null || true; stopped=1; done; rm -f /tmp/ycsb-run.pid /tmp/ycsb-child.pid; if [ -n "$(ycsb_pids)" ]; then echo 'Failed to stop YCSB workload'; exit 1; fi; if [ "$stopped" -eq 1 ]; then echo 'YCSB workload stopped'; else echo 'YCSB workload already stopped'; fi; exit 0`
-}
-
-func ycsbStatusCheckCommand() string {
-	return `ycsb='site.ycsb.'; client='Client'; is_ycsb_pid(){ pid="$1"; [ -r "/proc/$pid/cmdline" ] || return 1; cmd="$(tr '\000' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)"; case "$cmd" in *"$ycsb$client"*) return 0;; esac; return 1; }; running=0; for proc in /proc/[0-9]*; do pid="${proc##*/}"; if is_ycsb_pid "$pid"; then running=1; break; fi; done; if [ "$running" -eq 1 ]; then printf '{"running":true}\n'; else rm -f /tmp/ycsb-run.pid /tmp/ycsb-child.pid; printf '{"running":false}\n'; fi`
-}
-
-func ycsbStartGuardCommand() string {
-	return `ycsb='site.ycsb.'; client='Client'; is_ycsb_pid(){ pid="$1"; [ -r "/proc/$pid/cmdline" ] || return 1; cmd="$(tr '\000' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)"; case "$cmd" in *"$ycsb$client"*) return 0;; esac; return 1; }; for proc in /proc/[0-9]*; do pid="${proc##*/}"; if is_ycsb_pid "$pid"; then echo 'YCSB workload is already running'; exit 1; fi; done; rm -f /tmp/ycsb-run.pid /tmp/ycsb-child.pid`
-}
-
-func ycsbCloudInstallPath() string {
-	return "/opt/ycsb/bin/ycsb"
-}
-
-func ycsbDockerInstallPath() string {
-	return "/ycsb/bin/ycsb"
-}
-
-func ycsbActionShell(envID string, env *Environment, req ycsbActionRequest) (string, error) {
-	if !env.Config.EnableYcsb {
-		return "", fmt.Errorf("YCSB is not enabled for this environment")
-	}
-	if req.Kind != "cluster" && req.Kind != "replset" {
-		return "", fmt.Errorf("invalid target kind %q", req.Kind)
-	}
-	if req.Action != "load" && req.Action != "start" && req.Action != "stop" {
-		return "", fmt.Errorf("invalid YCSB action %q", req.Action)
-	}
-	if req.Target == "" {
-		return "", fmt.Errorf("target is required")
-	}
-
-	var mongoURL string
-	var err error
-	if env.Platform == "docker" {
-		mongoURL, err = ycsbDockerMongoURL(envID, env, req.Kind, req.Target)
-	} else {
-		mongoURL, err = ycsbCloudMongoURL(envID, env, req.Kind, req.Target)
-	}
-	if err != nil {
-		return "", err
-	}
-
-	if env.Platform == "docker" {
-		containerName := ycsbDockerContainerName(envID, env)
-		container := shellQuote(containerName)
-		binary := ycsbDockerInstallPath()
-		var inner string
-		switch req.Action {
-		case "load":
-			cfg := normalizedYcsbLoadConfig(env.YcsbLoad)
-			load := ycsbLoadCommand(binary, "/ycsb/workloads/"+cfg.Workload, mongoURL, cfg)
-			if cfg.ResetBeforeLoad {
-				return ycsbResetCommand(envID, env, req.Kind, req.Target, mongoURL) + " && docker exec " + container + " sh -lc " + shellQuote(load), nil
-			}
-			inner = load
-		case "start":
-			inner = ycsbStartGuardCommand() + "; " + ycsbStartCommand(binary, "/ycsb/workloads/"+normalizedYcsbLoadConfig(env.YcsbLoad).Workload, mongoURL, env.YcsbLoad)
-		case "stop":
-			inner = ycsbStopCommand()
-		}
-		return fmt.Sprintf("docker exec %s sh -lc %s", container, shellQuote(inner)), nil
-	}
-
-	host := ycsbCloudHost(envID, env)
-	if host == "" {
-		return "", fmt.Errorf("YCSB host not found. Run Provision or Deploy first")
-	}
-	binary := ycsbCloudInstallPath()
-	var remote string
-	switch req.Action {
-	case "load":
-		cfg := normalizedYcsbLoadConfig(env.YcsbLoad)
-		remote = ycsbLoadCommand(binary, "/opt/ycsb/workloads/"+cfg.Workload, mongoURL, cfg)
-		if cfg.ResetBeforeLoad {
-			reset := ycsbResetCommand(envID, env, req.Kind, req.Target, mongoURL)
-			if reset == "" {
-				return "", fmt.Errorf("cannot reset YCSB data: reset host not found for %s %q", req.Kind, req.Target)
-			}
-			remote = reset + " && " + remote
-		}
-	case "start":
-		cfg := normalizedYcsbLoadConfig(env.YcsbLoad)
-		remote = ycsbStartGuardCommand() + "; " + ycsbStartCommand(binary, "/opt/ycsb/workloads/"+cfg.Workload, mongoURL, cfg)
-	case "stop":
-		remote = ycsbStopCommand()
-	}
-	return fmt.Sprintf("ssh %s %s", shellQuote(host), shellQuote(remote)), nil
-}
-
-func ycsbStatusShell(envID string, env *Environment) (string, error) {
-	if !env.Config.EnableYcsb {
-		return "", fmt.Errorf("YCSB is not enabled for this environment")
-	}
-	check := ycsbStatusCheckCommand()
-	if env.Platform == "docker" {
-		return fmt.Sprintf("docker exec %s sh -lc %s", shellQuote(ycsbDockerContainerName(envID, env)), shellQuote(check)), nil
-	}
-	host := ycsbCloudHost(envID, env)
-	if host == "" {
-		return "", fmt.Errorf("YCSB host not found. Run Provision or Deploy first")
-	}
-	return fmt.Sprintf("ssh %s %s", shellQuote(host), shellQuote(check)), nil
-}
-
-func ycsbRunningTargetKey(kind, target string) string {
-	return kind + ":" + target
-}
-
-func ycsbStatus(envID string, env *Environment) ycsbStatusResponse {
-	resp := ycsbStatusResponse{Running: map[string]bool{}}
-	if !env.Config.EnableYcsb {
-		return resp
-	}
-	shellCmd, err := ycsbStatusShell(envID, env)
-	if err != nil {
-		return resp
-	}
-	out, err := execOutput("bash", "-c", shellCmd)
-	if err != nil {
-		return resp
-	}
-	var payload struct {
-		Running bool `json:"running"`
-	}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &payload); err != nil {
-		return resp
-	}
-	for name := range env.Config.Clusters {
-		resp.Running[ycsbRunningTargetKey("cluster", name)] = payload.Running
-	}
-	for name := range env.Config.Replsets {
-		resp.Running[ycsbRunningTargetKey("replset", name)] = payload.Running
-	}
-	return resp
-}
-
-func urlQueryEscape(s string) string {
-	replacer := strings.NewReplacer(
-		"%", "%25",
-		":", "%3A",
-		"/", "%2F",
-		"?", "%3F",
-		"#", "%23",
-		"[", "%5B",
-		"]", "%5D",
-		"@", "%40",
-	)
-	return replacer.Replace(s)
-}
-
-// POST /api/environment/{env_id}/ycsb
-func environmentYCSBActionHandler(w http.ResponseWriter, r *http.Request) {
-	envID := r.PathValue("env_id")
-	if !envIDRe.MatchString(envID) {
-		jsonError(w, 400, "invalid environment ID")
-		return
-	}
-	state, _ := loadState()
-	env, ok := state[envID]
-	if !ok {
-		jsonError(w, 404, "environment not found")
-		return
-	}
-	var body ycsbActionRequest
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		jsonError(w, 400, "invalid JSON")
-		return
-	}
-	if body.Action == "start" {
-		status := ycsbStatus(envID, env)
-		if status.Running[ycsbRunningTargetKey(body.Kind, body.Target)] {
-			jsonError(w, 409, "YCSB workload is already running")
-			return
-		}
-	}
-	shellCmd, err := ycsbActionShell(envID, env, body)
-	if err != nil {
-		jsonError(w, 400, err.Error())
-		return
-	}
-	tfDir := filepath.Join(terraformDir, env.Platform)
-	actionName := "ycsb_" + body.Action + "_" + body.Kind + "_" + body.Target
-	startedAtTime := time.Now()
-	startedAt := startedAtTime.UTC().Format(time.RFC3339)
-	onComplete := func(status string) {
-		durationSecs := int64(time.Since(startedAtTime).Seconds())
-		st, _ := loadState()
-		e, exists := st[envID]
-		if !exists {
-			return
-		}
-		outcomeStatus := "success"
-		if status != "success" {
-			outcomeStatus = "failed"
-		}
-		e.History = append(e.History, HistoryEvent{
-			Action:       actionName,
-			StartedAt:    startedAt,
-			Status:       outcomeStatus,
-			DurationSecs: durationSecs,
-		})
-		if status == "success" {
-			e.Status = "running"
-		} else {
-			e.Status = actionName + "_failed"
-		}
-		e.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-		st[envID] = e
-		saveState(st)
-	}
-	jobID := startJob([]string{"bash", "-c", shellCmd}, tfDir, nil, onComplete)
-	env.Status = actionName + "_in_progress"
-	env.LastJobID = jobID
-	state[envID] = env
-	saveState(state)
-	writeJSON(w, 200, map[string]string{"job_id": jobID, "status": env.Status})
-}
-
-// GET /api/environment/{env_id}/ycsb/status
-func environmentYCSBStatusHandler(w http.ResponseWriter, r *http.Request) {
-	envID := r.PathValue("env_id")
-	if !envIDRe.MatchString(envID) {
-		jsonError(w, 400, "invalid environment ID")
-		return
-	}
-	state, _ := loadState()
-	env, ok := state[envID]
-	if !ok {
-		jsonError(w, 404, "environment not found")
-		return
-	}
-	writeJSON(w, 200, ycsbStatus(envID, env))
 }
 
 // GET /api/versions
@@ -1182,11 +679,7 @@ func apiImagesHandler(w http.ResponseWriter, r *http.Request) {
 	if region == "" {
 		region = r.URL.Query().Get("location")
 	}
-	images, err := getCloudImages(platform, region)
-	if err != nil {
-		slog.Warn("cloud images fetch failed", "platform", platform, "region", region, "err", err)
-		images = map[string][]CloudImage{}
-	}
+	images := getCloudImages(platform, region, r.URL.Query().Get("refresh") == "1")
 	writeJSON(w, 200, map[string]interface{}{"images": images})
 }
 
@@ -1437,6 +930,115 @@ func validateMongoDB9Backup(kind, name, release string, enabled bool) error {
 	return nil
 }
 
+// backupEnabled reports whether PBM backup storage is enabled on AWS/GCP/Azure.
+// Environments saved before the global toggle existed (EnableBackup == nil)
+// keep their previous behaviour: on when a bucket is created or an existing
+// bucket is named.
+func backupEnabled(cfg Config) bool {
+	if cfg.EnableBackup != nil {
+		return *cfg.EnableBackup
+	}
+	return boolDefault(cfg.CreateBackupBucket, true) || strings.TrimSpace(cfg.ExistingBucketName) != ""
+}
+
+// CHAOS backup storage modes returned by chaosBackupStorage.
+const (
+	chaosBackupNone      = ""
+	chaosBackupSeaweedFS = "seaweedfs"
+	chaosBackupExisting  = "existing"
+)
+
+// chaosBackupStorage returns where PBM stores backups on CHAOS: a SeaweedFS
+// VM deployed with the environment, an existing S3-compatible bucket, or
+// nothing. Environments saved before the global toggle existed
+// (EnableBackup == nil) only knew the SeaweedFS checkbox.
+func chaosBackupStorage(cfg Config) string {
+	if cfg.EnableBackup == nil {
+		if boolDefault(cfg.EnableSeaweedFS, false) {
+			return chaosBackupSeaweedFS
+		}
+		return chaosBackupNone
+	}
+	if !*cfg.EnableBackup {
+		return chaosBackupNone
+	}
+	if boolDefault(cfg.CreateBackupBucket, true) {
+		return chaosBackupSeaweedFS
+	}
+	return chaosBackupExisting
+}
+
+// normalizeChaosBackup keeps the legacy EnableSeaweedFS flag in line with the
+// global backup toggle so Terraform deploys SeaweedFS only when it is used.
+func normalizeChaosBackup(cfg *Config) {
+	if cfg.EnableBackup == nil {
+		return
+	}
+	seaweedfs := chaosBackupStorage(*cfg) == chaosBackupSeaweedFS
+	cfg.EnableSeaweedFS = &seaweedfs
+}
+
+// validateBackupBucketConfig ensures that when an existing bucket is used for
+// PBM on AWS/GCP/Azure/CHAOS, its name and the credentials needed to access it
+// are provided.
+func validateBackupBucketConfig(platform string, cfg Config) error {
+	if platform == "chaos" {
+		if chaosBackupStorage(cfg) != chaosBackupExisting {
+			return nil
+		}
+		missing := []string{}
+		if strings.TrimSpace(cfg.ExistingBucketName) == "" {
+			missing = append(missing, "bucket name")
+		}
+		if strings.TrimSpace(cfg.ExistingBucketAccessKey) == "" {
+			missing = append(missing, "access key")
+		}
+		if cfg.ExistingBucketSecretKey == "" {
+			missing = append(missing, "secret key")
+		}
+		if ep := strings.TrimSpace(cfg.ExistingBucketEndpoint); ep != "" && !strings.HasPrefix(ep, "http://") && !strings.HasPrefix(ep, "https://") {
+			missing = append(missing, "endpoint URL starting with http:// or https://")
+		}
+		if len(missing) > 0 {
+			return fmt.Errorf("existing backup bucket requires: %s", strings.Join(missing, ", "))
+		}
+		return nil
+	}
+	if platform != "aws" && platform != "gcp" && platform != "azure" {
+		return nil
+	}
+	if !backupEnabled(cfg) || boolDefault(cfg.CreateBackupBucket, true) {
+		return nil
+	}
+	if strings.TrimSpace(cfg.ExistingBucketName) == "" {
+		if platform == "azure" {
+			return fmt.Errorf("existing backup container requires a container name")
+		}
+		return fmt.Errorf("existing backup bucket requires a bucket name")
+	}
+	missing := []string{}
+	switch platform {
+	case "aws", "gcp":
+		if strings.TrimSpace(cfg.ExistingBucketAccessKey) == "" {
+			missing = append(missing, "access key")
+		}
+		if cfg.ExistingBucketSecretKey == "" {
+			missing = append(missing, "secret key")
+		}
+	case "azure":
+		if strings.TrimSpace(cfg.ExistingStorageAccount) == "" {
+			missing = append(missing, "storage account")
+		}
+		if cfg.ExistingBucketSecretKey == "" {
+			missing = append(missing, "storage account key")
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("existing backup bucket %q requires: %s", cfg.ExistingBucketName, strings.Join(missing, ", "))
+	}
+	return nil
+}
+
 func requireSettingsFile(label, path string, required bool) error {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -1524,9 +1126,6 @@ func normalizeAndValidateUseTLSConfig(platform string, cfg *Config) error {
 	}
 	if platform != "aws" && platform != "gcp" && platform != "azure" && platform != "chaos" {
 		return fmt.Errorf("managed TLS is supported only for AWS, GCP, Azure, and CHAOS environments")
-	}
-	if cfg.UseTLS && cfg.EnableYcsb {
-		return fmt.Errorf("YCSB cannot be enabled with managed TLS yet")
 	}
 	if cfg.CAPlacement == "pmm" && !boolDefault(cfg.EnablePmm, false) {
 		return fmt.Errorf("the PMM server must be enabled when CA placement is pmm")
@@ -1732,6 +1331,18 @@ func saveEnvironmentHandler(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, 400, err.Error())
 		return
 	}
+	if err := validateBackupBucketConfig(payload.Platform, payload.Config); err != nil {
+		jsonError(w, 400, err.Error())
+		return
+	}
+	if payload.Platform == "chaos" {
+		normalizeChaosBackup(&payload.Config)
+	}
+	normalizeHardwareConfig(payload.Platform, &payload.Config)
+	if errs := validateHardwareConfig(payload.Platform, payload.Config); len(errs) > 0 {
+		jsonError(w, 400, "invalid compute & storage settings: "+strings.Join(errs, "; "))
+		return
+	}
 
 	if err := validateMongotVersionCompatibility(payload.Platform, &payload.Config); err != nil {
 		jsonError(w, 400, err.Error())
@@ -1838,7 +1449,6 @@ func saveEnvironmentHandler(w http.ResponseWriter, r *http.Request) {
 		env.LastAppliedConfig = existing.LastAppliedConfig
 		env.HostIPs = existing.HostIPs
 		env.History = existing.History
-		env.YcsbLoad = existing.YcsbLoad
 	}
 	state[payload.EnvID] = env
 	if err := saveState(state); err != nil {
@@ -2667,7 +2277,6 @@ func envStatusHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]interface{}{
 		"status":                 env.Status,
 		"updated_at":             env.UpdatedAt,
-		"ycsb_available":         env.Config.EnableYcsb && ycsbDeploymentReady(env),
 		"cluster_sync_available": clusterSyncDeploymentReady(env),
 	})
 }

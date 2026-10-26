@@ -83,6 +83,8 @@ func collectDockerHosts(envID string, env *Environment) ([]HostInfo, []ServiceUR
 		hosts = append(hosts, HostInfo{
 			Name:       name,
 			IP:         ip,
+			PrivateIP:  ip,
+			PublicIP:   "—",
 			Port:       port,
 			ConnectCmd: connectCmd,
 			Role:       role,
@@ -126,8 +128,8 @@ func guessDockerRole(name, prefix string) string {
 		return "seaweedfs"
 	case strings.HasPrefix(base, "ldap"):
 		return "ldap"
-	case strings.HasPrefix(base, "ycsb"):
-		return "ycsb"
+	case strings.HasPrefix(base, "plgm"):
+		return "plgm"
 	case strings.HasPrefix(base, "pcsm"):
 		return "pcsm"
 	case base == "vault":
@@ -147,8 +149,8 @@ func guessDockerGroup(name, prefix string) string {
 		return "PMM Clients"
 	case "pbm-agent", "pbm-cli":
 		return "PBM"
-	case "ycsb":
-		return "YCSB"
+	case "plgm":
+		return "plgm"
 	case "pcsm":
 		return "ClusterSync"
 	case "vault":
@@ -333,6 +335,7 @@ func collectCloudHosts(envID string, env *Environment) ([]HostInfo, []MongoConnI
 		}
 	}
 	hosts = uniqueHosts(hosts)
+	applyHostAddresses(hosts, env.Platform, readStateHostAddresses(tfstatePath(envID, env.Platform)))
 
 	var mongoConns []MongoConnInfo
 	user, pass := mongoAdminCredentials(env)
@@ -467,8 +470,8 @@ func parseInventoryHosts(content, group, sshUser, sshPrivateKeyPath string) []Ho
 			role = "vault"
 		case strings.Contains(sec, "seaweedfs"):
 			role = "seaweedfs"
-		case strings.Contains(sec, "ycsb"):
-			role = "ycsb"
+		case strings.Contains(sec, "plgm"):
+			role = "plgm"
 		case strings.Contains(sec, "pcsm"):
 			role = "pcsm"
 		case strings.Contains(sec, "ldap"):
@@ -488,8 +491,8 @@ func parseInventoryHosts(content, group, sshUser, sshPrivateKeyPath string) []Ho
 			hostGroup = "CA"
 		case "vault":
 			hostGroup = "Vault"
-		case "ycsb":
-			hostGroup = "YCSB"
+		case "plgm":
+			hostGroup = "plgm"
 		case "ldap":
 			hostGroup = "LDAP"
 		case "pcsm":
@@ -607,6 +610,13 @@ func configServiceURLs(envID string, env *Environment) []ServiceURL {
 				Name:  prefix + "-" + svcName,
 				Label: "LDAP Console: " + svcName,
 				URL:   fmt.Sprintf("http://%s:%d", host, 80),
+			})
+		}
+		if env.Config.EnablePlgm {
+			urls = append(urls, ServiceURL{
+				Name:  prefix + "-" + strDefault(env.Config.PlgmContainerSuffix, "plgm"),
+				Label: "plgm Load Generator",
+				URL:   fmt.Sprintf("http://%s:%d", host, plgmDockerExternalPort(env)),
 			})
 		}
 	} else if env.Platform == "chaos" {
@@ -735,6 +745,9 @@ func configServiceURLs(envID string, env *Environment) []ServiceURL {
 				URL:   phpLDAPadminURL(host),
 			})
 		}
+		if env.Config.EnablePlgm {
+			urls = append(urls, plgmCloudServiceURL(envID, env))
+		}
 	} else {
 		// Cloud deployments: PMM port is restricted to the internal subnet by the
 		// firewall (source_ranges = subnet CIDR), so it cannot be reached from the
@@ -767,6 +780,43 @@ func configServiceURLs(envID string, env *Environment) []ServiceURL {
 			})
 			break
 		}
+		if env.Config.EnablePlgm {
+			urls = append(urls, plgmCloudServiceURL(envID, env))
+		}
 	}
 	return urls
+}
+
+// Defaults must match terraform/docker (plgm_external_port) and the cloud
+// Terraform targets (plgm_local_port).
+const (
+	plgmDefaultExternalPort = 9999
+	plgmDefaultLocalPort    = "29999"
+)
+
+func plgmDockerExternalPort(env *Environment) int {
+	if env.Config.PlgmExternalPort > 0 {
+		return env.Config.PlgmExternalPort
+	}
+	return plgmDefaultExternalPort
+}
+
+// plgmCloudServiceURL returns the plgm Web UI URL for VM-based platforms. plgm
+// binds its UI to 127.0.0.1 on the plgm host, so it is reached through the
+// LocalForward that the generated ssh_config sets up for the plgm host
+// (the deploy job also appends that block to ~/.ssh/config).
+func plgmCloudServiceURL(envID string, env *Environment) ServiceURL {
+	port := strDefault(env.Config.PlgmLocalPort, plgmDefaultLocalPort)
+	host := strDefault(env.Config.Prefix, envID) + "-plgm"
+	return ServiceURL{
+		Name:  "plgm",
+		Label: "plgm Load Generator (via SSH tunnel)",
+		URL:   fmt.Sprintf("http://127.0.0.1:%s", port),
+		Hint: fmt.Sprintf(
+			"The plgm Web UI is only reachable through an SSH tunnel. Before clicking, run this in a terminal and keep it open:\n\n"+
+				"  ssh -N %s\n\n"+
+				"(the deploy added this host to ~/.ssh/config with LocalForward %s -> 127.0.0.1:9999 on the plgm host). "+
+				"Then this button opens http://127.0.0.1:%s.",
+			host, port, port),
+	}
 }

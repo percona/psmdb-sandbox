@@ -62,6 +62,19 @@ resource "chaos_instance" "seaweedfs" {
   ))
 }
 
+locals {
+  # PBM storage is either the SeaweedFS VM deployed here or an existing
+  # S3-compatible bucket.
+  use_existing_bucket     = !var.enable_seaweedfs && var.existing_bucket_name != ""
+  use_backup_storage      = var.enable_seaweedfs || local.use_existing_bucket
+  backup_storage_provider = local.use_existing_bucket ? "s3" : "minio"
+  backup_bucket           = local.use_existing_bucket ? var.existing_bucket_name : local.bucket_name
+  backup_region           = local.use_existing_bucket && var.existing_bucket_region != "" ? var.existing_bucket_region : "us-east-1"
+  backup_endpoint         = local.use_existing_bucket ? var.existing_bucket_endpoint : (var.enable_seaweedfs ? "http://${chaos_instance.seaweedfs[0].ip_address}:${var.seaweedfs_port}" : "")
+  backup_access_key       = local.use_existing_bucket ? var.existing_bucket_access_key : var.seaweedfs_access_key
+  backup_secret_key       = local.use_existing_bucket ? var.existing_bucket_secret_key : var.seaweedfs_secret_key
+}
+
 output "seaweedfs_access_key" {
   value       = var.seaweedfs_access_key
   description = "SeaweedFS access key for backup configuration"

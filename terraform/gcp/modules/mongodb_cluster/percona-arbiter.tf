@@ -1,31 +1,44 @@
 resource "google_compute_instance" "arbiter" {
-  for_each     = local.arbiter_members
-  name         = "${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}arb${each.value.arbiter_index}"
-  machine_type = var.arbiter_type
-  zone         = data.google_compute_zones.available.names[(var.shardsvr_replicas + each.value.arbiter_index) % length(data.google_compute_zones.available.names)]
-  tags         = ["${var.cluster_name}-${var.arbiter_tag}"]
-  labels = {
+  for_each                  = local.arbiter_members
+  name                      = "${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}arb${each.value.arbiter_index}"
+  machine_type              = var.arbiter_type
+  min_cpu_platform          = var.min_cpu_platform
+  resource_policies         = var.resource_policies
+  allow_stopping_for_update = true
+  zone                      = var.zones[(var.shardsvr_replicas + each.value.arbiter_index) % length(var.zones)]
+  tags                      = ["${var.cluster_name}-${var.arbiter_tag}"]
+  labels = merge(var.labels, {
     ansible-group = tostring(each.value.shard_index),
     ansible-index = tostring(each.value.arbiter_index),
     environment   = var.env_tag
-  }
+  })
   boot_disk {
     initialize_params {
       image = var.image
+      size  = var.boot_disk_size
+      type  = var.boot_disk_type
     }
   }
   network_interface {
     network    = var.vpc
     subnetwork = var.subnet_name
+    nic_type   = var.nic_type
     access_config {}
+  }
+  dynamic "network_performance_config" {
+    for_each = var.tier1_networking ? [1] : []
+    content {
+      total_egress_bandwidth_tier = "TIER_1"
+    }
   }
   metadata = {
     ssh-keys = join("\n", [for user, key_path in var.gce_ssh_users : "${user}:${file(key_path)}"])
   }
   scheduling {
-    preemptible        = var.use_spot_instances
-    automatic_restart  = var.use_spot_instances ? false : true
-    provisioning_model = var.use_spot_instances ? "SPOT" : "STANDARD"
+    preemptible         = var.use_spot_instances
+    automatic_restart   = var.use_spot_instances ? false : true
+    provisioning_model  = var.use_spot_instances ? "SPOT" : "STANDARD"
+    on_host_maintenance = local.on_host_maintenance
   }
   metadata_startup_script = <<EOT
     #!/bin/bash

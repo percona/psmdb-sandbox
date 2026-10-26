@@ -14,7 +14,7 @@ This module deploys the full Percona MongoDB stack on Docker containers:
 It can also create:
 
 - SeaweedFS server (with an S3-compatible storage bucket for PBM backups)
-- YCSB container (for generating workloads)
+- plgm container (Percona Load Generator for MongoDB, for generating workloads)
 - LDAP Server (optional for authentication)
 - Percona ClusterSync for MongoDB (PCSM), disabled by default
 
@@ -352,31 +352,12 @@ pcsm_target_name = "cl02"
 
 Terraform mounts the file read-only and never reads its contents, so the URIs are not stored in Terraform state. One `<prefix>-pcsm` container and one `<prefix>-pcsm-pmm-client` sidecar are attached to the environment network after all MongoDB modules complete. The sidecar registers the PCSM exporter in PMM as `<prefix>-pcsm-pcsm`; port `2242` is kept inside the Docker network and is not published to the host. The PMM Server is selected with `pcsm_pmm_host`, using the same prefixing rules as MongoDB PMM clients. PCSM defaults to image `percona/percona-clustersync-mongodb:0.9.0`, 2 CPUs, and 1024 MiB of memory. The host path must be shared with Docker Desktop where applicable.
 
-## Simulating a workload with YCSB
+## Simulating a workload with plgm
 
-- When `enable_ycsb = true`, a dedicated YCSB container is created.
-- The YCSB MongoDB binding is built from a pinned upstream source revision, rather than the legacy 0.17 release archive, to use a modern MongoDB Java driver compatible with PSMDB 8.3.
-- For sharded clusters, a sharded `ycsb.usertable` collection is created automatically with `{_id: hashed}` as the shard key.
-
-- To run a YCSB workload:
-
-  1. Start a shell session inside the YCSB container
-
-     ```
-     docker exec -it <prefix>-ycsb /bin/bash
-     ```
-
-  2. Perform initial data load against one of the mongos containers, using the correct credentials and port number.
-
-     ```
-     /ycsb/bin/ycsb load mongodb -P /ycsb/workloads/workloada -p mongodb.url="mongodb://root:percona@cl01-mongos00:27017/"
-     ```
-
-  3. Run the benchmark
-
-     ```
-     /ycsb/bin/ycsb run mongodb -s -P /ycsb/workloads/workloada -p operationcount=1500000 -threads 4 -p mongodb.url="mongodb://root:percona@cl01-mongos00:27017/"
-     ```
+- When `enable_plgm = true`, a dedicated `<prefix>-plgm` container runs the [plgm](https://github.com/Percona-Lab/percona-load-generator-mongodb) Web UI. The image installs the latest plgm release, resolved through the GitHub API at plan time and verified against the SHA-256 digest GitHub publishes for the asset, on `plgm_os_image` (Alpine). The image is rebuilt on the next apply whenever a newer release is available.
+- plgm only publishes linux-amd64 binaries, so the image is always built for `linux/amd64`. On Apple Silicon it runs under emulation; throughput numbers there are not representative.
+- The Web UI is published on the host loopback only: open `http://localhost:9999` (change with `plgm_external_port`). The environment page in the sandbox UI links to it.
+- plgm is not preconfigured. In its Web UI, enter a connection string reachable from the Docker network, for example `mongodb://root:percona@<prefix>-cl01-mongos00:27017/?authSource=admin`, choose or define a workload, and launch it. In auto sharding mode plgm creates and shards its own collections on sharded clusters.
 
 ## LDAP
 

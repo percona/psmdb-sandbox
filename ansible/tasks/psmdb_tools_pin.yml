@@ -1,0 +1,81 @@
+---
+# Work out how percona-server-mongodb-tools must be installed for a pinned
+# PSMDB version (mongo_version).
+#
+# Up to 8.0.32 the percona-server-mongodb metapackage requires tools at its
+# exact build (e.g. "= 8.0.28-12.noble"), so tools has to be pinned to that
+# build or apt/dnf pick the newest tools and the install fails. From 8.0.34
+# tools follows the upstream mongo-tools numbering (100.x) and the
+# metapackage requires it without a version, so it must not be pinned to
+# mongo_version. Instead of guessing, read the requirement from the
+# metapackage that matches mongo_version.
+#
+# Sets psmdb_tools_pkg_specs: a one-element list to append to the versioned
+# mongod package list.
+
+- name: Look up percona-server-mongodb-tools requirement (Debian/Ubuntu)
+  ansible.builtin.shell: |
+    set -o pipefail
+    apt-cache show percona-server-mongodb | awk -v want={{ mongo_version | quote }} '
+      BEGIN { RS = ""; FS = "\n"; found = 0 }
+      !found {
+        ver = ""; dep = ""
+        for (i = 1; i <= NF; i++) {
+          if ($i ~ /^Version: /) ver = substr($i, 10)
+          else if ($i ~ /^Depends: /) dep = substr($i, 10)
+        }
+        # apt-cache lists versions newest first, so the first prefix match
+        # is the build that "percona-server-mongodb=<mongo_version>*" installs.
+        if (index(ver, want) != 1) next
+        found = 1
+        n = split(dep, parts, /, */)
+        for (i = 1; i <= n; i++) {
+          if (parts[i] ~ /^percona-server-mongodb-tools( |$)/ && match(parts[i], /\(= [^)]+\)/))
+            print substr(parts[i], RSTART + 3, RLENGTH - 4)
+        }
+      }
+      END { exit found ? 0 : 3 }'
+  args:
+    executable: /bin/bash
+  register: psmdb_tools_req_apt
+  changed_when: false
+  failed_when: false
+  when: ansible_facts['os_family'] == 'Debian'
+
+- name: Look up percona-server-mongodb-tools requirement (RedHat)
+  ansible.builtin.shell: |
+    set -o pipefail
+    pkg=$(dnf -q repoquery --latest-limit 1 "percona-server-mongodb-"{{ mongo_version | quote }}"*" | head -n 1)
+    [ -n "$pkg" ] || exit 3
+    dnf -q repoquery --requires "$pkg" | awk '
+      $1 == "percona-server-mongodb-tools" && $2 == "=" { v = $3; sub(/^0:/, "", v); print v }'
+  args:
+    executable: /bin/bash
+  register: psmdb_tools_req_rpm
+  changed_when: false
+  failed_when: false
+  when: ansible_facts['os_family'] == 'RedHat'
+
+- name: Fail if no percona-server-mongodb build matches mongo_version
+  ansible.builtin.fail:
+    msg: >-
+      {{ 'No percona-server-mongodb package matching version ' ~ mongo_version ~
+         ' was found in the enabled repositories (' ~ mongo_release_effective ~ ' ' ~ mongo_repo_effective ~ ').'
+         if _psmdb_tools_req.rc == 3 else
+         'Could not determine the percona-server-mongodb-tools requirement: ' ~ (_psmdb_tools_req.stderr | default('')) }}
+  vars:
+    _psmdb_tools_req: "{{ psmdb_tools_req_apt if ansible_facts['os_family'] == 'Debian' else psmdb_tools_req_rpm }}"
+  when: _psmdb_tools_req.rc | default(0) != 0
+
+- name: Set percona-server-mongodb-tools package spec
+  ansible.builtin.set_fact:
+    psmdb_tools_pkg_specs: >-
+      {{ ['percona-server-mongodb-tools' ~ ((_sep ~ _ver) if _ver else '')] }}
+  vars:
+    _psmdb_tools_req: "{{ psmdb_tools_req_apt if ansible_facts['os_family'] == 'Debian' else psmdb_tools_req_rpm }}"
+    _ver: "{{ (_psmdb_tools_req.stdout | default('')).strip() }}"
+    _sep: "{{ '=' if ansible_facts['os_family'] == 'Debian' else '-' }}"
+
+- name: Show percona-server-mongodb-tools package spec
+  ansible.builtin.debug:
+    msg: "PSMDB {{ mongo_version }} -> {{ psmdb_tools_pkg_specs | join(', ') }}"

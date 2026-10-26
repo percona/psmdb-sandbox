@@ -53,11 +53,13 @@ mongodb_psmdb_mongod_packages:
   - percona-mongodb-mongosh
 mongodb_psmdb_mongod_versioned_packages:
   - percona-server-mongodb
-  # The metapackage requires these three components at the exact same build.
+  # The metapackage requires these components at the exact same build.
   # Pin them together; apt otherwise chooses newer components for an older pin.
+  # percona-server-mongodb-tools is intentionally not listed: from 8.0.34 it
+  # uses its own version (100.x), so tasks/psmdb_tools_pin.yml reads the
+  # required tools version from the metapackage and appends it.
   - percona-server-mongodb-mongos
   - percona-server-mongodb-server
-  - percona-server-mongodb-tools
   - percona-mongodb-mongosh
 
 mongodb_psmdb_mongos_packages:
@@ -123,10 +125,13 @@ disable_telemetry: false
 pcsm_version: "0.9.0"
 pcsm_repo: release
 
-# Pinned upstream YCSB source revision. The current 0.17 release bundles a
-# MongoDB Java driver too old for PSMDB 8.3 authentication behavior.
-ycsb_source_revision: 66302f301b13f60d4bcb2f29f478586bb1d6f2e0
-ycsb_maven_version: 3.6.3
+# plgm (Percona Load Generator for MongoDB) is provisioned only when the
+# inventory contains [plgm]. The latest GitHub release binary (linux-amd64) is
+# installed and verified against the SHA-256 digest GitHub publishes for it.
+# The Web UI listens on 127.0.0.1:plgm_webui_port and is reached through the
+# SSH LocalForward in the generated ssh_config.
+# https://github.com/Percona-Lab/percona-load-generator-mongodb
+plgm_webui_port: 9999
 
 ##########
 # MongoDB 

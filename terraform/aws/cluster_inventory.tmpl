@@ -34,9 +34,9 @@ ${hostname_pmm} ansible_host=${ip_pmm}
 ${hostname_ca} ansible_host=${ip_ca}
 
 %{ endif ~}
-%{ if hostname_ycsb != "" ~}
-[ycsb]
-${hostname_ycsb} ansible_host=${ip_ycsb}
+%{ if hostname_plgm != "" ~}
+[plgm]
+${hostname_plgm} ansible_host=${ip_plgm}
 
 %{ endif ~}
 %{ if enable_ldap ~}
@@ -117,12 +117,14 @@ pmm_client_repo=${pmm_client_repo}
 
 # PBM
 enable_pbm=${enable_pbm}
+%{ if use_backup_storage ~}
 storage_provider=s3
 bucket=${bucket}
 region=${region}
 endpointUrl=${endpointUrl}
 access_key_id=${access_key}
 secret_access_key=${secret_access_key}
+%{ endif ~}
 %{ if pbm_version != "" ~}
 pbm_version=${pbm_version}
 %{ endif ~}

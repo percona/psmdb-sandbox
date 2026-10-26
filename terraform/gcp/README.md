@@ -119,7 +119,7 @@ file. At minimum, review:
 - machine types, image, disk sizes, and `use_spot_instances`
 - backup bucket naming and retention
 - `source_ranges` for inbound access
-- optional PMM, CA/TLS, LDAP, and YCSB settings
+- optional PMM, CA/TLS, LDAP, and plgm load generator settings
 
 ### Minimum `tfvars`
 
@@ -149,9 +149,52 @@ replsets = {
 Save the example as `minimum.tfvars` or use the checked-in file and pass
 `-var-file=minimum.tfvars` to Terraform commands.
 
-Resource names must be unique in the project. Some firewall names are fixed, so
-deploying multiple copies of this Terraform root in one project can cause naming
-collisions even when `prefix` differs.
+Resource names must be unique in the project. The VPC, subnet and shared
+firewall rules are named after `prefix`, so use a distinct `prefix` (and
+cluster/replica set names) for each environment deployed in the same project.
+
+### Hardware for benchmarks
+
+All settings are global to the deployment (every cluster and replica set) and
+optional; unset values keep the defaults. Boot disk, CPU platform, NIC and
+placement settings apply to MongoDB nodes and the plgm client only.
+
+| Variable | Default | Notes |
+|---|---|---|
+| `data_disk_type` | `pd-standard` | Also `pd-balanced`, `pd-ssd`, `pd-extreme`, `hyperdisk-balanced`, `hyperdisk-extreme`, `hyperdisk-throughput` |
+| `data_disk_iops` | unset | `pd-extreme`, `hyperdisk-balanced`, `hyperdisk-extreme` only |
+| `data_disk_throughput` | unset | MiB/s; `hyperdisk-balanced`, `hyperdisk-throughput` only |
+| `configsvr_disk_type` | `data_disk_type` | IOPS/throughput only apply when it equals `data_disk_type` |
+| `boot_disk_type`, `boot_disk_size` | image default | Required for C3/C4/N4 (`pd-balanced` or `hyperdisk-balanced`). MongoDB logs live here |
+| `min_cpu_platform` | unset | e.g. `Intel Ice Lake`; not for E2/N4/C3/C4 |
+| `nic_type`, `tier1_networking` | default, `false` | Tier_1 requires `GVNIC` |
+| `zone_mode`, `zones` | `spread`, all zones | `single` puts every instance in the first zone |
+| `compact_placement` | `false` | Collocated placement policy; requires `zone_mode = "single"` |
+| `plgm_type` | `e2-medium` | Size it so the client is not the bottleneck |
+| `plgm_local_port` | `29999` | Local port forwarded by the generated ssh_config to the plgm Web UI |
+| `labels` | `{}` | Extra labels on every instance and disk |
+
+Example (C4 + Hyperdisk, single zone):
+
+```hcl
+shardsvr_type         = "c4-standard-16"
+configsvr_type        = "c4-standard-4"
+mongos_type           = "c4-standard-8"
+arbiter_type          = "c4-standard-2"
+shardsvr_volume_size  = 500
+configsvr_volume_size = 50
+data_disk_type        = "hyperdisk-balanced"
+data_disk_iops        = 16000
+data_disk_throughput  = 400
+boot_disk_type        = "hyperdisk-balanced"
+nic_type              = "GVNIC"
+zone_mode             = "single"
+plgm_type             = "c4-highcpu-16"
+labels                = { bench_run = "r1" }
+```
+
+Spot VMs (`use_spot_instances`) are not suitable for benchmarks; they never
+apply to the plgm client or service hosts.
 
 ## Deploy
 

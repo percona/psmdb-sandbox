@@ -1,0 +1,137 @@
+---
+- name: Install plgm (Percona Load Generator for MongoDB)
+  hosts: plgm
+  become: yes
+  gather_facts: "{{ not (skip_repeated_facts | default(false) | bool) }}"
+  vars:
+    plgm_install_dir: "/opt/plgm/{{ plgm_version }}"
+    plgm_data_dir: /var/lib/plgm
+    plgm_service_user: "{{ ansible_user | default('root') }}"
+  tasks:
+    - name: Require an x86_64 host (plgm only publishes linux-amd64 releases)
+      assert:
+        that:
+          - ansible_facts['architecture'] == 'x86_64'
+        fail_msg: "plgm only ships linux-amd64 release binaries; host architecture is {{ ansible_facts['architecture'] }}"
+
+    - name: Look up the latest plgm release
+      uri:
+        url: https://api.github.com/repos/Percona-Lab/percona-load-generator-mongodb/releases/latest
+        headers:
+          Accept: application/vnd.github+json
+        return_content: yes
+      register: plgm_latest_release
+      delegate_to: localhost
+      become: no
+      run_once: yes
+
+    - name: Select the plgm linux-amd64 release asset
+      set_fact:
+        plgm_version: "{{ plgm_latest_release.json.tag_name }}"
+        plgm_asset: "{{ plgm_latest_release.json.assets | selectattr('name', 'equalto', 'plgm-linux-amd64.tar.gz') | list | first | default({}) }}"
+
+    - name: Require a published SHA-256 digest for the plgm asset
+      assert:
+        that:
+          - plgm_asset.browser_download_url is defined
+          - (plgm_asset.digest | default('')) is match('sha256:[0-9a-f]{64}$')
+        fail_msg: "plgm release {{ plgm_version }} has no plgm-linux-amd64.tar.gz asset with a SHA-256 digest"
+
+    - name: Install archive tools
+      package:
+        name:
+          - tar
+          - gzip
+        state: present
+
+    - name: Create plgm install directory
+      file:
+        path: "{{ plgm_install_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Download plgm {{ plgm_version }}
+      get_url:
+        url: "{{ plgm_asset.browser_download_url }}"
+        dest: "{{ plgm_install_dir }}/plgm-linux-amd64.tar.gz"
+        checksum: "{{ plgm_asset.digest }}"
+        mode: "0644"
+
+    - name: Unpack plgm release
+      unarchive:
+        src: "{{ plgm_install_dir }}/plgm-linux-amd64.tar.gz"
+        dest: "{{ plgm_install_dir }}"
+        remote_src: yes
+        creates: "{{ plgm_install_dir }}/plgm-linux-amd64"
+      notify: Restart plgm
+
+    - name: Link plgm binary into PATH
+      file:
+        src: "{{ plgm_install_dir }}/plgm-linux-amd64"
+        dest: /usr/local/bin/plgm
+        state: link
+        force: yes
+      notify: Restart plgm
+
+    - name: Create plgm data directory
+      file:
+        path: "{{ plgm_data_dir }}"
+        state: directory
+        owner: "{{ plgm_service_user }}"
+        mode: "0750"
+
+    - name: Install plgm systemd unit
+      copy:
+        dest: /etc/systemd/system/plgm.service
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=plgm - Percona Load Generator for MongoDB (Web UI)
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=simple
+          User={{ plgm_service_user }}
+          WorkingDirectory={{ plgm_data_dir }}
+          Environment=HOME={{ plgm_data_dir }}
+          Environment=PLGM_DEFINITIONS_STORE={{ plgm_data_dir }}/definitions.json
+          ExecStart=/usr/local/bin/plgm --webui --webui-port {{ plgm_webui_port }}
+          # The Web UI "Shut Down Backend" button exits the process; bring it back.
+          Restart=always
+          RestartSec=2
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: Restart plgm
+
+    - name: Enable and start plgm
+      systemd:
+        name: plgm
+        enabled: yes
+        state: started
+        daemon_reload: yes
+
+    - name: Flush handlers so plgm runs the installed version
+      meta: flush_handlers
+
+    - name: Verify plgm binary
+      command: /usr/local/bin/plgm -version
+      changed_when: false
+
+    - name: Wait for the plgm Web UI to listen on loopback
+      wait_for:
+        host: 127.0.0.1
+        port: "{{ plgm_webui_port }}"
+        timeout: 60
+
+  handlers:
+    - name: Restart plgm
+      systemd:
+        name: plgm
+        state: restarted
+        daemon_reload: yes

@@ -171,13 +171,15 @@ type Config struct {
 	PbmRepo             string            `json:"pbm_repo,omitempty"`
 	PmmClientVersion    string            `json:"pmm_client_version,omitempty"`
 	PmmClientRepo       string            `json:"pmm_client_repo,omitempty"`
-	EnableYcsb          bool              `json:"enable_ycsb,omitempty"`
+	EnablePlgm          bool              `json:"enable_plgm,omitempty"`
 	UseTLS              bool              `json:"use_tls,omitempty"`
 	EnableCA            *bool             `json:"enable_ca,omitempty"`
 	CAPlacement         string            `json:"ca_placement,omitempty"`
-	YcsbImage           string            `json:"ycsb_image,omitempty"`
-	YcsbOsImage         string            `json:"ycsb_os_image,omitempty"`
-	YcsbContainerSuffix string            `json:"ycsb_container_suffix,omitempty"`
+	PlgmImage           string            `json:"plgm_image,omitempty"`
+	PlgmOsImage         string            `json:"plgm_os_image,omitempty"`
+	PlgmContainerSuffix string            `json:"plgm_container_suffix,omitempty"`
+	PlgmExternalPort    int               `json:"plgm_external_port,omitempty"` // Docker: host port of the plgm Web UI
+	PlgmLocalPort       string            `json:"plgm_local_port,omitempty"`    // Cloud: local SSH-forwarded port of the plgm Web UI
 	ClusterSync         ClusterSyncConfig `json:"cluster_sync,omitempty"`
 	VaultEncryption     bool              `json:"vault_encryption,omitempty"`
 	VaultVersion        string            `json:"vault_version,omitempty"`
@@ -221,8 +223,28 @@ type Config struct {
 	ExtensionsImage  string `json:"extensions_image,omitempty"`
 
 	// Backup
-	DefaultBucketName string `json:"default_bucket_name,omitempty"`
-	BackupRetention   int    `json:"backup_retention,omitempty"`
+	// EnableBackup is the global PBM backup toggle on AWS/GCP/Azure/CHAOS.
+	// When off, no backup storage is created or used. nil means the legacy
+	// behaviour (see backupEnabled and chaosBackupStorage).
+	EnableBackup *bool `json:"enable_backup,omitempty"`
+	// CreateBackupBucket controls whether backup storage is created (true) or
+	// an existing bucket is used (false). On AWS/GCP/Azure "create" means a
+	// cloud bucket (S3/GCS/Azure Blob); on CHAOS it means a SeaweedFS VM.
+	// nil means true (legacy default).
+	CreateBackupBucket *bool  `json:"create_backup_bucket,omitempty"`
+	DefaultBucketName  string `json:"default_bucket_name,omitempty"`
+	BackupRetention    int    `json:"backup_retention,omitempty"`
+	// Existing bucket used for PBM when CreateBackupBucket is false.
+	// AWS: S3 bucket + region + access key ID/secret.
+	// GCP: GCS bucket + HMAC access ID/secret.
+	// Azure: blob container + storage account + account key (secret).
+	// CHAOS: S3-compatible bucket + endpoint URL + region + access key ID/secret.
+	ExistingBucketName      string `json:"existing_bucket_name,omitempty"`
+	ExistingBucketEndpoint  string `json:"existing_bucket_endpoint,omitempty"`
+	ExistingBucketRegion    string `json:"existing_bucket_region,omitempty"`
+	ExistingBucketAccessKey string `json:"existing_bucket_access_key,omitempty"`
+	ExistingBucketSecretKey string `json:"existing_bucket_secret_key,omitempty"`
+	ExistingStorageAccount  string `json:"existing_storage_account,omitempty"`
 
 	// Machine image / AMI selected for cloud instances.
 	MachineImage string `json:"machine_image,omitempty"`
@@ -270,6 +292,22 @@ type Config struct {
 	ReplsetSvrVolumeSize int    `json:"replsetsvr_volume_size,omitempty"`
 	DataDiskType         string `json:"data_disk_type,omitempty"`
 
+	// Benchmark hardware tunables (AWS / GCP). Empty values keep Terraform defaults.
+	HardwarePreset     string            `json:"hardware_preset,omitempty"`
+	DataDiskIops       int               `json:"data_disk_iops,omitempty"`
+	DataDiskThroughput int               `json:"data_disk_throughput,omitempty"`
+	ConfigsvrDiskType  string            `json:"configsvr_disk_type,omitempty"`
+	BootDiskType       string            `json:"boot_disk_type,omitempty"`
+	BootDiskSize       int               `json:"boot_disk_size,omitempty"`
+	MinCpuPlatform     string            `json:"min_cpu_platform,omitempty"` // GCP only
+	NicType            string            `json:"nic_type,omitempty"`         // GCP only
+	Tier1Networking    bool              `json:"tier1_networking,omitempty"` // GCP only
+	ZoneMode           string            `json:"zone_mode,omitempty"`        // GCP only: spread | single
+	Zones              []string          `json:"zones,omitempty"`            // GCP only
+	CompactPlacement   bool              `json:"compact_placement,omitempty"`
+	PlgmType           string            `json:"plgm_type,omitempty"`
+	ResourceLabels     map[string]string `json:"labels,omitempty"`
+
 	// Docker networking
 	NetworkName string `json:"network_name,omitempty"`
 
@@ -311,54 +349,7 @@ type Environment struct {
 	// HostIPs caches the last-known IP address for each Docker container so
 	// that the UI can continue to display addresses even when containers are
 	// stopped (and docker inspect returns an empty IP).
-	HostIPs  map[string]string `json:"host_ips,omitempty"`
-	YcsbLoad YcsbLoadConfig    `json:"ycsb_load,omitempty"`
-}
-
-type YcsbLoadConfig struct {
-	RecordCount            int    `json:"record_count"`
-	Workload               string `json:"workload"`
-	MaxScanLength          int    `json:"max_scan_length"`
-	ScanLengthDistribution string `json:"scan_length_distribution"`
-	Threads                int    `json:"threads"`
-	TargetOpsPerSecond     int    `json:"target_ops_per_second"`
-	DurationSeconds        int    `json:"duration_seconds"`
-	TargetKind             string `json:"target_kind"`
-	Target                 string `json:"target"`
-	ResetBeforeLoad        bool   `json:"reset_before_load"`
-}
-
-func defaultYcsbLoadConfig() YcsbLoadConfig {
-	return YcsbLoadConfig{RecordCount: 1000000, Workload: "workloade", MaxScanLength: 10000, ScanLengthDistribution: "uniform", Threads: 4, TargetOpsPerSecond: 1000, DurationSeconds: 600, ResetBeforeLoad: true}
-}
-
-func normalizedYcsbLoadConfig(cfg YcsbLoadConfig) YcsbLoadConfig {
-	d := defaultYcsbLoadConfig()
-	if cfg.RecordCount == 0 && cfg.Workload == "" && cfg.MaxScanLength == 0 && cfg.Threads == 0 && cfg.TargetOpsPerSecond == 0 && cfg.DurationSeconds == 0 {
-		return d
-	}
-	if cfg.RecordCount <= 0 {
-		cfg.RecordCount = d.RecordCount
-	}
-	if cfg.Workload != "workloada" && cfg.Workload != "workloade" {
-		cfg.Workload = d.Workload
-	}
-	if cfg.MaxScanLength <= 0 {
-		cfg.MaxScanLength = d.MaxScanLength
-	}
-	if cfg.ScanLengthDistribution != "uniform" && cfg.ScanLengthDistribution != "constant" {
-		cfg.ScanLengthDistribution = d.ScanLengthDistribution
-	}
-	if cfg.Threads <= 0 {
-		cfg.Threads = d.Threads
-	}
-	if cfg.TargetOpsPerSecond <= 0 {
-		cfg.TargetOpsPerSecond = d.TargetOpsPerSecond
-	}
-	if cfg.DurationSeconds <= 0 {
-		cfg.DurationSeconds = d.DurationSeconds
-	}
-	return cfg
+	HostIPs map[string]string `json:"host_ips,omitempty"`
 }
 
 // ─── Named pair helpers (sorted map iteration for templates) ──────────────────
@@ -504,14 +495,17 @@ type NewEnvData struct {
 }
 
 type ConfigureData struct {
-	Platform                        string
-	EnvID                           string
-	Config                          Config
-	Regions                         []string
-	DefaultAuditFilter              string
-	OSUser                          string // current OS user, used as SSH user default
-	DockerDefaultPmmExternalPort    int
-	DefaultImages                   DefaultImages
+	Platform                     string
+	EnvID                        string
+	Config                       Config
+	Regions                      []string
+	DefaultAuditFilter           string
+	OSUser                       string // current OS user, used as SSH user default
+	DockerDefaultPmmExternalPort int
+	DefaultImages                DefaultImages
+	// Machine images already cached server-side, keyed by region (AWS/GCP).
+	PreloadedImages                 map[string]map[string][]CloudImage
+	DefaultRegion                   string
 	DockerDefaultSeaweedFSPort      int
 	DockerDefaultSeaweedFSAdminPort int
 	PSMDBVersions                   []string
@@ -544,9 +538,6 @@ type EnvironmentData struct {
 	SortedClusters       []NamedCluster
 	SortedReplsets       []NamedReplset
 	ServiceURLs          []ServiceURL
-	YcsbEnabled          bool
-	YcsbAvailable        bool
-	YcsbLoad             YcsbLoadConfig
 	ClusterSync          ClusterSyncConfig
 	ClusterSyncAvailable bool
 }
@@ -555,6 +546,8 @@ type EnvironmentData struct {
 type HostInfo struct {
 	Name       string `json:"name"`
 	IP         string `json:"ip"`
+	PrivateIP  string `json:"private_ip"`
+	PublicIP   string `json:"public_ip"`
 	Port       string `json:"port"`
 	ConnectCmd string `json:"connect_cmd"`
 	Role       string `json:"role"`
@@ -566,6 +559,9 @@ type ServiceURL struct {
 	Name  string `json:"name"`
 	Label string `json:"label"`
 	URL   string `json:"url"`
+	// Hint is an optional tooltip shown on the link button, used when extra
+	// steps are needed before the URL works (e.g. opening an SSH tunnel).
+	Hint string `json:"hint,omitempty"`
 }
 
 // MongoConnInfo describes a MongoDB connection string for a cluster or replica set.

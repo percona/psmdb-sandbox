@@ -24,23 +24,21 @@ func TestTemplatesParse(t *testing.T) {
 	}
 }
 
-func TestYcsbPanelRefreshesAfterDeployment(t *testing.T) {
+func TestEnvironmentPageHasNoLoadGeneratorControls(t *testing.T) {
 	content, err := os.ReadFile(filepath.Join("templates", "environment.html"))
 	if err != nil {
 		t.Fatalf("read environment template: %v", err)
 	}
-	template := string(content)
-	for _, want := range []string{
-		`{{if .YcsbEnabled}}`,
-		`id="ycsb-panel" {{if not .YcsbAvailable}}style="display:none"{{end}}`,
-		`ycsbAvailable = !!data.ycsb_available`,
-		`else if (!wasAvailable) await refreshYcsbStatus();`,
-		`refreshEnvStatus();
-  refreshYcsbStatus();`,
-	} {
-		if !strings.Contains(template, want) {
-			t.Fatalf("YCSB post-deploy refresh is missing %q", want)
+	template := strings.ToLower(string(content))
+	// Workload configuration lives in the plgm Web UI, linked from the
+	// service URL row; the sandbox page must not carry its own load controls.
+	for _, unwanted := range []string{"ycsb", "plgm-panel", "/plgm/"} {
+		if strings.Contains(template, unwanted) {
+			t.Fatalf("environment template unexpectedly contains %q", unwanted)
 		}
+	}
+	if !strings.Contains(template, "startenvstatuspolling();") {
+		t.Fatal("environment status polling is missing")
 	}
 }
 

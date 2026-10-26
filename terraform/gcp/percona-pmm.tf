@@ -1,16 +1,18 @@
 resource "google_compute_disk" "pmm_disk" {
-  count = var.enable_pmm ? 1 : 0
-  name  = "${local.pmm_host}-data"
-  type  = var.pmm_disk_type
-  size  = var.pmm_volume_size
-  zone  = data.google_compute_zones.available.names[0]
+  count  = var.enable_pmm ? 1 : 0
+  name   = "${local.pmm_host}-data"
+  type   = var.pmm_disk_type
+  size   = var.pmm_volume_size
+  zone   = local.zones[0]
+  labels = var.labels
 }
 
 resource "google_compute_instance" "pmm" {
   count        = var.enable_pmm ? 1 : 0
   name         = local.pmm_host
   machine_type = var.pmm_type
-  zone         = data.google_compute_zones.available.names[0]
+  zone         = local.zones[0]
+  labels       = var.labels
   tags         = ["${local.pmm_host}"]
   boot_disk {
     initialize_params {
@@ -18,7 +20,8 @@ resource "google_compute_instance" "pmm" {
     }
   }
   attached_disk {
-    source = google_compute_disk.pmm_disk[0].name
+    source      = google_compute_disk.pmm_disk[0].name
+    device_name = "data"
   }
   network_interface {
     network    = google_compute_network.vpc-network.id
@@ -41,16 +44,18 @@ resource "google_compute_instance" "pmm" {
     # Update /etc/hosts to reflect the hostname change
     echo "127.0.0.1 $(hostname) localhost" > /etc/hosts  
 
-    DEVICE=$(readlink -f /dev/disk/by-id/google-persistent-disk-1)            
+    DEVICE_LINK=/dev/disk/by-id/google-data
+    for i in $(seq 1 60); do [ -b "$DEVICE_LINK" ] && break; sleep 2; done
+    DEVICE=$(readlink -f "$DEVICE_LINK")
 
-    mkfs.xfs $DEVICE
+    # Format only on first boot; the startup script runs on every boot
+    blkid "$DEVICE" >/dev/null 2>&1 || mkfs.xfs "$DEVICE"
 
     mkdir -p /var/lib/docker
 
-    mount $DEVICE /var/lib/docker
-
     UUID=$(blkid -s UUID -o value "$DEVICE")
-    echo "UUID=$UUID /var/lib/docker xfs defaults,noatime,nofail 0 2" >> /etc/fstab    
+    grep -q "UUID=$UUID" /etc/fstab || echo "UUID=$UUID /var/lib/docker xfs defaults,noatime,nofail 0 2" >> /etc/fstab
+    mountpoint -q /var/lib/docker || mount /var/lib/docker
   EOT
 }
 

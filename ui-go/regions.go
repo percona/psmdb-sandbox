@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"sync"
 )
 
 var awsImageOwners = []struct {
@@ -28,41 +29,50 @@ func getAWSImages(region string) (map[string][]CloudImage, error) {
 	if envErr != nil {
 		return result, nil
 	}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
 	for _, o := range awsImageOwners {
-		args := []string{
-			"ec2", "describe-images",
-			"--region", region,
-			"--owners", o.OwnerID,
-			"--filters",
-			fmt.Sprintf("Name=name,Values=%s", o.NamePattern),
-			"Name=state,Values=available",
-			"Name=architecture,Values=x86_64",
-			"Name=is-public,Values=true",
-			"--query",
-			"reverse(sort_by(Images,&CreationDate))[:5].{id:ImageId,name:Name,desc:Description}",
-			"--output", "json",
-		}
-		out, err := execOutputEnv(env, "aws", args...)
-		if err != nil {
-			slog.Warn("aws describe-images failed", "group", o.Group, "region", region, "err", err)
-			continue
-		}
-		var imgs []struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
-			Desc string `json:"desc"`
-		}
-		if err := json.Unmarshal([]byte(out), &imgs); err != nil {
-			continue
-		}
-		group := make([]CloudImage, 0, len(imgs))
-		for _, img := range imgs {
-			group = append(group, CloudImage{ID: img.ID, Name: img.Name, Description: img.Desc})
-		}
-		if len(group) > 0 {
-			result[o.Group] = group
-		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			args := []string{
+				"ec2", "describe-images",
+				"--region", region,
+				"--owners", o.OwnerID,
+				"--filters",
+				fmt.Sprintf("Name=name,Values=%s", o.NamePattern),
+				"Name=state,Values=available",
+				"Name=architecture,Values=x86_64",
+				"Name=is-public,Values=true",
+				"--query",
+				"reverse(sort_by(Images,&CreationDate))[:5].{id:ImageId,name:Name,desc:Description}",
+				"--output", "json",
+			}
+			out, err := execOutputEnv(env, "aws", args...)
+			if err != nil {
+				slog.Warn("aws describe-images failed", "group", o.Group, "region", region, "err", err)
+				return
+			}
+			var imgs []struct {
+				ID   string `json:"id"`
+				Name string `json:"name"`
+				Desc string `json:"desc"`
+			}
+			if err := json.Unmarshal([]byte(out), &imgs); err != nil {
+				return
+			}
+			group := make([]CloudImage, 0, len(imgs))
+			for _, img := range imgs {
+				group = append(group, CloudImage{ID: img.ID, Name: img.Name, Description: img.Desc})
+			}
+			if len(group) > 0 {
+				mu.Lock()
+				result[o.Group] = group
+				mu.Unlock()
+			}
+		}()
 	}
+	wg.Wait()
 	return result, nil
 }
 
@@ -85,36 +95,45 @@ func getGCPImages(region string) (map[string][]CloudImage, error) {
 	if envErr != nil {
 		return result, nil
 	}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
 	for _, p := range gcpImageProjects {
-		args := []string{
-			"compute", "images", "list",
-			"--project", p.Project,
-			"--filter", fmt.Sprintf("family=%s status=READY", p.Family),
-			"--sort-by", "~creationTimestamp",
-			"--limit", "5",
-			"--format", "json(selfLink,name,description)",
-		}
-		out, err := execOutputEnv(env, "gcloud", args...)
-		if err != nil {
-			slog.Warn("gcloud images list failed", "group", p.Group, "err", err)
-			continue
-		}
-		var imgs []struct {
-			SelfLink    string `json:"selfLink"`
-			Name        string `json:"name"`
-			Description string `json:"description"`
-		}
-		if err := json.Unmarshal([]byte(out), &imgs); err != nil {
-			continue
-		}
-		group := make([]CloudImage, 0, len(imgs))
-		for _, img := range imgs {
-			group = append(group, CloudImage{ID: img.SelfLink, Name: img.Name, Description: img.Description})
-		}
-		if len(group) > 0 {
-			result[p.Group] = group
-		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			args := []string{
+				"compute", "images", "list",
+				"--project", p.Project,
+				"--filter", fmt.Sprintf("family=%s status=READY", p.Family),
+				"--sort-by", "~creationTimestamp",
+				"--limit", "5",
+				"--format", "json(selfLink,name,description)",
+			}
+			out, err := execOutputEnv(env, "gcloud", args...)
+			if err != nil {
+				slog.Warn("gcloud images list failed", "group", p.Group, "err", err)
+				return
+			}
+			var imgs []struct {
+				SelfLink    string `json:"selfLink"`
+				Name        string `json:"name"`
+				Description string `json:"description"`
+			}
+			if err := json.Unmarshal([]byte(out), &imgs); err != nil {
+				return
+			}
+			group := make([]CloudImage, 0, len(imgs))
+			for _, img := range imgs {
+				group = append(group, CloudImage{ID: img.SelfLink, Name: img.Name, Description: img.Description})
+			}
+			if len(group) > 0 {
+				mu.Lock()
+				result[p.Group] = group
+				mu.Unlock()
+			}
+		}()
 	}
+	wg.Wait()
 	return result, nil
 }
 
@@ -167,31 +186,6 @@ func getAzureImages(location string) (map[string][]CloudImage, error) {
 			result[pub.Group] = group
 		}
 	}
-	return result, nil
-}
-
-// getCloudImages queries the relevant CLI for Linux images in the given region.
-func getCloudImages(platform, region string) (map[string][]CloudImage, error) {
-	cacheKey := fmt.Sprintf("images:%s:%s", platform, region)
-	if v, ok := cacheGet(cacheKey); ok {
-		return v.(map[string][]CloudImage), nil
-	}
-	var result map[string][]CloudImage
-	var err error
-	switch platform {
-	case "aws":
-		result, err = getAWSImages(region)
-	case "gcp":
-		result, err = getGCPImages(region)
-	case "azure":
-		result, err = getAzureImages(region)
-	default:
-		return map[string][]CloudImage{}, nil
-	}
-	if err != nil {
-		return map[string][]CloudImage{}, err
-	}
-	cacheSet(cacheKey, result)
 	return result, nil
 }
 

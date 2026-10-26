@@ -17,17 +17,34 @@ resource "aws_ebs_volume" "replset_disk" {
   availability_zone = data.aws_subnet.details[each.value % var.subnet_count].availability_zone
   size              = var.replsetsvr_volume_size
   type              = var.data_disk_type
+  iops              = local.data_disk_iops
+  throughput        = local.data_disk_throughput
   tags = {
     Name = "${var.rs_name}-${var.replset_tag}${each.value}-data"
   }
 }
 
 resource "aws_instance" "replset" {
-  for_each      = local.replset_members
-  ami           = lookup(var.image, var.region)
-  instance_type = var.replsetsvr_type
-  subnet_id     = data.aws_subnet.details[each.value % var.subnet_count].id
-  key_name      = var.my_key_pair
+  for_each        = local.replset_members
+  ami             = lookup(var.image, var.region)
+  instance_type   = var.replsetsvr_type
+  placement_group = var.placement_group
+  root_block_device {
+    volume_type = var.boot_disk_type
+    volume_size = var.boot_disk_size
+  }
+  dynamic "instance_market_options" {
+    for_each = var.use_spot_instances ? [1] : []
+    content {
+      market_type = "spot"
+      spot_options {
+        instance_interruption_behavior = "terminate"
+        spot_instance_type             = "one-time"
+      }
+    }
+  }
+  subnet_id = data.aws_subnet.details[each.value % var.subnet_count].id
+  key_name  = var.my_key_pair
   tags = {
     Name          = "${var.rs_name}-${var.replset_tag}${each.value}"
     ansible-group = var.replset_tag

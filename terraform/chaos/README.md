@@ -135,9 +135,9 @@ Save the example as `minimum.tfvars` or use the checked-in file and pass
 
     Number of days before instances are automatically deleted (default: 14). Useful for temporary lab environments.
 
-- **enable_ycsb**
+- **enable_plgm**
 
-    Optional dedicated YCSB workload generator instance.
+    Optional dedicated [plgm](https://github.com/Percona-Lab/percona-load-generator-mongodb) load generator instance. Its Web UI is reached through the SSH tunnel defined in the generated ssh_config (`plgm_local_port`, default `29999`).
 
 - **enable_audit** and **audit_filter**
 

@@ -1,0 +1,36 @@
+FROM ${ plgm_os_image }
+
+ARG PLGM_VERSION=${ plgm_version }
+ARG PLGM_SHA256=${ plgm_sha256 }
+
+# plgm only publishes linux-amd64 release binaries (statically linked), so this
+# image is always built for linux/amd64.
+RUN apk add --no-cache ca-certificates curl socat \
+    && curl -fsSL "https://github.com/Percona-Lab/percona-load-generator-mongodb/releases/download/$${PLGM_VERSION}/plgm-linux-amd64.tar.gz" -o /tmp/plgm.tar.gz \
+    && echo "$${PLGM_SHA256}  /tmp/plgm.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/plgm.tar.gz -C /tmp \
+    && install -m 0755 /tmp/plgm-linux-amd64 /usr/local/bin/plgm \
+    && rm -f /tmp/plgm.tar.gz /tmp/plgm-linux-amd64 \
+    && mkdir -p /var/lib/plgm \
+    && printf '%s\n' \
+        '#!/bin/sh' \
+        '# plgm binds its Web UI to 127.0.0.1 only; socat exposes it on the container interface.' \
+        'socat TCP-LISTEN:${ plgm_proxy_port },fork,reuseaddr TCP:127.0.0.1:${ plgm_webui_port } &' \
+        'cd /var/lib/plgm' \
+        '# The Web UI "Shut Down Backend" button exits plgm; restart it.' \
+        'while true; do' \
+        '  /usr/local/bin/plgm --webui --webui-port ${ plgm_webui_port }' \
+        '  echo "plgm exited with status $?; restarting in 2s" >&2' \
+        '  sleep 2' \
+        'done' \
+        > /usr/local/bin/plgm-entrypoint \
+    && chmod 0755 /usr/local/bin/plgm-entrypoint
+
+ENV HOME=/var/lib/plgm \
+    PLGM_DEFINITIONS_STORE=/var/lib/plgm/definitions.json
+
+WORKDIR /var/lib/plgm
+
+EXPOSE ${ plgm_proxy_port }
+
+ENTRYPOINT ["/usr/local/bin/plgm-entrypoint"]

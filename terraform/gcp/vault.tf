@@ -40,7 +40,8 @@ resource "google_compute_instance" "vault" {
   count        = local.vault_enabled ? 1 : 0
   name         = local.vault_host
   machine_type = var.vault_type
-  zone         = data.google_compute_zones.available.names[0]
+  zone         = local.zones[0]
+  labels       = var.labels
   boot_disk {
     initialize_params {
       image = var.image

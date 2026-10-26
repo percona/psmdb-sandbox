@@ -8,11 +8,8 @@ User={{ mongo_os_user }}
 Group={{ mongo_os_group }}
 Environment="OPTIONS=-f /etc/mongos.conf"
 ExecStart=/usr/bin/mongos $OPTIONS
-ExecStartPre=/usr/bin/touch /var/run/mongos.pid
-ExecStartPre=/usr/bin/chown {{ mongo_os_user }}:{{ mongo_os_group }} /var/run/mongos.pid
-ExecStartPre=/usr/bin/chmod 0755 /var/run/mongos.pid
-PermissionsStartOnly=true
-PIDFile=/var/run/mongos.pid
+RuntimeDirectory=mongos
+PIDFile=/run/mongos/mongos.pid
 Type=forking
 # file size
 LimitFSIZE=infinity

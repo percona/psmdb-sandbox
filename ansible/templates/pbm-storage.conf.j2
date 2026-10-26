@@ -30,7 +30,9 @@ storage:
     region: {{ region }}
     bucket: {{ bucket }}
     prefix: {{ prefix | default(cluster) | default(group_names[0]) }}
+{% if endpointUrl | default('') %}
     endpointUrl: {{ endpointUrl }}
+{% endif %}
     credentials:
       access-key-id: {{ access_key_id }}
       secret-access-key: {{ secret_access_key }}

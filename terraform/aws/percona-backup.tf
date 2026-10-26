@@ -1,5 +1,6 @@
 # Create an S3 bucket for MongoDB backups
 resource "aws_s3_bucket" "mongo_backups" {
+  count         = var.create_backup_bucket ? 1 : 0
   bucket        = local.bucket_name
   force_destroy = true
   tags = {
@@ -8,7 +9,8 @@ resource "aws_s3_bucket" "mongo_backups" {
 }
 
 resource "aws_s3_bucket_lifecycle_configuration" "mongo_backups_lifecycle" {
-  bucket = aws_s3_bucket.mongo_backups.id
+  count  = var.create_backup_bucket ? 1 : 0
+  bucket = aws_s3_bucket.mongo_backups[0].id
 
   rule {
     id     = "BackupLifecycleRule"
@@ -21,7 +23,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "mongo_backups_lifecycle" {
 }
 
 resource "aws_s3_bucket_versioning" "mongo_backups_versioning" {
-  bucket = aws_s3_bucket.mongo_backups.id
+  count  = var.create_backup_bucket ? 1 : 0
+  bucket = aws_s3_bucket.mongo_backups[0].id
 
   versioning_configuration {
     status = "Enabled"
@@ -30,7 +33,8 @@ resource "aws_s3_bucket_versioning" "mongo_backups_versioning" {
 
 # Create an IAM role for MongoDB backup service
 resource "aws_iam_role" "mongo_backup_service_role" {
-  name = "${local.bucket_name}-role"
+  count = var.create_backup_bucket ? 1 : 0
+  name  = "${local.bucket_name}-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -48,8 +52,9 @@ resource "aws_iam_role" "mongo_backup_service_role" {
 
 # Attach the S3 access policy to the IAM role
 resource "aws_iam_role_policy" "mongo_backup_policy" {
-  name = "${local.bucket_name}-policy"
-  role = aws_iam_role.mongo_backup_service_role.id
+  count = var.create_backup_bucket ? 1 : 0
+  name  = "${local.bucket_name}-policy"
+  role  = aws_iam_role.mongo_backup_service_role[0].id
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -62,8 +67,8 @@ resource "aws_iam_role_policy" "mongo_backup_policy" {
           "s3:DeleteObject"
         ]
         Resource = [
-          "${aws_s3_bucket.mongo_backups.arn}",
-          "${aws_s3_bucket.mongo_backups.arn}/*"
+          "${aws_s3_bucket.mongo_backups[0].arn}",
+          "${aws_s3_bucket.mongo_backups[0].arn}/*"
         ]
       }
     ]
@@ -72,13 +77,15 @@ resource "aws_iam_role_policy" "mongo_backup_policy" {
 
 # Create an IAM user for the MongoDB backup service
 resource "aws_iam_user" "mongo_backup_service_account" {
-  name = "${local.bucket_name}-user"
+  count = var.create_backup_bucket ? 1 : 0
+  name  = "${local.bucket_name}-user"
 }
 
 # Attach an access policy to the IAM user
 resource "aws_iam_user_policy" "mongo_backup_user_policy" {
-  name = "${local.bucket_name}-user-policy"
-  user = aws_iam_user.mongo_backup_service_account.name
+  count = var.create_backup_bucket ? 1 : 0
+  name  = "${local.bucket_name}-user-policy"
+  user  = aws_iam_user.mongo_backup_service_account[0].name
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -91,8 +98,8 @@ resource "aws_iam_user_policy" "mongo_backup_user_policy" {
           "s3:DeleteObject"
         ]
         Resource = [
-          "${aws_s3_bucket.mongo_backups.arn}",
-          "${aws_s3_bucket.mongo_backups.arn}/*"
+          "${aws_s3_bucket.mongo_backups[0].arn}",
+          "${aws_s3_bucket.mongo_backups[0].arn}/*"
         ]
       }
     ]
@@ -101,14 +108,25 @@ resource "aws_iam_user_policy" "mongo_backup_user_policy" {
 
 # Create access keys for the MongoDB backup service user
 resource "aws_iam_access_key" "mongo_backup_access_key" {
-  user = aws_iam_user.mongo_backup_service_account.name
+  count = var.create_backup_bucket ? 1 : 0
+  user  = aws_iam_user.mongo_backup_service_account[0].name
+}
+
+locals {
+  # PBM storage is configured when a bucket is created here or an existing one is provided.
+  use_backup_storage = var.create_backup_bucket || var.existing_bucket_name != ""
+  backup_bucket      = var.create_backup_bucket ? aws_s3_bucket.mongo_backups[0].bucket : var.existing_bucket_name
+  backup_region      = var.create_backup_bucket ? aws_s3_bucket.mongo_backups[0].region : (var.existing_bucket_region != "" ? var.existing_bucket_region : var.region)
+  backup_endpoint    = "https://s3.${local.backup_region}.amazonaws.com"
+  backup_access_key  = var.create_backup_bucket ? aws_iam_access_key.mongo_backup_access_key[0].id : var.existing_bucket_access_key
+  backup_secret_key  = var.create_backup_bucket ? aws_iam_access_key.mongo_backup_access_key[0].secret : var.existing_bucket_secret_key
 }
 
 output "access_key" {
-  value = aws_iam_access_key.mongo_backup_access_key.id
+  value = local.backup_access_key
 }
 
 output "secret_key" {
-  value     = aws_iam_access_key.mongo_backup_access_key.secret
+  value     = local.backup_secret_key
   sensitive = true
 }

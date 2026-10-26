@@ -1,9 +1,24 @@
 resource "aws_instance" "mongos" {
-  for_each      = local.mongos_members
-  ami           = lookup(var.image, var.region)
-  instance_type = var.mongos_type
-  subnet_id     = data.aws_subnet.details[each.value % var.subnet_count].id
-  key_name      = var.my_key_pair
+  for_each        = local.mongos_members
+  ami             = lookup(var.image, var.region)
+  instance_type   = var.mongos_type
+  placement_group = var.placement_group
+  root_block_device {
+    volume_type = var.boot_disk_type
+    volume_size = var.boot_disk_size
+  }
+  dynamic "instance_market_options" {
+    for_each = var.use_spot_instances ? [1] : []
+    content {
+      market_type = "spot"
+      spot_options {
+        instance_interruption_behavior = "terminate"
+        spot_instance_type             = "one-time"
+      }
+    }
+  }
+  subnet_id = data.aws_subnet.details[each.value % var.subnet_count].id
+  key_name  = var.my_key_pair
   tags = {
     Name          = "${var.cluster_name}-${var.mongos_tag}0${each.value}"
     ansible-group = "mongos"

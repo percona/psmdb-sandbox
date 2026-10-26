@@ -101,7 +101,7 @@ file. At minimum, review:
 - VM sizes, image, managed-disk sizes, and `use_spot_instances`
 - the `prefix` used in the globally unique Storage account name and `backup_retention`
 - `source_ranges` for inbound access
-- optional PMM, CA/TLS, LDAP, and YCSB settings
+- optional PMM, CA/TLS, LDAP, and plgm load generator settings
 
 ### Minimum `tfvars`
 

@@ -59,13 +59,14 @@ Host ${hostname_pcsm}
   CheckHostIP no
   %{ if enable_ssh_gateway }ProxyCommand ssh -W %h:%p ${ssh_gateway_name}%{ endif }
 %{ endif ~}
-%{ if hostname_ycsb != "" ~}
-Host ${hostname_ycsb}
-  Hostname ${public_ip_ycsb}
+%{ if hostname_plgm != "" ~}
+Host ${hostname_plgm}
+  Hostname ${public_ip_plgm}
   User ${my_ssh_user}
   %{ if ssh_private_key_path != "" }IdentityFile ${ssh_private_key_path}%{ endif }
   StrictHostKeyChecking no
   UserKnownHostsFile /dev/null
   CheckHostIP no
+  LocalForward ${plgm_local_port} 127.0.0.1:9999
   %{ if enable_ssh_gateway }ProxyCommand ssh -W %h:%p ${ssh_gateway_name}%{ endif }
 %{ endif ~}

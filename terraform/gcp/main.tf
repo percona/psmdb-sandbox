@@ -32,7 +32,7 @@ module "mongodb_clusters" {
   enable_mongot         = each.value.enable_mongot
   audit_filter          = each.value.audit_filter
   vpc                   = local.vpc
-  subnet_name           = var.subnet_name
+  subnet_name           = google_compute_subnetwork.vpc-subnet.name
   region                = var.region
   subnet_cidr           = var.subnet_cidr
   gce_ssh_users         = var.gce_ssh_users
@@ -46,6 +46,20 @@ module "mongodb_clusters" {
   configsvr_volume_size = var.configsvr_volume_size
   mongos_type           = var.mongos_type
   arbiter_type          = var.arbiter_type
+
+  zones                     = local.zones
+  data_disk_iops            = var.data_disk_iops
+  data_disk_throughput      = var.data_disk_throughput
+  configsvr_disk_type       = local.configsvr_disk_type
+  configsvr_disk_iops       = local.configsvr_disk_iops
+  configsvr_disk_throughput = local.configsvr_disk_throughput
+  boot_disk_type            = var.boot_disk_type
+  boot_disk_size            = var.boot_disk_size
+  min_cpu_platform          = var.min_cpu_platform
+  nic_type                  = var.nic_type
+  tier1_networking          = var.tier1_networking
+  resource_policies         = local.placement_policies
+  labels                    = var.labels
 
   depends_on = [google_storage_bucket.mongo-backups, google_compute_subnetwork.vpc-subnet]
 }
@@ -61,7 +75,8 @@ module "mongodb_replsets" {
   enable_audit           = each.value.enable_audit
   audit_filter           = each.value.audit_filter
   vpc                    = local.vpc
-  subnet_name            = var.subnet_name
+  subnet_name            = google_compute_subnetwork.vpc-subnet.name
+  subnet_cidr            = var.subnet_cidr
   region                 = var.region
   my_ssh_user            = var.my_ssh_user
   gce_ssh_users          = var.gce_ssh_users
@@ -71,6 +86,17 @@ module "mongodb_replsets" {
   replsetsvr_type        = var.replsetsvr_type
   replsetsvr_volume_size = var.replsetsvr_volume_size
   arbiter_type           = var.arbiter_type
+
+  zones                = local.zones
+  data_disk_iops       = var.data_disk_iops
+  data_disk_throughput = var.data_disk_throughput
+  boot_disk_type       = var.boot_disk_type
+  boot_disk_size       = var.boot_disk_size
+  min_cpu_platform     = var.min_cpu_platform
+  nic_type             = var.nic_type
+  tier1_networking     = var.tier1_networking
+  resource_policies    = local.placement_policies
+  labels               = var.labels
 
   depends_on = [google_storage_bucket.mongo-backups, google_compute_subnetwork.vpc-subnet]
 }

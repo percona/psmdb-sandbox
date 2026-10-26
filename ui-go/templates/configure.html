@@ -27,6 +27,7 @@
           <span class="field-tip" data-tip="When enabled, every cluster and replica set in this environment uses its dedicated Vault. All MongoDB topologies must use PSMDB.">ⓘ</span></label>
       </div>
     </div>
+    <p id="vault-psmdb-warning" class="alert alert-warning" role="status" style="display:none"></p>
 
   </section>
 
@@ -38,23 +39,11 @@
       <div class="form-group">
         <label for="region">Region <span class="field-tip" data-tip="GCP region where all resources will be deployed.">ⓘ</span></label>
         <select id="region" name="region" onchange="onRegionChange()">
-          {{$gcpRegion := strDefault .Config.Region "northamerica-northeast1"}}
+          {{$gcpRegion := strDefault .Config.Region (defaultRegion $p)}}
           <option value="{{$gcpRegion}}" selected>{{$gcpRegion}}</option>
           {{range .Regions}}{{if ne . $gcpRegion}}<option value="{{.}}">{{.}}</option>{{end}}{{end}}
         </select>
         <small><a href="#" onclick="reloadRegions(event)">↻ Refresh from GCP</a></small>
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label for="default_vpc_name">VPC Name <span class="field-tip" data-tip="Base name for the VPC (full name = prefix-vpc_name).">ⓘ</span></label>
-        <input type="text" id="default_vpc_name" name="default_vpc_name"
-               value="{{strDefault .Config.DefaultVpcName "mongo"}}" placeholder="mongo">
-      </div>
-      <div class="form-group">
-        <label for="subnet_cidr">Subnet CIDR <span class="field-tip" data-tip="CIDR block for the VPC subnet (e.g. 10.128.0.0/20).">ⓘ</span></label>
-        <input type="text" id="subnet_cidr" name="subnet_cidr"
-               value="{{strDefault .Config.SubnetCIDR "10.128.0.0/20"}}">
       </div>
     </div>
     <!-- Machine Image -->
@@ -77,6 +66,35 @@
         <small>GCP image used for all instances. Images are fetched from GCP and grouped by OS. Select "Custom…" to enter a full image path.</small>
       </div>
     </div>
+    {{$netOpen := (or (and .Config.DefaultVpcName (ne .Config.DefaultVpcName "mongo")) (and .Config.SubnetCIDR (ne .Config.SubnetCIDR "10.128.0.0/20")) .Config.UseSpotInstances)}}
+    <div class="subsection-header">
+      <span class="subsection-title">Network &amp; Spot Settings</span>
+      <button type="button" class="btn btn-outline btn-sm compute-toggle-btn" id="cloud-network-details-toggle"
+              onclick="toggleComputeBlock(this)">{{if $netOpen}}▲ Collapse{{else}}▼ Customize{{end}}</button>
+    </div>
+    <div class="compute-block-body" id="cloud-network-details" {{if not $netOpen}}style="display:none"{{end}}>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="default_vpc_name">VPC Name <span class="field-tip" data-tip="Base name for the VPC (full name = prefix-vpc_name).">ⓘ</span></label>
+        <input type="text" id="default_vpc_name" name="default_vpc_name"
+               value="{{strDefault .Config.DefaultVpcName "mongo"}}" placeholder="mongo">
+      </div>
+      <div class="form-group">
+        <label for="subnet_cidr">Subnet CIDR <span class="field-tip" data-tip="CIDR block for the VPC subnet (e.g. 10.128.0.0/20).">ⓘ</span></label>
+        <input type="text" id="subnet_cidr" name="subnet_cidr"
+               value="{{strDefault .Config.SubnetCIDR "10.128.0.0/20"}}">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group form-group-checkbox">
+        <label><input type="checkbox" name="use_spot_instances"
+                      {{if .Config.UseSpotInstances}}checked{{end}}>
+          Use Spot VMs for MongoDB nodes
+          <span class="field-tip" data-tip="Cheaper, but GCP can preempt them at any time. Do not use for benchmarks. The plgm client and service hosts never use Spot.">ⓘ</span>
+        </label>
+      </div>
+    </div>
+    </div><!-- #cloud-network-details -->
   </section>
 
   {{else if eq $p "aws"}}
@@ -86,27 +104,11 @@
       <div class="form-group">
         <label for="region">Region <span class="field-tip" data-tip="AWS region where all resources will be deployed.">ⓘ</span></label>
         <select id="region" name="region" onchange="onRegionChange()">
-          <option value="">— loading regions… —</option>
-          {{if .Config.Region}}<option value="{{.Config.Region}}" selected>{{.Config.Region}}</option>{{end}}
+          {{$awsRegion := strDefault .Config.Region (defaultRegion $p)}}
+          <option value="{{$awsRegion}}" selected>{{$awsRegion}}</option>
+          {{range .Regions}}{{if ne . $awsRegion}}<option value="{{.}}">{{.}}</option>{{end}}{{end}}
         </select>
         <small><a href="#" onclick="reloadRegions(event)">↻ Refresh from AWS</a></small>
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label for="default_vpc_name">VPC Name <span class="field-tip" data-tip="Base name for the VPC. Full name will be prefix-vpc_name.">ⓘ</span></label>
-        <input type="text" id="default_vpc_name" name="default_vpc_name"
-               value="{{strDefault .Config.DefaultVpcName "mongo"}}" placeholder="mongo">
-      </div>
-      <div class="form-group">
-        <label for="subnet_cidr">Subnet CIDR <span class="field-tip" data-tip="CIDR block for the VPC subnet (e.g. 10.128.0.0/20).">ⓘ</span></label>
-        <input type="text" id="subnet_cidr" name="subnet_cidr"
-               value="{{strDefault .Config.SubnetCIDR "10.128.0.0/20"}}">
-      </div>
-      <div class="form-group">
-        <label for="subnet_count">Subnet Count <span class="field-tip" data-tip="Number of subnets to create across availability zones (1–6).">ⓘ</span></label>
-        <input type="number" id="subnet_count" name="subnet_count" min="1" max="6"
-               value="{{intDefault .Config.SubnetCount 3}}">
       </div>
     </div>
     <!-- Machine Image -->
@@ -128,6 +130,30 @@
                oninput="document.getElementById('machine_image').value='__custom__'">
       </div>
     </div>
+    {{$netOpen := (or (and .Config.DefaultVpcName (ne .Config.DefaultVpcName "mongo")) (and .Config.SubnetCIDR (ne .Config.SubnetCIDR "10.128.0.0/20")) (and .Config.SubnetCount (ne .Config.SubnetCount 3)) .Config.UseSpotInstances)}}
+    <div class="subsection-header">
+      <span class="subsection-title">Network &amp; Spot Settings</span>
+      <button type="button" class="btn btn-outline btn-sm compute-toggle-btn" id="cloud-network-details-toggle"
+              onclick="toggleComputeBlock(this)">{{if $netOpen}}▲ Collapse{{else}}▼ Customize{{end}}</button>
+    </div>
+    <div class="compute-block-body" id="cloud-network-details" {{if not $netOpen}}style="display:none"{{end}}>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="default_vpc_name">VPC Name <span class="field-tip" data-tip="Base name for the VPC. Full name will be prefix-vpc_name.">ⓘ</span></label>
+        <input type="text" id="default_vpc_name" name="default_vpc_name"
+               value="{{strDefault .Config.DefaultVpcName "mongo"}}" placeholder="mongo">
+      </div>
+      <div class="form-group">
+        <label for="subnet_cidr">Subnet CIDR <span class="field-tip" data-tip="CIDR block for the VPC subnet (e.g. 10.128.0.0/20).">ⓘ</span></label>
+        <input type="text" id="subnet_cidr" name="subnet_cidr"
+               value="{{strDefault .Config.SubnetCIDR "10.128.0.0/20"}}">
+      </div>
+      <div class="form-group">
+        <label for="subnet_count">Subnet Count <span class="field-tip" data-tip="Number of subnets to create across availability zones (1–6).">ⓘ</span></label>
+        <input type="number" id="subnet_count" name="subnet_count" min="1" max="6"
+               value="{{intDefault .Config.SubnetCount 3}}">
+      </div>
+    </div>
     <div class="form-row">
       <div class="form-group form-group-checkbox">
         <label><input type="checkbox" name="use_spot_instances"
@@ -137,6 +163,7 @@
         </label>
       </div>
     </div>
+    </div><!-- #cloud-network-details -->
   </section>
 
   {{else if eq $p "azure"}}
@@ -152,6 +179,13 @@
         <small><a href="#" onclick="reloadRegions(event)">↻ Refresh from Azure</a></small>
       </div>
     </div>
+    {{$netOpen := (or (and .Config.SubnetCIDR (ne .Config.SubnetCIDR "10.0.0.0/16")) .Config.UseSpotInstances)}}
+    <div class="subsection-header">
+      <span class="subsection-title">Network &amp; Spot Settings</span>
+      <button type="button" class="btn btn-outline btn-sm compute-toggle-btn" id="cloud-network-details-toggle"
+              onclick="toggleComputeBlock(this)">{{if $netOpen}}▲ Collapse{{else}}▼ Customize{{end}}</button>
+    </div>
+    <div class="compute-block-body" id="cloud-network-details" {{if not $netOpen}}style="display:none"{{end}}>
     <div class="form-row">
       <div class="form-group">
         <label for="subnet_cidr">Subnet CIDR <span class="field-tip" data-tip="CIDR block for the Azure VNet subnet (e.g. 10.0.0.0/16).">ⓘ</span></label>
@@ -164,6 +198,192 @@
           Use Spot Instances <span class="field-tip" data-tip="Use Azure Spot VMs. Cheaper but can be evicted by Azure with short notice.">ⓘ</span></label>
       </div>
     </div>
+    </div><!-- #cloud-network-details -->
+  </section>
+  {{end}}
+
+  <!-- ──────────── Compute & Storage (cloud VMs) ──────────── -->
+  {{if or (eq $p "gcp") (eq $p "aws") (eq $p "azure")}}
+  {{$bench := or (eq $p "gcp") (eq $p "aws")}}
+  {{$typePh := "Standard_B2s"}}{{if eq $p "aws"}}{{$typePh = "t3.medium"}}{{else if eq $p "gcp"}}{{$typePh = "e2-medium"}}{{end}}
+  <section class="form-section" id="compute-storage-section">
+    <div class="section-header">
+      <h2>Compute &amp; Storage <span class="field-tip" data-tip="Shared by all clusters and replica sets in this environment. Leave a field blank to use the Terraform default.">ⓘ</span></h2>
+    </div>
+    {{if $bench}}
+    <div class="form-row">
+      <div class="form-group form-group-full">
+        <label for="hardware_preset">Hardware Preset <span class="field-tip" data-tip="Fills the fields below with a production-like hardware profile. You can still edit any field afterwards.">ⓘ</span></label>
+        <select id="hardware_preset" name="hardware_preset" onchange="applyHardwarePreset(this.value)">
+          <option value="">Custom</option>
+          {{range hardwarePresets $p}}<option value="{{.ID}}" {{if eq $.Config.HardwarePreset .ID}}selected{{end}}>{{.Label}}</option>{{end}}
+        </select>
+        <small id="hardware_preset_desc"></small>
+      </div>
+    </div>
+    {{end}}
+    <datalist id="machine-type-suggestions">{{range machineTypes $p}}<option value="{{.}}">{{end}}</datalist>
+
+    {{/* Expanded when the saved settings were edited by hand (no preset) */}}
+    {{$hwOpen := and (not .Config.HardwarePreset) (or .Config.ShardsvrType .Config.ConfigsvrType .Config.MongosType .Config.ArbiterType .Config.ReplsetSvrType .Config.ShardsvrVolumeSize .Config.ConfigsvrVolumeSize .Config.ReplsetSvrVolumeSize .Config.DataDiskType .Config.DataDiskIops .Config.DataDiskThroughput .Config.ConfigsvrDiskType .Config.BootDiskType .Config.BootDiskSize .Config.MinCpuPlatform .Config.NicType .Config.Tier1Networking .Config.ZoneMode .Config.Zones .Config.CompactPlacement .Config.ResourceLabels)}}
+    <div class="subsection-header" id="hardware-details-header">
+      <span class="subsection-title">Machine &amp; Disk Settings</span>
+      <button type="button" class="btn btn-outline btn-sm compute-toggle-btn" id="hardware-details-toggle"
+              onclick="toggleComputeBlock(this)">{{if $hwOpen}}▲ Collapse{{else}}▼ Customize{{end}}</button>
+    </div>
+    <div class="compute-block-body" id="hardware-details" {{if not $hwOpen}}style="display:none"{{end}}>
+
+    <div class="subsection-header"><span class="subsection-title">Machine Types</span></div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="shardsvr_type">Shard Server</label>
+        <input type="text" id="shardsvr_type" name="shardsvr_type" list="machine-type-suggestions" value="{{.Config.ShardsvrType}}" placeholder="{{$typePh}}">
+      </div>
+      <div class="form-group">
+        <label for="configsvr_type">Config Server</label>
+        <input type="text" id="configsvr_type" name="configsvr_type" list="machine-type-suggestions" value="{{.Config.ConfigsvrType}}" placeholder="{{$typePh}}">
+      </div>
+      <div class="form-group">
+        <label for="mongos_type">Mongos</label>
+        <input type="text" id="mongos_type" name="mongos_type" list="machine-type-suggestions" value="{{.Config.MongosType}}" placeholder="{{$typePh}}">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="replsetsvr_type">Replica Set Data Node</label>
+        <input type="text" id="replsetsvr_type" name="replsetsvr_type" list="machine-type-suggestions" value="{{.Config.ReplsetSvrType}}" placeholder="{{$typePh}}">
+      </div>
+      <div class="form-group">
+        <label for="arbiter_type">Arbiter</label>
+        <input type="text" id="arbiter_type" name="arbiter_type" list="machine-type-suggestions" value="{{.Config.ArbiterType}}" placeholder="{{$typePh}}">
+      </div>
+    </div>
+
+    <div class="subsection-header"><span class="subsection-title">Data Disks</span></div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="data_disk_type">Data Disk Type <span class="field-tip" data-tip="Disk type for shard, config server and replica set data volumes.">ⓘ</span></label>
+        {{if $bench}}
+        <select id="data_disk_type" name="data_disk_type">
+          <option value="">Default ({{if eq $p "aws"}}gp2{{else}}pd-standard{{end}})</option>
+          {{range diskTypes $p}}<option value="{{.Name}}" {{if eq $.Config.DataDiskType .Name}}selected{{end}}>{{.Name}}</option>{{end}}
+        </select>
+        <small id="data_disk_type_hint"></small>
+        {{else}}
+        <input type="text" id="data_disk_type" name="data_disk_type" value="{{.Config.DataDiskType}}" placeholder="Standard_LRS">
+        <small>Standard_LRS, Premium_LRS, StandardSSD_LRS</small>
+        {{end}}
+      </div>
+      {{if $bench}}
+      <div class="form-group" id="data_disk_iops_group">
+        <label for="data_disk_iops">Provisioned IOPS</label>
+        <input type="number" id="data_disk_iops" name="data_disk_iops" min="0" value="{{if .Config.DataDiskIops}}{{.Config.DataDiskIops}}{{end}}">
+        <small id="data_disk_iops_hint"></small>
+      </div>
+      <div class="form-group" id="data_disk_throughput_group">
+        <label for="data_disk_throughput">Provisioned Throughput (MiB/s)</label>
+        <input type="number" id="data_disk_throughput" name="data_disk_throughput" min="0" value="{{if .Config.DataDiskThroughput}}{{.Config.DataDiskThroughput}}{{end}}">
+        <small id="data_disk_throughput_hint"></small>
+      </div>
+      {{end}}
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="shardsvr_volume_size">Shard Server Disk (GB)</label>
+        <input type="number" id="shardsvr_volume_size" name="shardsvr_volume_size" min="10" value="{{if .Config.ShardsvrVolumeSize}}{{.Config.ShardsvrVolumeSize}}{{end}}" placeholder="50">
+      </div>
+      <div class="form-group">
+        <label for="configsvr_volume_size">Config Server Disk (GB)</label>
+        <input type="number" id="configsvr_volume_size" name="configsvr_volume_size" min="10" value="{{if .Config.ConfigsvrVolumeSize}}{{.Config.ConfigsvrVolumeSize}}{{end}}" placeholder="20">
+      </div>
+      <div class="form-group">
+        <label for="replsetsvr_volume_size">Replica Set Node Disk (GB)</label>
+        <input type="number" id="replsetsvr_volume_size" name="replsetsvr_volume_size" min="10" value="{{if .Config.ReplsetSvrVolumeSize}}{{.Config.ReplsetSvrVolumeSize}}{{end}}" placeholder="100">
+      </div>
+    </div>
+    {{if $bench}}
+    <div class="form-row">
+      <div class="form-group">
+        <label for="configsvr_disk_type">Config Server Disk Type <span class="field-tip" data-tip="Optional cheaper disk type for config servers. Provisioned IOPS/throughput only apply when it matches the data disk type.">ⓘ</span></label>
+        <select id="configsvr_disk_type" name="configsvr_disk_type">
+          <option value="">Same as data disk</option>
+          {{range diskTypes $p}}<option value="{{.Name}}" {{if eq $.Config.ConfigsvrDiskType .Name}}selected{{end}}>{{.Name}}</option>{{end}}
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="boot_disk_type">Boot Disk Type <span class="field-tip" data-tip="Boot disk of MongoDB nodes and the plgm client. MongoDB logs are written here. GCP C3/C4/N4 machines require an explicit type.">ⓘ</span></label>
+        <select id="boot_disk_type" name="boot_disk_type">
+          <option value="">Default</option>
+          {{range diskTypes $p}}{{if .Boot}}<option value="{{.Name}}" {{if eq $.Config.BootDiskType .Name}}selected{{end}}>{{.Name}}</option>{{end}}{{end}}
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="boot_disk_size">Boot Disk (GB)</label>
+        <input type="number" id="boot_disk_size" name="boot_disk_size" min="10" max="2000" value="{{if .Config.BootDiskSize}}{{.Config.BootDiskSize}}{{end}}" placeholder="image default">
+      </div>
+    </div>
+
+    {{if eq $p "gcp"}}
+    <div class="subsection-header"><span class="subsection-title">CPU &amp; Network</span></div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="min_cpu_platform">Min CPU Platform <span class="field-tip" data-tip="Pins the CPU generation so repeated runs are comparable. Not available for series with a fixed CPU (E2, N4, C3, C4, T2D).">ⓘ</span></label>
+        <select id="min_cpu_platform" name="min_cpu_platform">
+          <option value="">Any</option>
+          {{range cpuPlatforms}}<option value="{{.}}" {{if eq $.Config.MinCpuPlatform .}}selected{{end}}>{{.}}</option>{{end}}
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="nic_type">NIC Type <span class="field-tip" data-tip="gVNIC gives higher network throughput and is required by C3/C4 and Tier_1 networking.">ⓘ</span></label>
+        <select id="nic_type" name="nic_type">
+          <option value="">Default</option>
+          <option value="GVNIC" {{if eq .Config.NicType "GVNIC"}}selected{{end}}>gVNIC</option>
+          <option value="VIRTIO_NET" {{if eq .Config.NicType "VIRTIO_NET"}}selected{{end}}>VirtIO</option>
+        </select>
+      </div>
+      <div class="form-group form-group-checkbox">
+        <label><input type="checkbox" id="tier1_networking" name="tier1_networking" {{if .Config.Tier1Networking}}checked{{end}}> Tier_1 networking
+          <span class="field-tip" data-tip="Higher per-VM egress bandwidth (up to 100-200 Gbps) on large N2/C2/C3/C4 shapes. Requires gVNIC. Billed extra.">ⓘ</span></label>
+      </div>
+    </div>
+    <div class="subsection-header"><span class="subsection-title">Placement</span></div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="zone_mode">Zone Mode <span class="field-tip" data-tip="Spread: replica set members in different zones, like production. Single: all instances in one zone for the lowest, most stable latency.">ⓘ</span></label>
+        <select id="zone_mode" name="zone_mode">
+          <option value="" {{if eq .Config.ZoneMode ""}}selected{{end}}>Spread (default)</option>
+          <option value="single" {{if eq .Config.ZoneMode "single"}}selected{{end}}>Single zone</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="zones">Zones <span class="field-tip" data-tip="Comma-separated zones in the selected region (e.g. northamerica-northeast1-a). Empty uses all zones. Single zone mode uses the first one.">ⓘ</span></label>
+        <input type="text" id="zones" name="zones" value="{{join .Config.Zones ", "}}" placeholder="all zones in region">
+      </div>
+      <div class="form-group form-group-checkbox">
+        <label><input type="checkbox" id="compact_placement" name="compact_placement" {{if .Config.CompactPlacement}}checked{{end}}> Compact placement
+          <span class="field-tip" data-tip="Places MongoDB nodes and the plgm client physically close together. Requires single zone mode and a non-E2/N1 series. Capacity may be limited.">ⓘ</span></label>
+      </div>
+    </div>
+    {{else}}
+    <div class="subsection-header"><span class="subsection-title">Placement</span></div>
+    <div class="form-row">
+      <div class="form-group form-group-checkbox">
+        <label><input type="checkbox" id="compact_placement" name="compact_placement" {{if .Config.CompactPlacement}}checked{{end}}> Cluster placement group
+          <span class="field-tip" data-tip="Launches MongoDB nodes and the plgm client in a cluster placement group for low, stable latency. Requires Subnet Count = 1. Burstable (t*) instances are not supported.">ⓘ</span></label>
+      </div>
+    </div>
+    {{end}}
+
+    <div class="subsection-header"><span class="subsection-title">{{if eq $p "gcp"}}Labels{{else}}Tags{{end}}</span></div>
+    <div class="form-row">
+      <div class="form-group form-group-full">
+        <label for="resource_labels">Extra {{if eq $p "gcp"}}labels{{else}}tags{{end}} <span class="field-tip" data-tip="One key=value per line, applied to every instance and disk. Useful for tracking benchmark runs and cost.">ⓘ</span></label>
+        <textarea id="resource_labels" name="resource_labels" rows="3" spellcheck="false" placeholder="bench_run=r42&#10;mongo_version=8-0-4">{{labelsText .Config.ResourceLabels}}</textarea>
+      </div>
+    </div>
+    {{end}}
+    </div><!-- #hardware-details -->
+    {{if $bench}}<div id="hardware-errors" class="hint" style="display:none;color:#b91c1c"></div>{{end}}
   </section>
   {{end}}
 
@@ -175,7 +395,6 @@
     </div>
     <div id="clusters-container">
       {{range .SortedClusters}}
-      {{$clusterComputeConfigured := or $.Config.ShardsvrType $.Config.ConfigsvrType $.Config.MongosType $.Config.ArbiterType $.Config.ShardsvrVolumeSize $.Config.ConfigsvrVolumeSize $.Config.DataDiskType}}
       <div class="component-block">
         <div class="component-block-header">
           <div class="block-name-field">
@@ -629,67 +848,6 @@
               </div>
             </div>
           </div><!-- .compute-block-body -->
-          {{else}}
-          <!-- Cloud: Compute Resources customize toggle (inside cluster block) -->
-          <div class="subsection-header">
-            <span class="subsection-title">Compute Resources</span>
-            <button type="button" class="btn btn-outline btn-sm compute-toggle-btn"
-                    onclick="toggleComputeBlock(this)">{{if $clusterComputeConfigured}}▲ Collapse{{else}}▼ Customize{{end}}</button>
-          </div>
-          <div class="compute-block-body" {{if not $clusterComputeConfigured}}style="display:none"{{end}}>
-            <p class="hint" style="margin-bottom:0.75rem">These compute settings are shared across <strong>all clusters</strong> in this deployment. Leave blank to use Terraform defaults.</p>
-            <div class="form-row">
-              <div class="form-group">
-                <label>Shard Svr Instance Type <span class="field-tip" data-tip="Cloud instance type for shard server nodes (e.g. t3.medium for AWS).">ⓘ</span></label>
-                <input type="text" name="shardsvr_type"
-                       value="{{$.Config.ShardsvrType}}"
-                       placeholder="{{if eq $p "aws"}}t3.medium{{else if eq $p "gcp"}}e2-medium{{else}}Standard_B2s{{end}}">
-              </div>
-              <div class="form-group">
-                <label>Shard Svr Disk (GB) <span class="field-tip" data-tip="Data disk size (GB) for shard server instances.">ⓘ</span></label>
-                <input type="number" name="shardsvr_volume_size"
-                       value="{{if $.Config.ShardsvrVolumeSize}}{{$.Config.ShardsvrVolumeSize}}{{end}}"
-                       placeholder="50" min="10">
-              </div>
-            </div>
-            <div class="form-row">
-              <div class="form-group">
-                <label>Config Svr Instance Type <span class="field-tip" data-tip="Cloud instance type for config server nodes.">ⓘ</span></label>
-                <input type="text" name="configsvr_type"
-                       value="{{$.Config.ConfigsvrType}}"
-                       placeholder="{{if eq $p "aws"}}t3.medium{{else if eq $p "gcp"}}e2-medium{{else}}Standard_B2s{{end}}">
-              </div>
-              <div class="form-group">
-                <label>Config Svr Disk (GB) <span class="field-tip" data-tip="Data disk size (GB) for config server instances.">ⓘ</span></label>
-                <input type="number" name="configsvr_volume_size"
-                       value="{{if $.Config.ConfigsvrVolumeSize}}{{$.Config.ConfigsvrVolumeSize}}{{end}}"
-                       placeholder="20" min="10">
-              </div>
-            </div>
-            <div class="form-row">
-              <div class="form-group">
-                <label>Mongos Instance Type <span class="field-tip" data-tip="Cloud instance type for mongos router nodes.">ⓘ</span></label>
-                <input type="text" name="mongos_type"
-                       value="{{$.Config.MongosType}}"
-                       placeholder="{{if eq $p "aws"}}t3.medium{{else if eq $p "gcp"}}e2-medium{{else}}Standard_B2s{{end}}">
-              </div>
-              <div class="form-group">
-                <label>Arbiter Instance Type <span class="field-tip" data-tip="Cloud instance type for arbiter nodes.">ⓘ</span></label>
-                <input type="text" name="arbiter_type"
-                       value="{{$.Config.ArbiterType}}"
-                       placeholder="{{if eq $p "aws"}}t3.medium{{else if eq $p "gcp"}}e2-medium{{else}}Standard_B2s{{end}}">
-              </div>
-            </div>
-            <div class="form-row">
-              <div class="form-group">
-                <label>Data Disk Type <span class="field-tip" data-tip="Disk type for data volumes (e.g. gp2 for AWS, pd-standard for GCP).">ⓘ</span></label>
-                <input type="text" name="data_disk_type"
-                       value="{{$.Config.DataDiskType}}"
-                       placeholder="{{if eq $p "aws"}}gp2{{else if eq $p "gcp"}}pd-standard{{else}}Standard_LRS{{end}}">
-                <small>{{if eq $p "aws"}}gp2, gp3, io1, io2{{else if eq $p "gcp"}}pd-standard, pd-ssd, pd-balanced{{else}}Standard_LRS, Premium_LRS, StandardSSD_LRS{{end}}</small>
-              </div>
-            </div>
-          </div><!-- .compute-block-body -->
           {{end}}
         </div><!-- .customize-body -->
       </div>
@@ -705,7 +863,6 @@
     </div>
     <div id="replsets-container">
       {{range .SortedReplsets}}
-      {{$replsetComputeConfigured := or $.Config.ReplsetSvrType $.Config.ReplsetSvrVolumeSize $.Config.ArbiterType $.Config.DataDiskType}}
       <div class="component-block">
         <div class="component-block-header">
           <div class="block-name-field">
@@ -1077,45 +1234,6 @@
               </div>
             </div>
           </div><!-- .compute-block-body -->
-          {{else}}
-          <!-- Cloud: Compute Resources customize toggle (inside replset block) -->
-          <div class="subsection-header">
-            <span class="subsection-title">Compute Resources</span>
-            <button type="button" class="btn btn-outline btn-sm compute-toggle-btn"
-                    onclick="toggleComputeBlock(this)">{{if $replsetComputeConfigured}}▲ Collapse{{else}}▼ Customize{{end}}</button>
-          </div>
-          <div class="compute-block-body" {{if not $replsetComputeConfigured}}style="display:none"{{end}}>
-            <p class="hint" style="margin-bottom:0.75rem">These compute settings are shared across <strong>all replica sets</strong> in this deployment. Leave blank to use Terraform defaults.</p>
-            <div class="form-row">
-              <div class="form-group">
-                <label>Data Node Instance Type <span class="field-tip" data-tip="Cloud instance type for replica set data nodes.">ⓘ</span></label>
-                <input type="text" name="replsetsvr_type"
-                       value="{{$.Config.ReplsetSvrType}}"
-                       placeholder="{{if eq $p "aws"}}t3.medium{{else if eq $p "gcp"}}e2-medium{{else}}Standard_B2s{{end}}">
-              </div>
-              <div class="form-group">
-                <label>Data Node Disk (GB) <span class="field-tip" data-tip="Data disk size (GB) for data node instances.">ⓘ</span></label>
-                <input type="number" name="replsetsvr_volume_size"
-                       value="{{if $.Config.ReplsetSvrVolumeSize}}{{$.Config.ReplsetSvrVolumeSize}}{{end}}"
-                       placeholder="100" min="10">
-              </div>
-            </div>
-            <div class="form-row">
-              <div class="form-group">
-                <label>Arbiter Instance Type <span class="field-tip" data-tip="Cloud instance type for arbiter nodes.">ⓘ</span></label>
-                <input type="text" name="arbiter_type"
-                       value="{{$.Config.ArbiterType}}"
-                       placeholder="{{if eq $p "aws"}}t3.medium{{else if eq $p "gcp"}}e2-medium{{else}}Standard_B2s{{end}}">
-              </div>
-              <div class="form-group">
-                <label>Data Disk Type <span class="field-tip" data-tip="Disk type for data volumes (e.g. gp2 for AWS, pd-standard for GCP).">ⓘ</span></label>
-                <input type="text" name="data_disk_type"
-                       value="{{$.Config.DataDiskType}}"
-                       placeholder="{{if eq $p "aws"}}gp2{{else if eq $p "gcp"}}pd-standard{{else}}Standard_LRS{{end}}">
-                <small>{{if eq $p "aws"}}gp2, gp3, io1, io2{{else if eq $p "gcp"}}pd-standard, pd-ssd, pd-balanced{{else}}Standard_LRS, Premium_LRS, StandardSSD_LRS{{end}}</small>
-              </div>
-            </div>
-          </div><!-- .compute-block-body -->
           {{end}}
         </div><!-- .customize-body -->
       </div>
@@ -1131,7 +1249,7 @@
       <label class="toggle-label">
         <input type="checkbox" id="enable-pmm-docker"
                {{if .SortedPmmServers}}checked{{end}}
-               onchange="toggleDockerSingleServer('pmm-servers-container', this, addPmmServer); syncDockerPmmDependencies(this.checked)">
+               onchange="toggleDockerSingleServer('pmm-servers-container', this, addPmmServer)">
         Include PMM Server
       </label>
     </div>
@@ -1393,35 +1511,79 @@
   <section class="form-section">
     <div class="section-header">
       <h2>PMM Clients Without MongoDB <span class="field-tip" data-tip="Hosts with only a PMM client, registered with the PMM server. PMM Extensions can install MongoDB on them.">ⓘ</span></h2>
-      <button type="button" class="btn btn-outline btn-sm" onclick="addBareClient()">+ Add Client</button>
+      <button type="button" class="btn btn-outline btn-sm" onclick="onAddBareClientClick(this)">+ Add Client</button>
     </div>
     <div id="bare-clients-container"></div>
   </section>
   {{end}}
 
-  <!-- ──────────── SeaweedFS VM (CHAOS only) ──────────── -->
+  <!-- ──────────── Backup (CHAOS only) ──────────── -->
   {{if eq $p "chaos"}}
+  {{$chaosStorage := chaosBackupStorage .Config}}
+  {{$backupOn := ne $chaosStorage ""}}
+  {{$useSeaweedFS := boolDefault .Config.CreateBackupBucket true}}
   {{$seaweedfsDetailsConfigured := or .Config.SeaweedFSAccessKey .Config.SeaweedFSSecretKey .Config.DefaultBucketName .Config.SeaweedFSPort .Config.SeaweedFSAdminPort .Config.BackupRetention .Config.SeaweedFSCpuCores .Config.SeaweedFSMemoryGb .Config.SeaweedFSVolumeSize}}
   <section class="form-section">
-    <div class="section-header">
-      <h2>SeaweedFS Backup Storage VM</h2>
-      <button type="button" class="btn btn-outline btn-sm"
-              id="seaweedfs-details-toggle"
-              onclick="toggleSeaweedFSDetails(this)"
-              {{if not (boolDefault .Config.EnableSeaweedFS false)}}style="display:none"{{end}}
-              >{{if $seaweedfsDetailsConfigured}}▲ Collapse{{else}}▼ Customize{{end}}</button>
-    </div>
-    <!-- Enable SeaweedFS checkbox always visible, outside the collapsible body -->
+    <h2>Backup (PBM)</h2>
     <div class="form-row" style="margin-bottom:0.5rem">
       <div class="form-group form-group-checkbox">
-        <label><input type="checkbox" id="enable_seaweedfs" name="enable_seaweedfs" value="true"
-                      {{if boolDefault .Config.EnableSeaweedFS false}}checked{{end}}>
-          Deploy SeaweedFS backup storage VM <span class="field-tip" data-tip="Deploy a dedicated SeaweedFS S3-compatible storage VM for backups.">ⓘ</span></label>
+        <label><input type="checkbox" id="enable_backup" name="enable_backup" value="true"
+                      {{if $backupOn}}checked{{end}}
+                      onchange="toggleBackupSettings()">
+          Enable backups <span class="field-tip" data-tip="Configure PBM backup storage and install the PBM agent on every cluster and replica set. Unticking turns the PBM agent off everywhere.">ⓘ</span></label>
       </div>
     </div>
-    <div id="seaweedfs-vm-body" {{if not (boolDefault .Config.EnableSeaweedFS false)}}style="display:none"{{end}}>
+    <div id="backup-settings-body" {{if not $backupOn}}style="display:none"{{end}}>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="backup_bucket_mode">Backup storage <span class="field-tip" data-tip="Deploy a dedicated SeaweedFS S3-compatible storage VM for backups, or point PBM at an existing S3-compatible bucket.">ⓘ</span></label>
+        <select id="backup_bucket_mode" name="backup_bucket_mode" onchange="toggleBackupSettings()">
+          <option value="seaweedfs" {{if $useSeaweedFS}}selected{{end}}>Deploy a SeaweedFS VM</option>
+          <option value="existing" {{if not $useSeaweedFS}}selected{{end}}>Use an existing bucket</option>
+        </select>
+      </div>
+    </div>
+    <div id="existing-bucket-body" data-backup-mode="existing" {{if $useSeaweedFS}}style="display:none"{{end}}>
+      <span class="subsection-title">Existing Bucket</span>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="existing_bucket_endpoint">Endpoint URL <span class="field-tip" data-tip="S3-compatible endpoint, e.g. https://minio.example.com:9000. Leave empty for AWS S3.">ⓘ</span></label>
+          <input type="text" id="existing_bucket_endpoint" name="existing_bucket_endpoint"
+                 value="{{.Config.ExistingBucketEndpoint}}" placeholder="AWS S3 when empty" autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label for="existing_bucket_name">Bucket Name <span class="field-tip" data-tip="Exact name of the existing bucket (no prefix is added).">ⓘ</span></label>
+          <input type="text" id="existing_bucket_name" name="existing_bucket_name"
+                 value="{{.Config.ExistingBucketName}}" autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label for="existing_bucket_region">Bucket Region <span class="field-tip" data-tip="Region of the existing bucket. Defaults to us-east-1 when empty.">ⓘ</span></label>
+          <input type="text" id="existing_bucket_region" name="existing_bucket_region"
+                 value="{{.Config.ExistingBucketRegion}}" placeholder="us-east-1">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="existing_bucket_access_key">Access Key ID <span class="field-tip" data-tip="Access key ID with read, write, list and delete access to the bucket.">ⓘ</span></label>
+          <input type="text" id="existing_bucket_access_key" name="existing_bucket_access_key"
+                 value="{{.Config.ExistingBucketAccessKey}}" autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label for="existing_bucket_secret_key">Secret Access Key <span class="field-tip" data-tip="Secret used by PBM to access the bucket. Stored in the environment's tfvars and Ansible inventory.">ⓘ</span></label>
+          <input type="password" id="existing_bucket_secret_key" name="existing_bucket_secret_key"
+                 value="{{.Config.ExistingBucketSecretKey}}" autocomplete="new-password">
+        </div>
+      </div>
+    </div>
+    <div id="seaweedfs-vm-body" data-backup-mode="seaweedfs" {{if not $useSeaweedFS}}style="display:none"{{end}}>
+      <div class="subsection-header">
+        <span class="subsection-title">SeaweedFS VM</span>
+        <button type="button" class="btn btn-outline btn-sm"
+                id="seaweedfs-details-toggle"
+                onclick="toggleSeaweedFSDetails(this)"
+                >{{if $seaweedfsDetailsConfigured}}▲ Collapse{{else}}▼ Customize{{end}}</button>
+      </div>
       <div id="seaweedfs-details-body" {{if not $seaweedfsDetailsConfigured}}style="display:none"{{end}}>
-        <span class="subsection-title">VM Details</span>
         <div class="form-row">
           <div class="form-group">
             <label for="seaweedfs_access_key">SeaweedFS Access Key <span class="field-tip" data-tip="Access key for the SeaweedFS server (passed to Ansible).">ⓘ</span></label>
@@ -1498,6 +1660,7 @@
         </div>
       </div>
     </div>
+    </div><!-- #backup-settings-body -->
   </section>
   {{end}}
 
@@ -1509,7 +1672,7 @@
       <label class="toggle-label">
         <input type="checkbox" id="enable-seaweedfs-docker"
                {{if .SortedSeaweedFS}}checked{{end}}
-               onchange="toggleDockerSingleServer('seaweedfs-servers-container', this, addSeaweedFSServer); toggleCredentialRow('cred-seaweedfs-row', this.checked); syncDockerSeaweedFSDependencies(this.checked)">
+               onchange="toggleDockerSingleServer('seaweedfs-servers-container', this, addSeaweedFSServer); toggleCredentialRow('cred-seaweedfs-row', this.checked)">
         Include SeaweedFS Server
       </label>
     </div>
@@ -1617,7 +1780,67 @@
   {{if and (ne $p "docker") (ne $p "chaos")}}
   <section class="form-section">
     <h2>Backup (PBM)</h2>
+    {{$backupOn := backupEnabled .Config}}
+    {{$createBucket := boolDefault .Config.CreateBackupBucket true}}
+    <div class="form-row" style="margin-bottom:0.5rem">
+      <div class="form-group form-group-checkbox">
+        <label><input type="checkbox" id="enable_backup" name="enable_backup" value="true"
+                      {{if $backupOn}}checked{{end}}
+                      onchange="toggleBackupSettings()">
+          Enable backups <span class="field-tip" data-tip="Configure PBM backup storage and install the PBM agent on every cluster and replica set. Unticking turns the PBM agent off everywhere.">ⓘ</span></label>
+      </div>
+    </div>
+    <div id="backup-settings-body" {{if not $backupOn}}style="display:none"{{end}}>
+    {{if or (eq $p "aws") (eq $p "gcp") (eq $p "azure")}}
     <div class="form-row">
+      <div class="form-group">
+        <label for="backup_bucket_mode">Backup storage <span class="field-tip" data-tip="Create a new cloud storage {{if eq $p "azure"}}container{{else}}bucket{{end}} ({{if eq $p "aws"}}S3{{else if eq $p "gcp"}}GCS{{else}}Azure Blob{{end}}) with credentials for PBM, or point PBM at an existing one.">ⓘ</span></label>
+        <select id="backup_bucket_mode" name="backup_bucket_mode" onchange="toggleBackupSettings()">
+          <option value="create" {{if $createBucket}}selected{{end}}>Create a new {{if eq $p "azure"}}container{{else}}bucket{{end}}</option>
+          <option value="existing" {{if not $createBucket}}selected{{end}}>Use an existing {{if eq $p "azure"}}container{{else}}bucket{{end}}</option>
+        </select>
+      </div>
+    </div>
+    <div id="existing-bucket-body" data-backup-mode="existing" {{if $createBucket}}style="display:none"{{end}}>
+      <span class="subsection-title">Existing {{if eq $p "azure"}}Container{{else}}Bucket{{end}}</span>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="existing_bucket_name">{{if eq $p "azure"}}Container Name{{else}}Bucket Name{{end}} <span class="field-tip" data-tip="Exact name of the existing {{if eq $p "aws"}}S3 bucket{{else if eq $p "gcp"}}GCS bucket{{else}}Azure Blob container{{end}} (no prefix is added).">ⓘ</span></label>
+          <input type="text" id="existing_bucket_name" name="existing_bucket_name"
+                 value="{{.Config.ExistingBucketName}}" autocomplete="off">
+        </div>
+        {{if eq $p "aws"}}
+        <div class="form-group">
+          <label for="existing_bucket_region">Bucket Region <span class="field-tip" data-tip="Region of the existing S3 bucket. Defaults to the environment region when empty.">ⓘ</span></label>
+          <input type="text" id="existing_bucket_region" name="existing_bucket_region"
+                 value="{{.Config.ExistingBucketRegion}}" placeholder="same as environment region">
+        </div>
+        {{end}}
+        {{if eq $p "azure"}}
+        <div class="form-group">
+          <label for="existing_storage_account">Storage Account <span class="field-tip" data-tip="Name of the storage account that contains the container.">ⓘ</span></label>
+          <input type="text" id="existing_storage_account" name="existing_storage_account"
+                 value="{{.Config.ExistingStorageAccount}}" autocomplete="off">
+        </div>
+        {{end}}
+      </div>
+      <div class="form-row">
+        {{if ne $p "azure"}}
+        <div class="form-group">
+          <label for="existing_bucket_access_key">{{if eq $p "gcp"}}HMAC Access ID{{else}}Access Key ID{{end}} <span class="field-tip" data-tip="{{if eq $p "gcp"}}HMAC key access ID of a service account with read/write access to the bucket.{{else}}AWS access key ID with s3:PutObject, GetObject, ListBucket and DeleteObject on the bucket.{{end}}">ⓘ</span></label>
+          <input type="text" id="existing_bucket_access_key" name="existing_bucket_access_key"
+                 value="{{.Config.ExistingBucketAccessKey}}" autocomplete="off">
+        </div>
+        {{end}}
+        <div class="form-group">
+          <label for="existing_bucket_secret_key">{{if eq $p "gcp"}}HMAC Secret{{else if eq $p "azure"}}Storage Account Key{{else}}Secret Access Key{{end}} <span class="field-tip" data-tip="Secret used by PBM to access the {{if eq $p "azure"}}container{{else}}bucket{{end}}. Stored in the environment's tfvars and Ansible inventory.">ⓘ</span></label>
+          <input type="password" id="existing_bucket_secret_key" name="existing_bucket_secret_key"
+                 value="{{.Config.ExistingBucketSecretKey}}" autocomplete="new-password">
+        </div>
+      </div>
+    </div>
+    {{end}}
+    <div id="backup-bucket-body" class="form-row" data-backup-mode="create" {{if not $createBucket}}style="display:none"{{end}}>
       <div class="form-group">
         <label for="default_bucket_name">Bucket / Container Name <span class="field-tip" data-tip="S3 bucket (AWS/CHAOS) or Azure Blob container name used by PBM for backup storage.">ⓘ</span></label>
         <input type="text" id="default_bucket_name" name="default_bucket_name"
@@ -1629,6 +1852,7 @@
                value="{{intDefault .Config.BackupRetention 2}}" min="1">
       </div>
     </div>
+    </div><!-- #backup-settings-body -->
   </section>
   {{end}}
 
@@ -1697,32 +1921,65 @@
 
   <section class="form-section">
     <div class="section-header">
-      <h2>Workload Generator</h2>
+      <h2>Load Generator</h2>
     </div>
     <div class="form-row" style="margin-bottom:0.5rem">
       <div class="form-group form-group-checkbox">
       <label class="toggle-label">
-        <input type="checkbox" id="enable_ycsb" name="enable_ycsb" value="true"
-                {{if .Config.EnableYcsb}}checked{{end}}
-                {{if eq $p "docker"}}onchange="toggleDockerYcsbSection(this)"{{end}}>
-        Include YCSB <span class="field-tip" data-tip="Creates a dedicated YCSB workload generator for this environment. Available for Docker and all VM-based deployment types.">ⓘ</span>
+        <input type="checkbox" id="enable_plgm" name="enable_plgm" value="true"
+                {{if .Config.EnablePlgm}}checked{{end}}
+                onchange="togglePlgmSection(this)">
+        Include plgm <span class="field-tip" data-tip="Creates a dedicated plgm (Percona Load Generator for MongoDB) host running the plgm Web UI. Connect it to a cluster and define the workload from the plgm Web UI, linked from the environment page. Available for Docker and all VM-based deployment types.">ⓘ</span>
       </label>
       </div>
     </div>
-    {{if eq $p "docker"}}
-    <div id="ycsb-docker-body" style="{{if .Config.EnableYcsb}}{{else}}display:none{{end}}">
+    {{if or (eq $p "gcp") (eq $p "aws") (eq $p "azure")}}
+    {{$plgmOpen := and .Config.PlgmType (not .Config.HardwarePreset)}}
+    <div id="plgm-client-wrap" {{if not .Config.EnablePlgm}}style="display:none"{{end}}>
+    <div class="subsection-header">
+      <span class="subsection-title">plgm Client Settings</span>
+      <button type="button" class="btn btn-outline btn-sm compute-toggle-btn" id="plgm-client-details-toggle"
+              onclick="toggleComputeBlock(this)">{{if $plgmOpen}}▲ Collapse{{else}}▼ Customize{{end}}</button>
+    </div>
+    <div class="compute-block-body" id="plgm-client-details" {{if not $plgmOpen}}style="display:none"{{end}}>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="plgm_type">plgm Client Machine Type <span class="field-tip" data-tip="Size the client so it is not the bottleneck: compute-optimized, at least as many vCPUs as a data node. plgm only ships x86_64 binaries, so pick an x86 machine type. It runs in the first zone, next to replica index 0 of every shard.">ⓘ</span></label>
+        <input type="text" id="plgm_type" name="plgm_type" list="machine-type-suggestions" value="{{.Config.PlgmType}}"
+               placeholder="{{if eq $p "aws"}}t3.medium{{else if eq $p "gcp"}}e2-medium{{else}}Standard_B2s{{end}}">
+      </div>
+    </div>
+    </div><!-- #plgm-client-details -->
+    </div><!-- #plgm-client-wrap -->
+    {{end}}
+    {{if or (eq $p "gcp") (eq $p "aws") (eq $p "azure") (eq $p "chaos")}}
+    <div id="plgm-tunnel-body" {{if not .Config.EnablePlgm}}style="display:none"{{end}}>
       <div class="form-row">
         <div class="form-group">
-          <label for="ycsb_image">YCSB Image <span class="field-tip" data-tip="Local Docker image name built for the YCSB workload container.">ⓘ</span></label>
-          <input type="text" id="ycsb_image" name="ycsb_image" value="{{strDefault .Config.YcsbImage "percona/ycsb"}}" placeholder="percona/ycsb">
+          <label for="plgm_local_port">plgm Web UI Local Port <span class="field-tip" data-tip="Local port forwarded by the generated ssh_config to the plgm Web UI (127.0.0.1:9999 on the plgm host). Open the tunnel with: ssh -F &lt;prefix&gt;_ssh_config &lt;prefix&gt;-plgm, then browse to http://127.0.0.1:&lt;port&gt;.">ⓘ</span></label>
+          <input type="number" id="plgm_local_port" name="plgm_local_port" min="1024" max="65535" value="{{.Config.PlgmLocalPort}}" placeholder="29999">
+        </div>
+      </div>
+    </div>
+    {{end}}
+    {{if eq $p "docker"}}
+    <div id="plgm-docker-body" style="{{if .Config.EnablePlgm}}{{else}}display:none{{end}}">
+      <div class="form-row">
+        <div class="form-group">
+          <label for="plgm_image">plgm Image <span class="field-tip" data-tip="Local Docker image name built for the plgm container.">ⓘ</span></label>
+          <input type="text" id="plgm_image" name="plgm_image" value="{{strDefault .Config.PlgmImage "percona/plgm"}}" placeholder="percona/plgm">
         </div>
         <div class="form-group">
-          <label for="ycsb_os_image">Base OS Image <span class="field-tip" data-tip="Base container image used when building the YCSB Docker image.">ⓘ</span></label>
-          <input type="text" id="ycsb_os_image" name="ycsb_os_image" value="{{strDefault .Config.YcsbOsImage "redhat/ubi8-minimal"}}" placeholder="redhat/ubi8-minimal">
+          <label for="plgm_os_image">Base OS Image <span class="field-tip" data-tip="Alpine-based container image used when building the plgm Docker image (built for linux/amd64).">ⓘ</span></label>
+          <input type="text" id="plgm_os_image" name="plgm_os_image" value="{{strDefault .Config.PlgmOsImage "alpine:3.22"}}" placeholder="alpine:3.22">
         </div>
         <div class="form-group">
-          <label for="ycsb_container_suffix">Container Name <span class="field-tip" data-tip="Suffix appended to the environment prefix for the YCSB container name.">ⓘ</span></label>
-          <input type="text" id="ycsb_container_suffix" name="ycsb_container_suffix" value="{{strDefault .Config.YcsbContainerSuffix "ycsb"}}" placeholder="ycsb">
+          <label for="plgm_container_suffix">Container Name <span class="field-tip" data-tip="Suffix appended to the environment prefix for the plgm container name.">ⓘ</span></label>
+          <input type="text" id="plgm_container_suffix" name="plgm_container_suffix" value="{{strDefault .Config.PlgmContainerSuffix "plgm"}}" placeholder="plgm">
+        </div>
+        <div class="form-group">
+          <label for="plgm_external_port">Web UI Port <span class="field-tip" data-tip="Host port (bound to 127.0.0.1) that serves the plgm Web UI: http://localhost:&lt;port&gt;.">ⓘ</span></label>
+          <input type="number" id="plgm_external_port" name="plgm_external_port" min="1" max="65535" value="{{if .Config.PlgmExternalPort}}{{.Config.PlgmExternalPort}}{{end}}" placeholder="9999">
         </div>
       </div>
     </div>
@@ -2021,6 +2278,10 @@ function refreshVersionSelect(id, items, valueOf, labelOf, includeEmpty = false)
 function removeBlock(btn) {
   const block = btn.closest('.component-block');
   const container = block.parentElement;
+  const anchor = container.previousElementSibling;
+  // Options this block had turned on, so the dependency rules can drop servers
+  // that nothing uses anymore.
+  const removedChecked = new Set(Array.from(block.querySelectorAll('input[type="checkbox"]:checked')).map(cb => cb.name));
   block.remove();
   // If this was a single-server container (PMM/SeaweedFS/LDAP), uncheck the toggle
   // and hide the corresponding credential row.
@@ -2032,10 +2293,15 @@ function removeBlock(btn) {
   const mapping = toggleMap[container.id];
   if (mapping) {
     const cb = document.getElementById(mapping.cb);
-    if (cb) cb.checked = false;
+    if (cb) {
+      cb.checked = false;
+      onDependencyChange(cb);
+    }
     const row = document.getElementById(mapping.credRow);
     if (row) row.style.display = 'none';
+    return;
   }
+  applyDependentChange(dep => (dep.kind === 'checkbox' && dep.names.some(n => removedChecked.has(n)) ? false : null), anchor);
 }
 
 // Toggle a Docker single-server block (PMM / SeaweedFS / LDAP).
@@ -2060,84 +2326,446 @@ function toggleDockerSingleServer(containerId, checkbox, addFn) {
   }
 }
 
-function ensureDockerSingleServerSelected(toggleId, containerId, addFn, credRowId = '') {
-  const checkbox = document.getElementById(toggleId);
-  if (!checkbox) return;
-  checkbox.checked = true;
-  toggleDockerSingleServer(containerId, checkbox, addFn);
-  if (credRowId) toggleCredentialRow(credRowId, true);
+// ──────────── Option dependencies ────────────
+// Some options only work when another one is on: PMM agents and PMM clients
+// without MongoDB need a PMM server, PBM agents need SeaweedFS (Docker) or the
+// global "Enable backups" toggle (AWS/GCP/Azure/CHAOS), TLS needs the
+// certificate authority, and a CA on the PMM server needs PMM.
+// Each rule below names the "provider" checkbox and the options that need it.
+//   - Turning a dependent on turns the provider on.
+//   - Turning the provider off turns every dependent off.
+//   - With autoRemove, the provider turns off when nothing needs it anymore
+//     (Docker servers and backups; a cloud PMM server is useful on its own).
+//   - With tickDependentsOnEnable, turning the provider on turns on every
+//     dependent checkbox (Docker monitoring/backup toggles, global backups).
+// The Go and Terraform validations still run on save as a safety net.
+const TOPOLOGY_PREFIXES = ['cluster', 'replset'];
+
+function topologyCheckboxNames(feature) {
+  return TOPOLOGY_PREFIXES.map(prefix => `${prefix}_${feature}[]`);
 }
 
-function ensureDockerPmmServer() {
-  if (PLATFORM !== 'docker') return;
-  ensureDockerSingleServerSelected('enable-pmm-docker', 'pmm-servers-container', addPmmServer);
+function topologyBlockLabel(el) {
+  const block = el?.closest('.component-block');
+  const nameInput = block?.querySelector('input[name="cluster_name[]"], input[name="replset_name[]"]');
+  if (!nameInput) return '';
+  const kind = nameInput.name.startsWith('cluster_') ? 'cluster' : 'replica set';
+  return `${kind} ${nameInput.value.trim() || '(unnamed)'}`;
 }
 
-function ensureDockerSeaweedFSServer() {
-  if (PLATFORM !== 'docker') return;
-  ensureDockerSingleServerSelected('enable-seaweedfs-docker', 'seaweedfs-servers-container', addSeaweedFSServer, 'cred-seaweedfs-row');
+function checkboxDependent(feature, label) {
+  const names = topologyCheckboxNames(feature);
+  const boxes = () => names.flatMap(name => Array.from(document.querySelectorAll(`#config-form input[name="${name}"]`)));
+  return {
+    kind: 'checkbox',
+    names,
+    label,
+    active: () => boxes().some(cb => cb.checked),
+    // true = became active, false = became inactive, null = unrelated event.
+    triggeredBy: target => (names.includes(target?.name) ? target.checked : null),
+    deactivate: () => boxes().filter(cb => cb.checked).map(cb => {
+      setCheckboxAndNotify(cb, false);
+      return `${label} on ${topologyBlockLabel(cb)}`;
+    }),
+    activateAll: () => boxes().filter(cb => !cb.checked && !cb.disabled).forEach(cb => setCheckboxAndNotify(cb, true)),
+  };
 }
 
-function setDockerMonitoringCheckboxes(name, checked, imageGroup) {
-  if (PLATFORM !== 'docker') return;
-  document.querySelectorAll(`input[name="${name}[]"]`).forEach(cb => {
-    if (cb.checked === checked) return;
-    cb.checked = checked;
-    toggleImageGroup(cb, imageGroup);
+function bareClientRows() {
+  return Array.from(document.querySelectorAll('#bare-clients-container .bare-client-row'));
+}
+
+function bareClientsDependent() {
+  return {
+    kind: 'bareClients',
+    label: 'PMM client without MongoDB',
+    needsConfirm: true,
+    active: () => bareClientRows().length > 0,
+    triggeredBy: () => null, // add/remove call applyDependentChange directly
+    describe: () => bareClientRows().map(row => row.querySelector('input[name="bare_client_name[]"]')?.value.trim() || '(unnamed)'),
+    deactivate: () => bareClientRows().map(row => {
+      const name = row.querySelector('input[name="bare_client_name[]"]')?.value.trim() || '(unnamed)';
+      row.remove();
+      return `PMM client ${name}`;
+    }),
+  };
+}
+
+function caOnPmmDependent() {
+  const enableCA = () => document.getElementById('enable_ca');
+  const placement = () => document.getElementById('ca_placement');
+  const active = () => !!(enableCA()?.checked && placement()?.value === 'pmm');
+  return {
+    kind: 'caPlacement',
+    label: 'certificate authority on the PMM server',
+    active,
+    triggeredBy: target => (target && (target === enableCA() || target === placement()) ? active() : null),
+    deactivate: () => {
+      const sel = placement();
+      if (!sel || sel.value !== 'pmm') return [];
+      sel.value = 'dedicated';
+      toggleCASettings();
+      return ['certificate authority host (now a dedicated CA server)'];
+    },
+  };
+}
+
+function dependencyRules() {
+  const docker = PLATFORM === 'docker';
+  const managedTLS = ['aws', 'gcp', 'azure', 'chaos'].includes(PLATFORM);
+  const rules = [
+    {
+      id: 'pmm',
+      label: 'PMM server',
+      provider: () => document.getElementById(docker ? 'enable-pmm-docker' : 'enable_pmm'),
+      autoRemove: docker,
+      tickDependentsOnEnable: docker,
+      dependents: [
+        checkboxDependent('enable_pmm', 'PMM agent'),
+        ...(docker || PLATFORM === 'chaos' ? [bareClientsDependent()] : []),
+        ...(managedTLS ? [caOnPmmDependent()] : []),
+      ],
+    },
+  ];
+  if (docker) {
+    rules.push({
+      id: 'seaweedfs',
+      label: 'SeaweedFS backup storage',
+      provider: () => document.getElementById('enable-seaweedfs-docker'),
+      autoRemove: true,
+      tickDependentsOnEnable: true,
+      dependents: [checkboxDependent('enable_pbm', 'PBM agent')],
+    });
+  }
+  if (['aws', 'gcp', 'azure', 'chaos'].includes(PLATFORM)) {
+    // Global "Enable backups" toggle: ticking it installs the PBM agent on
+    // every cluster/replica set; unticking the last PBM agent turns it off.
+    rules.push({
+      id: 'backup',
+      label: 'backup storage',
+      provider: () => document.getElementById('enable_backup'),
+      autoRemove: true,
+      tickDependentsOnEnable: true,
+      dependents: [checkboxDependent('enable_pbm', 'PBM agent')],
+    });
+  }
+  if (managedTLS) {
+    rules.push({
+      id: 'ca',
+      label: 'certificate authority',
+      provider: () => document.getElementById('enable_ca'),
+      autoRemove: false,
+      tickDependentsOnEnable: false,
+      dependents: [checkboxDependent('use_tls', 'TLS')],
+    });
+  }
+  return rules.filter(rule => rule.provider());
+}
+
+let dependencyBusy = false;
+
+// Sets a checkbox and fires its change event so the existing per-field
+// handlers (panels, image groups, package overrides) stay in sync. The
+// delegated dependency listener ignores these events while dependencyBusy.
+function setCheckboxAndNotify(cb, checked) {
+  if (!cb || cb.checked === checked) return;
+  cb.checked = checked;
+  cb.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+function capitalize(text) {
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : text;
+}
+
+function showDependencyNote(anchor, text) {
+  if (!anchor || !text) return;
+  const host = anchor.closest('.form-row, .section-header') || anchor;
+  let note = host.nextElementSibling;
+  if (!note || !note.classList.contains('dependency-note')) {
+    note = document.createElement('p');
+    note.className = 'hint dependency-note';
+    note.setAttribute('role', 'status');
+    host.after(note);
+  }
+  note.textContent = text;
+  clearTimeout(note._dependencyTimer);
+  note._dependencyTimer = setTimeout(() => note.remove(), 8000);
+}
+
+function ruleIsNeeded(rule) {
+  return rule.dependents.some(dep => dep.active());
+}
+
+function ensureRuleProvider(rule, dep, anchor) {
+  const provider = rule.provider();
+  if (!provider || provider.checked) return;
+  setCheckboxAndNotify(provider, true);
+  showDependencyNote(anchor, `${capitalize(rule.label)} turned on because ${dep.label} is selected.`);
+}
+
+// Turns off everything that needs the provider. Returns false if the user
+// cancelled; the provider is then turned back on.
+function cascadeRuleOff(rule, anchor) {
+  const active = rule.dependents.filter(dep => dep.active());
+  if (!active.length) return true;
+  const confirmDep = active.find(dep => dep.needsConfirm);
+  if (confirmDep) {
+    const names = confirmDep.describe();
+    const others = active.filter(dep => dep !== confirmDep).map(dep => dep.label);
+    const msg = `Turning off the ${rule.label} also removes ${names.length === 1 ? 'this PMM client' : 'these PMM clients'} without MongoDB: ${names.join(', ')}.` +
+      (others.length ? `\nThese options are also turned off: ${others.join(', ')}.` : '') +
+      '\n\nContinue?';
+    if (!confirm(msg)) {
+      setCheckboxAndNotify(rule.provider(), true);
+      return false;
+    }
+  }
+  const changed = active.flatMap(dep => dep.deactivate());
+  if (changed.length) showDependencyNote(anchor, `Turned off because the ${rule.label} is off: ${changed.join(', ')}.`);
+  return true;
+}
+
+// Runs the dependency rules for one event. `stateFor(dep)` returns true when
+// that dependent was just turned on, false when it was turned off, null when
+// the event does not concern it.
+function applyDependentChange(stateFor, anchor) {
+  if (dependencyBusy) return;
+  dependencyBusy = true;
+  try {
+    dependencyRules().forEach(rule => {
+      rule.dependents.forEach(dep => {
+        const state = stateFor(dep);
+        if (state === true) {
+          ensureRuleProvider(rule, dep, anchor);
+        } else if (state === false && rule.autoRemove && !ruleIsNeeded(rule)) {
+          const provider = rule.provider();
+          if (provider?.checked) {
+            setCheckboxAndNotify(provider, false);
+            showDependencyNote(anchor, `${capitalize(rule.label)} removed because nothing uses it anymore.`);
+          }
+        }
+      });
+    });
+  } finally {
+    dependencyBusy = false;
+  }
+  refreshOptionConflicts();
+}
+
+// Delegated handler for every change event in the form.
+function onDependencyChange(target) {
+  if (dependencyBusy || !target) return;
+  dependencyBusy = true;
+  try {
+    dependencyRules().forEach(rule => {
+      if (target !== rule.provider()) return;
+      if (target.checked) {
+        if (rule.tickDependentsOnEnable) {
+          rule.dependents.filter(dep => dep.activateAll).forEach(dep => dep.activateAll());
+        }
+      } else {
+        cascadeRuleOff(rule, target);
+      }
+    });
+  } finally {
+    dependencyBusy = false;
+  }
+  applyDependentChange(dep => dep.triggeredBy(target), target);
+}
+
+// On page load: make sure every provider that something needs is on, so a
+// saved environment always opens in a consistent state.
+function normalizeDependencies() {
+  dependencyBusy = true;
+  try {
+    dependencyRules().forEach(rule => {
+      const provider = rule.provider();
+      if (provider && !provider.checked && ruleIsNeeded(rule)) setCheckboxAndNotify(provider, true);
+    });
+  } finally {
+    dependencyBusy = false;
+  }
+  refreshOptionConflicts();
+}
+
+// New cluster/replica set block: apply conflicts, then (Docker) inherit the
+// monitoring/backup toggles from servers that are already included.
+function initTopologyBlockDependencies(block) {
+  refreshOptionConflicts();
+  dependencyBusy = true;
+  try {
+    dependencyRules().filter(rule => rule.tickDependentsOnEnable && rule.provider()?.checked).forEach(rule => {
+      rule.dependents.filter(dep => dep.kind === 'checkbox').forEach(dep => {
+        dep.names.forEach(name => {
+          const cb = block.querySelector(`input[name="${name}"]`);
+          if (cb && !cb.disabled) setCheckboxAndNotify(cb, true);
+        });
+      });
+    });
+  } finally {
+    dependencyBusy = false;
+  }
+}
+
+function onAddBareClientClick(btn) {
+  addBareClient();
+  applyDependentChange(dep => (dep.kind === 'bareClients' ? true : null), btn);
+}
+
+function removeBareClientRow(btn) {
+  const anchor = document.querySelector('#bare-clients-container')?.previousElementSibling;
+  btn.closest('.bare-client-row')?.remove();
+  applyDependentChange(dep => (dep.kind === 'bareClients' ? false : null), anchor);
+}
+
+// ──────────── Conflicting options ────────────
+// Options that cannot be combined are greyed out with a tooltip:
+//   - TLS and Search/Vector Search in the same block (managed TLS platforms)
+//   - PBM on MongoDB 9.x
+//   - Encryption at rest (Vault) with a non-PSMDB distribution or image
+function setConflictState(input, reason) {
+  if (!input) return;
+  const label = input.closest('label');
+  if (reason) {
+    input.disabled = true;
+    input.dataset.conflictDisabled = '1';
+    if (label) {
+      label.classList.add('option-disabled');
+      label.title = reason;
+    }
+  } else if (input.dataset.conflictDisabled) {
+    input.disabled = false;
+    delete input.dataset.conflictDisabled;
+    if (label) {
+      label.classList.remove('option-disabled');
+      label.removeAttribute('title');
+    }
+  }
+}
+
+function topologyBlocks() {
+  return Array.from(document.querySelectorAll('#clusters-container > .component-block, #replsets-container > .component-block'));
+}
+
+function topologyBlockPrefix(block) {
+  return block.parentElement?.id === 'clusters-container' ? 'cluster' : 'replset';
+}
+
+// Mirrors parseMongoVersion in clustersync.go: "8.0", "psmdb-90", "repo/image:9.0.1".
+function mongoMajorFromVersion(value) {
+  const v = String(value || '');
+  let m = /(?:^|[:_-])(\d+)\.(\d+)/.exec(v);
+  if (m) return parseInt(m[1], 10);
+  m = /^psmdb-(\d+)(\d)$/.exec(v);
+  return m ? parseInt(m[1], 10) : 0;
+}
+
+function topologyBlockMongoMajor(block, prefix) {
+  const value = PLATFORM === 'docker'
+    ? getBlockImageValue(block, `${prefix}_psmdb_image[]`, 'percona-server-mongodb')
+    : (block.querySelector(`select[name="${prefix}_mongo_release[]"]`)?.value || '');
+  return mongoMajorFromVersion(value);
+}
+
+// Mirrors validateVaultConfig in vault.go.
+function topologyBlockIsPSMDB(block, prefix) {
+  if (PLATFORM === 'docker') {
+    const image = getBlockImageValue(block, `${prefix}_psmdb_image[]`, 'percona-server-mongodb') || 'percona/percona-server-mongodb:latest';
+    return /(^|\/)percona\/percona-server-mongodb[:@]/.test(image);
+  }
+  const dist = block.querySelector(`select[name="${prefix}_mongodb_distribution[]"]`);
+  return !dist || (dist.value || 'psmdb') === 'psmdb';
+}
+
+let conflictsBusy = false;
+
+function refreshOptionConflicts() {
+  if (conflictsBusy) return;
+  conflictsBusy = true;
+  const pbmUnticked = [];
+  try {
+    const vault = document.querySelector('#config-form input[name="vault_encryption"]');
+    const vaultOn = !!vault?.checked;
+    const nonPSMDB = [];
+    topologyBlocks().forEach(block => {
+      const prefix = topologyBlockPrefix(block);
+      const field = name => block.querySelector(`input[name="${prefix}_${name}[]"]`);
+
+      const tls = field('use_tls');
+      const mongot = field('enable_mongot');
+      if (tls && mongot) {
+        setConflictState(mongot, tls.checked && !mongot.checked
+          ? 'Search/Vector Search cannot be used with managed TLS yet. Untick TLS to enable it.' : '');
+        setConflictState(tls, mongot.checked && !tls.checked
+          ? 'Managed TLS cannot be used with Search/Vector Search yet. Untick Search/Vector Search to enable it.' : '');
+      }
+
+      const pbm = field('enable_pbm');
+      if (pbm) {
+        const major = topologyBlockMongoMajor(block, prefix);
+        if (major >= 9) {
+          if (pbm.checked) {
+            dependencyBusy = true;
+            try { setCheckboxAndNotify(pbm, false); } finally { dependencyBusy = false; }
+            pbmUnticked.push(pbm);
+          }
+          setConflictState(pbm, `PBM does not support MongoDB ${major}.x backup and restore yet.`);
+        } else {
+          setConflictState(pbm, '');
+        }
+      }
+
+      const dist = block.querySelector(`select[name="${prefix}_mongodb_distribution[]"]`);
+      if (dist) {
+        Array.from(dist.options).forEach(opt => {
+          if (opt.value === 'psmdb') return;
+          opt.disabled = vaultOn;
+          opt.title = vaultOn ? 'Encryption at rest needs Percona Server for MongoDB.' : '';
+        });
+      }
+      if (!topologyBlockIsPSMDB(block, prefix)) nonPSMDB.push(topologyBlockLabel(block) || prefix);
+    });
+
+    if (vault) {
+      const warning = document.getElementById('vault-psmdb-warning');
+      const list = nonPSMDB.join(', ');
+      setConflictState(vault, !vaultOn && nonPSMDB.length ? `Encryption at rest needs PSMDB. Not using PSMDB: ${list}.` : '');
+      if (warning) {
+        warning.style.display = vaultOn && nonPSMDB.length ? '' : 'none';
+        warning.textContent = vaultOn && nonPSMDB.length
+          ? `Encryption at rest needs Percona Server for MongoDB. Switch these to PSMDB: ${list}.` : '';
+      }
+    }
+  } finally {
+    conflictsBusy = false;
+  }
+  if (pbmUnticked.length) {
+    showDependencyNote(pbmUnticked[0], `PBM agent turned off on ${pbmUnticked.map(topologyBlockLabel).join(', ')}: PBM does not support MongoDB 9.x yet.`);
+    const pbmNames = topologyCheckboxNames('enable_pbm');
+    applyDependentChange(dep => (dep.kind === 'checkbox' && dep.names.some(n => pbmNames.includes(n)) ? false : null), pbmUnticked[0]);
+  }
+}
+
+// Backup (PBM) section on AWS/GCP/Azure/CHAOS: show the storage settings only
+// when backups are enabled, and the fields for the chosen storage mode
+// (create / existing on cloud, seaweedfs / existing on CHAOS).
+function toggleBackupSettings() {
+  const enabled = !!document.getElementById('enable_backup')?.checked;
+  const body = document.getElementById('backup-settings-body');
+  if (body) body.style.display = enabled ? '' : 'none';
+  const mode = document.getElementById('backup_bucket_mode');
+  if (!mode) return;
+  document.querySelectorAll('[data-backup-mode]').forEach(el => {
+    el.style.display = el.dataset.backupMode === mode.value ? '' : 'none';
   });
-}
-
-function syncDockerPmmDependencies(checked) {
-  setDockerMonitoringCheckboxes('cluster_enable_pmm', checked, 'pmm');
-  setDockerMonitoringCheckboxes('replset_enable_pmm', checked, 'pmm');
-}
-
-function syncDockerSeaweedFSDependencies(checked) {
-  setDockerMonitoringCheckboxes('cluster_enable_pbm', checked, 'pbm');
-  setDockerMonitoringCheckboxes('replset_enable_pbm', checked, 'pbm');
-}
-
-function syncDockerServiceToggleFromDependencies(toggleId, containerId, addFn, dependencyNames, credRowId = '') {
-  if (PLATFORM !== 'docker') return;
-  const toggle = document.getElementById(toggleId);
-  if (!toggle) return;
-  const enabled = dependencyNames.some(name =>
-    Array.from(document.querySelectorAll(`input[name="${name}[]"]`)).some(cb => cb.checked)
-  );
-  toggle.checked = enabled;
-  toggleDockerSingleServer(containerId, toggle, addFn);
-  if (credRowId) toggleCredentialRow(credRowId, enabled);
-}
-
-function syncDockerPmmServerToggle() {
-  syncDockerServiceToggleFromDependencies(
-    'enable-pmm-docker',
-    'pmm-servers-container',
-    addPmmServer,
-    ['cluster_enable_pmm', 'replset_enable_pmm'],
-  );
-}
-
-function syncDockerSeaweedFSServerToggle() {
-  syncDockerServiceToggleFromDependencies(
-    'enable-seaweedfs-docker',
-    'seaweedfs-servers-container',
-    addSeaweedFSServer,
-    ['cluster_enable_pbm', 'replset_enable_pbm'],
-    'cred-seaweedfs-row',
-  );
 }
 
 function onDockerPmmFeatureToggle(checkbox) {
   toggleImageGroup(checkbox, 'pmm');
-  if (checkbox.checked) ensureDockerPmmServer();
-  syncDockerPmmServerToggle();
 }
 
 function onDockerPbmFeatureToggle(checkbox) {
   toggleImageGroup(checkbox, 'pbm');
-  if (checkbox.checked) ensureDockerSeaweedFSServer();
-  syncDockerSeaweedFSServerToggle();
 }
 
 function onDockerMongotFeatureToggle(checkbox) {
@@ -2222,26 +2850,6 @@ function togglePackageBlock(btn) {
   btn.textContent = hidden ? '▲ Collapse' : '▼ Customize';
 }
 
-// Toggle the SeaweedFS VM body and Customize button when enable_seaweedfs checkbox changes.
-(function() {
-  const cb = document.getElementById('enable_seaweedfs');
-  if (!cb) return;
-  const body = document.getElementById('seaweedfs-vm-body');
-  const toggleBtn = document.getElementById('seaweedfs-details-toggle');
-  cb.addEventListener('change', () => {
-    if (body) body.style.display = cb.checked ? '' : 'none';
-    if (toggleBtn) {
-      toggleBtn.style.display = cb.checked ? '' : 'none';
-      // Collapse the customize body when SeaweedFS is disabled.
-      if (!cb.checked) {
-        const detailsBody = document.getElementById('seaweedfs-details-body');
-        if (detailsBody) detailsBody.style.display = 'none';
-        toggleBtn.textContent = '▼ Customize';
-      }
-    }
-  });
-})();
-
 function toggleSeaweedFSDetails(btn) {
   const body = document.getElementById('seaweedfs-details-body');
   if (!body) return;
@@ -2266,12 +2874,17 @@ function toggleChaosSettings(btn) {
   btn.textContent = hidden ? '▲ Collapse' : '▼ Customize';
 }
 
-function toggleDockerYcsbSection(checkbox) {
-  const body = document.getElementById('ycsb-docker-body');
-  if (!body) return;
-  body.style.display = checkbox.checked ? '' : 'none';
-  body.querySelectorAll('input,select,textarea').forEach(field => {
-    field.disabled = !checkbox.checked;
+function togglePlgmSection(checkbox) {
+  if (!checkbox) return;
+  ['plgm-client-wrap', 'plgm-tunnel-body', 'plgm-docker-body'].forEach(id => {
+    const body = document.getElementById(id);
+    if (!body) return;
+    body.style.display = checkbox.checked ? '' : 'none';
+    if (id !== 'plgm-client-wrap') {
+      body.querySelectorAll('input,select,textarea').forEach(field => {
+        field.disabled = !checkbox.checked;
+      });
+    }
   });
 }
 
@@ -2301,13 +2914,6 @@ function onPmmAgentFeatureToggle(checkbox) {
 
 function onPbmAgentFeatureToggle(checkbox) {
   togglePackageFeatureGroup(checkbox, 'pbm');
-  if (PLATFORM === 'chaos' && checkbox.checked) {
-    const seaweedfs = document.getElementById('enable_seaweedfs');
-    if (seaweedfs && !seaweedfs.checked) {
-      seaweedfs.checked = true;
-      seaweedfs.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-  }
 }
 
 function toggleAuditFilter(checkbox) {
@@ -2619,6 +3225,7 @@ function refreshAllPackageVersions(block) {
 // Cascade: when the major MongoDB release (psmdb-70, psmdb-80…) changes,
 // repopulate the specific version dropdown.
 function onMongoReleaseChange(sel) {
+  refreshOptionConflicts(); // PBM is not available for MongoDB 9.x
   let versionSel = null;
   if (sel.id === 'mongo_release') {
     versionSel = document.getElementById('mongo_version');
@@ -3235,60 +3842,8 @@ function buildCloudComputeRows(type) {
         ${rows}
       </div>`;
   }
-  const ph = PLATFORM === 'aws' ? 't3.medium' : PLATFORM === 'gcp' ? 'e2-medium' : 'Standard_B2s';
-  const diskPh = PLATFORM === 'aws' ? 'gp2' : PLATFORM === 'gcp' ? 'pd-standard' : 'Standard_LRS';
-  const diskHint = PLATFORM === 'aws' ? 'gp2, gp3, io1, io2' : PLATFORM === 'gcp' ? 'pd-standard, pd-ssd, pd-balanced' : 'Standard_LRS, Premium_LRS, StandardSSD_LRS';
-  let rows = '';
-  if (type === 'cluster') {
-    rows = `
-      <div class="form-row">
-        <div class="form-group"><label>Shard Svr Instance Type <span class="field-tip" data-tip="Cloud instance type for shard server nodes (e.g. t3.medium for AWS).">ⓘ</span></label>
-          <input type="text" name="shardsvr_type" placeholder="${escHtml(ph)}"></div>
-        <div class="form-group"><label>Shard Svr Disk (GB) <span class="field-tip" data-tip="Data disk size (GB) for shard server instances.">ⓘ</span></label>
-          <input type="number" name="shardsvr_volume_size" placeholder="50" min="10"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label>Config Svr Instance Type <span class="field-tip" data-tip="Cloud instance type for config server nodes.">ⓘ</span></label>
-          <input type="text" name="configsvr_type" placeholder="${escHtml(ph)}"></div>
-        <div class="form-group"><label>Config Svr Disk (GB) <span class="field-tip" data-tip="Data disk size (GB) for config server instances.">ⓘ</span></label>
-          <input type="number" name="configsvr_volume_size" placeholder="20" min="10"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label>Mongos Instance Type <span class="field-tip" data-tip="Cloud instance type for mongos router nodes.">ⓘ</span></label>
-          <input type="text" name="mongos_type" placeholder="${escHtml(ph)}"></div>
-        <div class="form-group"><label>Arbiter Instance Type <span class="field-tip" data-tip="Cloud instance type for arbiter nodes.">ⓘ</span></label>
-          <input type="text" name="arbiter_type" placeholder="${escHtml(ph)}"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label>Data Disk Type <span class="field-tip" data-tip="Disk type for data volumes (e.g. gp2 for AWS, pd-standard for GCP).">ⓘ</span></label>
-          <input type="text" name="data_disk_type" placeholder="${escHtml(diskPh)}">
-          <small>${escHtml(diskHint)}</small></div>
-      </div>`;
-  } else {
-    rows = `
-      <div class="form-row">
-        <div class="form-group"><label>Data Node Instance Type <span class="field-tip" data-tip="Cloud instance type for replica set data nodes.">ⓘ</span></label>
-          <input type="text" name="replsetsvr_type" placeholder="${escHtml(ph)}"></div>
-        <div class="form-group"><label>Data Node Disk (GB) <span class="field-tip" data-tip="Data disk size (GB) for data node instances.">ⓘ</span></label>
-          <input type="number" name="replsetsvr_volume_size" placeholder="100" min="10"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label>Arbiter Instance Type <span class="field-tip" data-tip="Cloud instance type for arbiter nodes.">ⓘ</span></label>
-          <input type="text" name="arbiter_type" placeholder="${escHtml(ph)}"></div>
-        <div class="form-group"><label>Data Disk Type <span class="field-tip" data-tip="Disk type for data volumes (e.g. gp2 for AWS, pd-standard for GCP).">ⓘ</span></label>
-          <input type="text" name="data_disk_type" placeholder="${escHtml(diskPh)}">
-          <small>${escHtml(diskHint)}</small></div>
-      </div>`;
-  }
-  return `
-    <div class="subsection-header">
-      <span class="subsection-title">Compute Resources</span>
-      <button type="button" class="btn btn-outline btn-sm compute-toggle-btn" onclick="toggleComputeBlock(this)">▼ Customize</button>
-    </div>
-    <div class="compute-block-body" style="display:none">
-      <p class="hint" style="margin-bottom:0.75rem">These compute settings are shared across <strong>all ${type === 'cluster' ? 'clusters' : 'replica sets'}</strong> in this deployment. Leave blank for Terraform defaults.</p>
-      ${rows}
-    </div>`;
+  // Cloud compute & storage settings live in the shared "Compute & Storage" section.
+  return '';
 }
 
 function buildFeatureRows(type) {
@@ -3347,8 +3902,7 @@ function addCluster() {
   c.querySelectorAll('select[name="cluster_mongo_release[]"]').forEach(onMongoReleaseChange);
   syncPerconaSearchRepoControl(c);
   if (PLATFORM !== 'docker') refreshAllPackageVersions(c);
-  syncDockerPmmDependencies(document.getElementById('enable-pmm-docker')?.checked);
-  syncDockerSeaweedFSDependencies(document.getElementById('enable-seaweedfs-docker')?.checked);
+  initTopologyBlockDependencies(c);
 }
 
 function addReplset() {
@@ -3390,8 +3944,7 @@ function addReplset() {
   c.querySelectorAll('select[name="replset_mongo_release[]"]').forEach(onMongoReleaseChange);
   syncPerconaSearchRepoControl(c);
   if (PLATFORM !== 'docker') refreshAllPackageVersions(c);
-  syncDockerPmmDependencies(document.getElementById('enable-pmm-docker')?.checked);
-  syncDockerSeaweedFSDependencies(document.getElementById('enable-seaweedfs-docker')?.checked);
+  initTopologyBlockDependencies(c);
 }
 
 function addPmmServer() {
@@ -3482,7 +4035,7 @@ function addBareClient(name, cfg = {}) {
       <input type="text" name="bare_client_image_custom[]" value="${listed ? '' : escHtml(image)}" placeholder="${docker ? 'registry/repo:tag' : 'CHAOS OS image'}" style="${listed ? 'display:none;' : ''}margin-top:0.3rem"></div>
     ${clientFields}
     <div class="form-group form-group-remove"><label aria-hidden="true">&nbsp;</label>
-      <button type="button" class="btn btn-danger btn-sm" title="Remove this client" onclick="this.closest('.bare-client-row').remove()">✕</button></div>`;
+      <button type="button" class="btn btn-danger btn-sm" title="Remove this client" onclick="removeBareClientRow(this)">✕</button></div>`;
   container.appendChild(row);
 }
 
@@ -3585,9 +4138,163 @@ function toggleCAProvisioning(cb) {
   if (cb.checked) toggleCASettings();
 }
 
+// ──────────── Compute & Storage: presets, disk performance, live validation ────────────
+const HW_PRESETS    = {{json (hardwarePresets .Platform)}} || [];
+const HW_FIELDS     = {{json (hardwareFormFields)}};
+const HW_DISK_TYPES = {{json (diskTypes .Platform)}} || [];
+const HW_BENCH      = PLATFORM === 'aws' || PLATFORM === 'gcp';
+let hwApplyingPreset = false;
+let hwValidateTimer = null;
+
+function hwDiskSpec(name) {
+  const fallback = PLATFORM === 'aws' ? 'gp2' : 'pd-standard';
+  return HW_DISK_TYPES.find(d => d.name === (name || fallback)) || null;
+}
+
+function hwSetField(name, value) {
+  const el = document.querySelector(`#config-form [name="${name}"]`);
+  if (!el) return;
+  if (el.type === 'checkbox') el.checked = !!value;
+  else el.value = (value === undefined || value === null) ? '' : String(value);
+}
+
+function applyHardwarePreset(id) {
+  const desc = document.getElementById('hardware_preset_desc');
+  const preset = HW_PRESETS.find(p => p.id === id);
+  if (desc) desc.textContent = preset ? preset.description : 'Set every machine and disk option yourself.';
+  if (!preset) { setHardwareDetailsOpen(true); return; } // "Custom": keep current values, show them
+  hwApplyingPreset = true;
+  HW_FIELDS.forEach(f => {
+    if (f === 'subnet_count' && !(f in preset.fields)) return; // keep the AWS subnet layout unless the preset sets it
+    hwSetField(f, preset.fields[f]);
+  });
+  hwApplyingPreset = false;
+  updateDiskPerfFields();
+  scheduleHardwareValidation();
+}
+
+function setHardwareDetailsOpen(open) { setCollapsibleOpen('hardware-details', open); }
+
+// Expand/collapse a "Customize" panel by id (toggle button id = `${id}-toggle`).
+function setCollapsibleOpen(id, open) {
+  const body = document.getElementById(id);
+  const btn = document.getElementById(`${id}-toggle`);
+  if (!body || !btn) return;
+  body.style.display = open ? '' : 'none';
+  btn.textContent = open ? '▲ Collapse' : '▼ Customize';
+}
+
+function updateDiskPerfFields() {
+  if (!HW_BENCH) return;
+  const spec = hwDiskSpec(document.getElementById('data_disk_type')?.value);
+  const show = (groupId, inputId, hintId, enabled, min, max, unit) => {
+    const group = document.getElementById(groupId);
+    if (!group) return;
+    group.style.display = enabled ? '' : 'none';
+    const input = document.getElementById(inputId);
+    if (!enabled && input) input.value = '';
+    const hint = document.getElementById(hintId);
+    if (hint) hint.textContent = enabled ? `${min}–${max}${unit}; empty uses the disk default` : '';
+  };
+  show('data_disk_iops_group', 'data_disk_iops', 'data_disk_iops_hint', spec && spec.max_iops > 0,
+       spec?.min_iops, spec?.max_iops, spec?.max_iops_per_gb ? `, max ${spec.max_iops_per_gb} per GB` : '');
+  show('data_disk_throughput_group', 'data_disk_throughput', 'data_disk_throughput_hint', spec && spec.max_throughput > 0,
+       spec?.min_throughput, spec?.max_throughput, ' MiB/s');
+  const hint = document.getElementById('data_disk_type_hint');
+  if (hint) hint.textContent = spec?.hint || '';
+}
+
+// Fields that are not plain inputs: checkboxes, zone list and labels.
+function collectHardwareExtras(fd) {
+  const out = {};
+  if (!HW_BENCH) return out;
+  out.compact_placement = fd.has('compact_placement');
+  if (PLATFORM === 'gcp') {
+    out.tier1_networking = fd.has('tier1_networking');
+    const zones = (fd.get('zones') || '').split(',').map(z => z.trim()).filter(Boolean);
+    if (zones.length) out.zones = zones;
+  }
+  const labels = {};
+  (fd.get('resource_labels') || '').split('\n').forEach(line => {
+    const t = line.trim();
+    if (!t) return;
+    const i = t.indexOf('=');
+    labels[(i < 0 ? t : t.slice(0, i)).trim()] = i < 0 ? '' : t.slice(i + 1).trim();
+  });
+  if (Object.keys(labels).length) out.labels = labels;
+  return out;
+}
+
+// Minimal config for /api/hardware/validate: hardware fields plus which roles exist.
+function collectHardwareConfig() {
+  const form = document.getElementById('config-form');
+  const fd = new FormData(form);
+  const cfg = { region: fd.get('region') || '', enable_plgm: fd.has('enable_plgm'), clusters: {}, replsets: {} };
+  HW_FIELDS.forEach(f => {
+    const v = fd.get(f);
+    if (v === null || v === '' || f === 'compact_placement' || f === 'tier1_networking') return;
+    cfg[f] = numericFields.has(f) ? parseInt(v, 10) : v;
+  });
+  Object.assign(cfg, collectHardwareExtras(fd));
+  document.querySelectorAll('#clusters-container > .component-block').forEach((b, i) => {
+    const n = parseInt(b.querySelector('[name="cluster_arbiters_per_replset[]"]')?.value ?? '1', 10);
+    cfg.clusters[`c${i}`] = { arbiters_per_replset: isNaN(n) ? 1 : n };
+  });
+  document.querySelectorAll('#replsets-container > .component-block').forEach((b, i) => {
+    const n = parseInt(b.querySelector('[name="replset_arbiters[]"]')?.value ?? '1', 10);
+    cfg.replsets[`r${i}`] = { arbiters_per_replset: isNaN(n) ? 1 : n };
+  });
+  return cfg;
+}
+
+function scheduleHardwareValidation() {
+  if (!HW_BENCH) return;
+  clearTimeout(hwValidateTimer);
+  hwValidateTimer = setTimeout(async () => {
+    const box = document.getElementById('hardware-errors');
+    if (!box) return;
+    try {
+      const resp = await fetch(`/api/hardware/validate?platform=${PLATFORM}`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(collectHardwareConfig()),
+      });
+      const data = await resp.json();
+      const errs = data.errors || (data.error ? [data.error] : []);
+      box.innerHTML = errs.map(e => `⚠ ${escHtml(e)}`).join('<br>');
+      box.style.display = errs.length ? '' : 'none';
+      if (errs.length) setHardwareDetailsOpen(true); // errors point at fields inside the panel
+      if (errs.some(e => /Subnet Count/.test(e))) setCollapsibleOpen('cloud-network-details', true);
+      if (errs.some(e => /plgm client/.test(e))) setCollapsibleOpen('plgm-client-details', true);
+    } catch (_) { /* validation is advisory; the server re-checks on save */ }
+  }, 300);
+}
+
+function initHardwareSection() {
+  if (!HW_BENCH) return;
+  const section = document.getElementById('compute-storage-section');
+  const presetSel = document.getElementById('hardware_preset');
+  const markCustom = () => { if (!hwApplyingPreset && presetSel && presetSel.value) { presetSel.value = ''; applyHardwarePreset(''); } };
+  const watched = new Set([...HW_FIELDS, 'zones', 'resource_labels', 'enable_plgm', 'region']);
+  document.getElementById('config-form').addEventListener('input', e => {
+    const name = e.target.name || '';
+    if (HW_FIELDS.includes(name) && section?.contains(e.target) || name === 'plgm_type' || name === 'subnet_count') markCustom();
+    if (name === 'data_disk_type') updateDiskPerfFields();
+    if (watched.has(name) || name.includes('arbiters')) scheduleHardwareValidation();
+  });
+  document.getElementById('config-form').addEventListener('change', e => {
+    if (e.target.name === 'data_disk_type') updateDiskPerfFields();
+  });
+  const desc = document.getElementById('hardware_preset_desc');
+  const current = HW_PRESETS.find(p => p.id === presetSel?.value);
+  if (desc && current) desc.textContent = current.description;
+  updateDiskPerfFields();
+  scheduleHardwareValidation();
+}
+document.addEventListener('DOMContentLoaded', initHardwareSection);
+
 // Integer fields – send as numbers in JSON (not strings) so Go unmarshal works cleanly.
 const numericFields = new Set([
   'pmm_volume_size','pmm_port','subnet_count','backup_retention',
+  'data_disk_iops','data_disk_throughput','boot_disk_size',
   'shardsvr_volume_size','configsvr_volume_size','replsetsvr_volume_size',
   // CHAOS-specific numeric fields
   'delete_after_days',
@@ -3697,7 +4404,9 @@ function addFirewallRule() {
 
 // ── Cloud Regions ─────────────────────────────────────────────────────────────
 // Default region per platform when no value has been saved yet.
-const DEFAULT_REGION = { gcp: 'northamerica-northeast1', aws: 'us-east-1', azure: 'eastus' };
+const DEFAULT_REGION = { [PLATFORM]: {{json (defaultRegion .Platform)}} };
+// Machine images cached server-side (keyed by region) so the selector fills without a request.
+const PRELOADED_IMAGES = {{json .PreloadedImages}} || {};
 
 // Populates the region/location <select> from the API, preserving the current value.
 async function loadRegions(refresh = false) {
@@ -3772,7 +4481,7 @@ loadImages();
 // ── Cloud Machine Images ──────────────────────────────────────────────────────
 
 // Populates the machine_image <select> with images grouped by OS.
-async function loadImages() {
+async function loadImages(refresh = false) {
   if (PLATFORM === 'docker' || PLATFORM === 'azure') return;
   const imgSel = document.getElementById('machine_image');
   if (!imgSel) return;
@@ -3781,39 +4490,24 @@ async function loadImages() {
   if (!region) return;
 
   const currentVal = imgSel.value || imgSel.querySelector('option[selected]')?.value || '';
+  // GCP images are global, so any preloaded list applies to every region.
+  const preloaded = PRELOADED_IMAGES[region] || (PLATFORM === 'gcp' ? Object.values(PRELOADED_IMAGES)[0] : null);
+  if (!refresh && preloaded && Object.keys(preloaded).length) {
+    renderImageOptions(imgSel, preloaded, currentVal);
+    return;
+  }
   imgSel.innerHTML = '<option value="">— loading images… —</option>';
   try {
-    const resp = await fetch(`/api/images/${PLATFORM}?region=${encodeURIComponent(region)}`);
+    const query = new URLSearchParams({region});
+    if (refresh) query.set('refresh', '1');
+    const resp = await fetch(`/api/images/${PLATFORM}?${query}`);
     if (!resp.ok) return;
     const data = await resp.json();
     const groups = data.images || {};
-    imgSel.innerHTML = '<option value="">— select an image —</option>';
-    const osNames = Object.keys(groups).sort();
-    if (osNames.length === 0) {
-      imgSel.innerHTML = '<option value="">— no images found —</option>';
-      if (currentVal) {
-        const opt = new Option(currentVal, currentVal, false, true);
-        imgSel.insertBefore(opt, imgSel.firstChild);
-      }
-      return;
-    }
-    let matched = false;
-    osNames.forEach(os => {
-      const grp = document.createElement('optgroup');
-      grp.label = os;
-      (groups[os] || []).forEach(img => {
-        const label = img.name || img.id;
-        const opt = new Option(label + ' (' + img.id + ')', img.id);
-        if (img.id === currentVal) { opt.selected = true; matched = true; }
-        grp.appendChild(opt);
-      });
-      imgSel.appendChild(grp);
-    });
-    // Keep stale saved value visible even if not in the freshly-fetched list.
-    if (currentVal && !matched) {
-      const opt = new Option(currentVal, currentVal, true, true);
-      imgSel.insertBefore(opt, imgSel.firstChild);
-    }
+    if (Object.keys(groups).length) PRELOADED_IMAGES[region] = groups;
+    // Ignore the response if the user switched region meanwhile.
+    if (regionSel && regionSel.value !== region) return;
+    renderImageOptions(imgSel, groups, currentVal);
   } catch (e) {
     imgSel.innerHTML = '<option value="">— image fetch failed —</option>';
     if (currentVal) {
@@ -3823,11 +4517,49 @@ async function loadImages() {
   }
 }
 
+function renderImageOptions(imgSel, groups, currentVal) {
+  const osNames = Object.keys(groups).sort();
+  if (osNames.length === 0) {
+    imgSel.innerHTML = '<option value="">— no images found —</option>';
+    if (currentVal) {
+      const opt = new Option(currentVal, currentVal, false, true);
+      imgSel.insertBefore(opt, imgSel.firstChild);
+    }
+    appendCustomImageOption(imgSel, currentVal);
+    return;
+  }
+  imgSel.innerHTML = '<option value="">— select an image —</option>';
+  let matched = false;
+  osNames.forEach(os => {
+    const grp = document.createElement('optgroup');
+    grp.label = os;
+    (groups[os] || []).forEach(img => {
+      const label = img.name || img.id;
+      const opt = new Option(label + ' (' + img.id + ')', img.id);
+      if (img.id === currentVal) { opt.selected = true; matched = true; }
+      grp.appendChild(opt);
+    });
+    imgSel.appendChild(grp);
+  });
+  // Keep stale saved value visible even if not in the freshly-fetched list.
+  if (currentVal && currentVal !== '__custom__' && !matched) {
+    const opt = new Option(currentVal, currentVal, true, true);
+    imgSel.insertBefore(opt, imgSel.firstChild);
+  }
+  appendCustomImageOption(imgSel, currentVal);
+}
+
+function appendCustomImageOption(imgSel, currentVal) {
+  if (!imgSel.querySelector('option[value="__custom__"]')) {
+    imgSel.appendChild(new Option('Custom…', '__custom__', false, currentVal === '__custom__'));
+  }
+}
+
 function reloadImages(evt) {
   evt.preventDefault();
   const imgSel = document.getElementById('machine_image');
   if (imgSel) imgSel.innerHTML = '<option value="">— refreshing… —</option>';
-  loadImages();
+  loadImages(true);
 }
 
 // On page load, populate the MongoDB specific version dropdown based on the
@@ -3852,13 +4584,15 @@ document.addEventListener('DOMContentLoaded', () => {
     refreshPmmServerImageTags({ preserveUnmatched: true });
   }
 
-  if (PLATFORM === 'docker') {
-    syncDockerPmmDependencies(document.getElementById('enable-pmm-docker')?.checked);
-    syncDockerSeaweedFSDependencies(document.getElementById('enable-seaweedfs-docker')?.checked);
-    syncDockerPmmServerToggle();
-    syncDockerSeaweedFSServerToggle();
-    toggleDockerYcsbSection(document.getElementById('enable_ycsb'));
-  }
+  // Turn on every server or CA that a saved option needs, then grey out
+  // conflicting options. Runs after the saved PMM clients are added above.
+  normalizeDependencies();
+  const configForm = document.getElementById('config-form');
+  configForm.addEventListener('change', e => onDependencyChange(e.target));
+  configForm.addEventListener('input', e => {
+    if (/_psmdb_image_custom$/.test(e.target.name || '')) refreshOptionConflicts();
+  });
+  togglePlgmSection(document.getElementById('enable_plgm'));
 
   // Async version refresh — updates global JS constants and repopulates selects.
   fetch('/api/versions')
@@ -4054,6 +4788,9 @@ document.getElementById('config-form').addEventListener('submit', async (e) => {
     'configsvr_type','configsvr_volume_size',
     'mongos_type','arbiter_type',
     'replsetsvr_type','replsetsvr_volume_size',
+    // Benchmark hardware tunables (AWS / GCP)
+    'hardware_preset','data_disk_iops','data_disk_throughput','configsvr_disk_type',
+    'boot_disk_type','boot_disk_size','min_cpu_platform','nic_type','zone_mode','plgm_type',
     // CHAOS-specific fields
     'delete_after_days',
     'shardsvr_cpu_cores','shardsvr_memory_gb',
@@ -4091,7 +4828,12 @@ document.getElementById('config-form').addEventListener('submit', async (e) => {
     }
   }
   config.use_spot_instances = fd.has('use_spot_instances');
-  config.enable_ycsb = fd.has('enable_ycsb');
+  Object.assign(config, collectHardwareExtras(fd));
+  config.enable_plgm = fd.has('enable_plgm');
+  if (config.enable_plgm && PLATFORM !== 'docker') {
+    const plgmLocalPort = (fd.get('plgm_local_port') || '').trim();
+    if (plgmLocalPort) config.plgm_local_port = plgmLocalPort;
+  }
   config.vault_encryption = fd.has('vault_encryption');
 	if (fd.has('enable_pcsm')) {
 	  const parseTopology = value => { const split = value.indexOf(':'); return {kind:value.slice(0, split), name:value.slice(split + 1)}; };
@@ -4129,12 +4871,14 @@ document.getElementById('config-form').addEventListener('submit', async (e) => {
     };
   }
 	if (PLATFORM === 'docker') {
-	  const ycsbImage = (fd.get('ycsb_image') || '').trim();
-	  const ycsbOsImage = (fd.get('ycsb_os_image') || '').trim();
-	  const ycsbContainerSuffix = (fd.get('ycsb_container_suffix') || '').trim();
-	  if (ycsbImage) config.ycsb_image = ycsbImage;
-	  if (ycsbOsImage) config.ycsb_os_image = ycsbOsImage;
-	  if (ycsbContainerSuffix) config.ycsb_container_suffix = ycsbContainerSuffix;
+	  const plgmImage = (fd.get('plgm_image') || '').trim();
+	  const plgmOsImage = (fd.get('plgm_os_image') || '').trim();
+	  const plgmContainerSuffix = (fd.get('plgm_container_suffix') || '').trim();
+	  const plgmExternalPort = parseInt(fd.get('plgm_external_port') || '', 10);
+	  if (plgmImage) config.plgm_image = plgmImage;
+	  if (plgmOsImage) config.plgm_os_image = plgmOsImage;
+	  if (plgmContainerSuffix) config.plgm_container_suffix = plgmContainerSuffix;
+	  if (plgmExternalPort > 0) config.plgm_external_port = plgmExternalPort;
 	}
   // Validate mongot version compatibility before sending to server.
   {
@@ -4159,8 +4903,43 @@ document.getElementById('config-form').addEventListener('submit', async (e) => {
     // user explicitly unchecked it; when checked send true so it's stored.
     config.enable_pmm = fd.has('enable_pmm');
   }
-  if (PLATFORM === 'chaos') {
-    config.enable_seaweedfs = fd.has('enable_seaweedfs');
+  if (['aws', 'gcp', 'azure', 'chaos'].includes(PLATFORM)) {
+    config.enable_backup = fd.has('enable_backup');
+    // "create" (cloud bucket) or "seaweedfs" (CHAOS VM) vs. "existing".
+    config.create_backup_bucket = (fd.get('backup_bucket_mode') || 'create') !== 'existing';
+    if (PLATFORM === 'chaos') {
+      config.enable_seaweedfs = config.enable_backup && config.create_backup_bucket;
+    }
+    if (config.enable_backup && !config.create_backup_bucket) {
+      const val = name => (fd.get(name) || '').trim();
+      const secret = fd.get('existing_bucket_secret_key') || '';
+      const missing = [];
+      config.existing_bucket_name = val('existing_bucket_name');
+      if (!config.existing_bucket_name) missing.push(PLATFORM === 'azure' ? 'Container Name' : 'Bucket Name');
+      if (PLATFORM === 'azure') {
+        config.existing_storage_account = val('existing_storage_account');
+        if (!config.existing_storage_account) missing.push('Storage Account');
+        if (!secret) missing.push('Storage Account Key');
+      } else {
+        config.existing_bucket_access_key = val('existing_bucket_access_key');
+        if (PLATFORM === 'aws' || PLATFORM === 'chaos') config.existing_bucket_region = val('existing_bucket_region');
+        if (PLATFORM === 'chaos') {
+          config.existing_bucket_endpoint = val('existing_bucket_endpoint');
+          if (config.existing_bucket_endpoint && !/^https?:\/\//.test(config.existing_bucket_endpoint)) {
+            missing.push('Endpoint URL starting with http:// or https://');
+          }
+        }
+        if (!config.existing_bucket_access_key) missing.push(PLATFORM === 'gcp' ? 'HMAC Access ID' : 'Access Key ID');
+        if (!secret) missing.push(PLATFORM === 'gcp' ? 'HMAC Secret' : 'Secret Access Key');
+      }
+      if (missing.length) {
+        alert(`Existing backup ${PLATFORM === 'azure' ? 'container' : 'bucket'} requires: ${missing.join(', ')}`);
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Save & Configure';
+        return;
+      }
+      config.existing_bucket_secret_key = secret;
+    }
   }
 
   if (PLATFORM !== 'docker') {

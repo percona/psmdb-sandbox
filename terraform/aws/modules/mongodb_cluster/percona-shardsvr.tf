@@ -53,6 +53,8 @@ resource "aws_ebs_volume" "shard_disk" {
   availability_zone = data.aws_subnet.details[each.value.replica_index % var.subnet_count].availability_zone
   size              = var.shardsvr_volume_size
   type              = var.data_disk_type
+  iops              = local.data_disk_iops
+  throughput        = local.data_disk_throughput
   tags = {
     Name        = "${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}svr${each.value.replica_index}-data"
     environment = var.env_tag
@@ -60,11 +62,26 @@ resource "aws_ebs_volume" "shard_disk" {
 }
 
 resource "aws_instance" "shard" {
-  for_each      = local.shard_members
-  ami           = lookup(var.image, var.region)
-  instance_type = var.shardsvr_type
-  subnet_id     = data.aws_subnet.details[each.value.replica_index % var.subnet_count].id
-  key_name      = var.my_key_pair
+  for_each        = local.shard_members
+  ami             = lookup(var.image, var.region)
+  instance_type   = var.shardsvr_type
+  placement_group = var.placement_group
+  root_block_device {
+    volume_type = var.boot_disk_type
+    volume_size = var.boot_disk_size
+  }
+  dynamic "instance_market_options" {
+    for_each = var.use_spot_instances ? [1] : []
+    content {
+      market_type = "spot"
+      spot_options {
+        instance_interruption_behavior = "terminate"
+        spot_instance_type             = "one-time"
+      }
+    }
+  }
+  subnet_id = data.aws_subnet.details[each.value.replica_index % var.subnet_count].id
+  key_name  = var.my_key_pair
   tags = {
     Name          = "${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}svr${each.value.replica_index}"
     ansible-group = tostring(each.value.shard_index)
@@ -104,7 +121,7 @@ resource "aws_instance" "shard" {
     mount $DEVICE /var/lib/mongo
 
     UUID=$(blkid -s UUID -o value "$DEVICE")
-    echo "UUID=$DEVICE /var/lib/mongo xfs defaults,noatime,nofail 0 2" >> /etc/fstab    
+    echo "UUID=$UUID /var/lib/mongo xfs defaults,noatime,nofail 0 2" >> /etc/fstab    
   EOT
   vpc_security_group_ids = [aws_security_group.mongodb_shardsvr_sg.id]
 }

@@ -13,6 +13,23 @@ terraform {
 
 provider "aws" {
   region = var.region
+
+  default_tags {
+    tags = var.labels
+  }
+}
+
+resource "aws_placement_group" "cluster" {
+  count    = var.compact_placement ? 1 : 0
+  name     = "${var.prefix}-cluster-placement"
+  strategy = "cluster"
+}
+
+locals {
+  placement_group           = var.compact_placement ? aws_placement_group.cluster[0].id : null
+  configsvr_disk_type       = coalesce(var.configsvr_disk_type, var.data_disk_type)
+  configsvr_disk_iops       = local.configsvr_disk_type == var.data_disk_type ? var.data_disk_iops : null
+  configsvr_disk_throughput = local.configsvr_disk_type == var.data_disk_type ? var.data_disk_throughput : null
 }
 
 module "mongodb_clusters" {
@@ -46,6 +63,15 @@ module "mongodb_clusters" {
   mongos_type           = var.mongos_type
   arbiter_type          = var.arbiter_type
 
+  data_disk_iops            = var.data_disk_iops
+  data_disk_throughput      = var.data_disk_throughput
+  configsvr_disk_type       = local.configsvr_disk_type
+  configsvr_disk_iops       = local.configsvr_disk_iops
+  configsvr_disk_throughput = local.configsvr_disk_throughput
+  boot_disk_type            = var.boot_disk_type
+  boot_disk_size            = var.boot_disk_size
+  placement_group           = local.placement_group
+
   depends_on = [aws_s3_bucket.mongo_backups, aws_subnet.vpc-subnet, aws_key_pair.my_key_pair, aws_route53_zone.private_zone]
 }
 
@@ -72,6 +98,12 @@ module "mongodb_replsets" {
   replsetsvr_type        = var.replsetsvr_type
   replsetsvr_volume_size = var.replsetsvr_volume_size
   arbiter_type           = var.arbiter_type
+
+  data_disk_iops       = var.data_disk_iops
+  data_disk_throughput = var.data_disk_throughput
+  boot_disk_type       = var.boot_disk_type
+  boot_disk_size       = var.boot_disk_size
+  placement_group      = local.placement_group
 
   depends_on = [aws_s3_bucket.mongo_backups, aws_subnet.vpc-subnet, aws_key_pair.my_key_pair, aws_route53_zone.private_zone]
 }

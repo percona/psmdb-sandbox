@@ -34,3 +34,12 @@ data "aws_route53_zone" "private_zone" {
   name         = var.vpc
   private_zone = true
 }
+
+locals {
+  # EBS performance settings only apply to the volume types that accept them.
+  # io1/io2 require an IOPS value, so fall back to 3000.
+  data_disk_iops = var.data_disk_type == "gp3" ? var.data_disk_iops : (
+    contains(["io1", "io2"], var.data_disk_type) ? coalesce(var.data_disk_iops, 3000) : null
+  )
+  data_disk_throughput = var.data_disk_type == "gp3" ? var.data_disk_throughput : null
+}

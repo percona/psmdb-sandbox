@@ -217,22 +217,19 @@ ansible-playbook pcsm.yml -i myenv_inventory_pcsm \
 
 The environment file must contain `PCSM_SOURCE_URI`, `PCSM_TARGET_URI`, `PCSM_SOURCE_PASSWORD`, and `PCSM_TARGET_PASSWORD`. Passwords in the URIs must be URL-encoded. For TLS deployments, `pcsm.yml` stages the selected topology's CA bundle on the PCSM host. The playbook creates the source and target users, installs the root-only environment file, configures and verifies `pcsm.service`, and enables it. When PMM is enabled, `pcsm.yml` also installs a PMM Client on the PCSM host and registers the local `http://127.0.0.1:2242/metrics` endpoint as `<pcsm-host>-pcsm`. `stop.yml` and `restart.yml` include PCSM; `reset.yml` preserves its package and secret environment.
 
-## YCSB Workloads
+## plgm Load Generator
 
-If the inventory contains a `ycsb` host, `main.yml` installs YCSB through `ycsb_install.yml`. The MongoDB binding is built from a pinned upstream YCSB source revision so it includes the modern MongoDB Java driver required by PSMDB 8.3. Change `ycsb_source_revision` in `group_vars/all.yml` to upgrade the build; the revision marker causes YCSB to be rebuilt automatically.
+If the inventory contains a `plgm` host, `main.yml` installs [plgm](https://github.com/Percona-Lab/percona-load-generator-mongodb) (Percona Load Generator for MongoDB) through `plgm_install.yml`. The playbook looks up the latest plgm release through the GitHub API (from the Ansible controller), downloads its `plgm-linux-amd64` asset into `/opt/plgm/<tag>`, verifies it against the SHA-256 digest GitHub publishes for the asset, links it to `/usr/local/bin/plgm`, and runs the plgm Web UI as the `plgm` systemd service (`plgm --webui --webui-port {{ plgm_webui_port }}`). plgm only publishes x86_64 Linux binaries, so the play fails on other architectures. Rerunning `plgm_install.yml` upgrades an existing host to the newest release.
 
-Example initial load:
-
-```
-/opt/ycsb/bin/ycsb load mongodb -P /opt/ycsb/workloads/workloada -p mongodb.url="mongodb://root:percona@<mongos-or-replset-host>:27017/"
-```
-
-Example workload run:
+plgm is not preconfigured. Its Web UI listens on `127.0.0.1:9999` on the plgm host only, and the generated ssh_config forwards it to your workstation:
 
 ```
-/opt/ycsb/bin/ycsb run mongodb -s -P /opt/ycsb/workloads/workloada -p operationcount=1500000 -threads 4 -p mongodb.url="mongodb://root:percona@<mongos-or-replset-host>:27017/"
+ssh -F <prefix>_ssh_config <prefix>-plgm   # keeps LocalForward 29999 -> 127.0.0.1:9999 open
 ```
 
+Then open `http://127.0.0.1:29999` (change the local port with the Terraform variable `plgm_local_port`). In plgm, enter the MongoDB URI and credentials (see the connection strings on the environment page), choose or define a workload, and launch it. Saved definitions and run history are kept in `/var/lib/plgm`. Use `systemctl status plgm` and `journalctl -u plgm` on the plgm host for troubleshooting; the service restarts automatically if plgm is shut down from its Web UI.
+
+When TLS is enabled, `cert_setup.yml` also copies the CA and client certificates to the plgm host. Enter `/etc/ssl/test-ca.pem` as the TLS CA file and `/etc/ssl/client.pem` as the TLS certificate key file in plgm.
 
 ## TLS-enabled Setup
 

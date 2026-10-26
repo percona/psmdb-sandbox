@@ -99,7 +99,7 @@ func TestNormalizeAndValidateUseTLSConfig(t *testing.T) {
 		{name: "chaos", platform: "chaos", cfg: Config{Replsets: map[string]ReplsetConfig{"rs01": {UseTLS: boolPtr(true)}}}},
 		{name: "invalid chaos CA CPU", platform: "chaos", cfg: Config{CACpuCores: 1, Replsets: map[string]ReplsetConfig{"rs01": {UseTLS: boolPtr(true)}}}, wantErr: "vCPU"},
 		{name: "unsupported platform", platform: "docker", cfg: Config{Clusters: map[string]ClusterConfig{"cl01": {UseTLS: boolPtr(true)}}}, wantErr: "supported only"},
-		{name: "ycsb", platform: "aws", cfg: Config{EnableYcsb: true, Clusters: map[string]ClusterConfig{"cl01": {UseTLS: boolPtr(true)}}}, wantErr: "YCSB"},
+		{name: "plgm", platform: "aws", cfg: Config{EnablePlgm: true, Clusters: map[string]ClusterConfig{"cl01": {UseTLS: boolPtr(true)}}}},
 		{name: "mongot", platform: "aws", cfg: Config{Clusters: map[string]ClusterConfig{"cl01": {UseTLS: boolPtr(true), EnableMongot: boolPtr(true)}}}, wantErr: "mongot"},
 		{name: "raw override", platform: "aws", cfg: Config{AnsibleVars: map[string]string{"use_tls": "true"}}, wantErr: "cannot be overridden"},
 	}
@@ -451,7 +451,7 @@ func TestWriteTfvarsChaosOsImageAndNeverDelete(t *testing.T) {
 	}
 }
 
-func TestWriteTfvarsIncludesEnableYcsbForAllPlatforms(t *testing.T) {
+func TestWriteTfvarsIncludesEnablePlgmForAllPlatforms(t *testing.T) {
 	dir := t.TempDir()
 	origTerraformDir := terraformDir
 	terraformDir = dir
@@ -460,57 +460,59 @@ func TestWriteTfvarsIncludesEnableYcsbForAllPlatforms(t *testing.T) {
 	platforms := []string{"docker", "gcp", "aws", "azure", "chaos"}
 	for _, platform := range platforms {
 		cfg := Config{
-			EnableYcsb: true,
+			EnablePlgm: true,
 			Clusters: map[string]ClusterConfig{
 				"cl01": {EnvTag: "test"},
 			},
 		}
 
-		if err := writeTfvars("enable-ycsb-"+platform, platform, cfg); err != nil {
+		if err := writeTfvars("enable-plgm-"+platform, platform, cfg); err != nil {
 			t.Fatalf("platform %s: writeTfvars failed: %v", platform, err)
 		}
 
-		content, err := os.ReadFile(tfvarsPath("enable-ycsb-"+platform, platform))
+		content, err := os.ReadFile(tfvarsPath("enable-plgm-"+platform, platform))
 		if err != nil {
 			t.Fatalf("platform %s: read tfvars failed: %v", platform, err)
 		}
-		if !strings.Contains(string(content), "enable_ycsb = true") {
-			t.Fatalf("platform %s: expected enable_ycsb in tfvars:\n%s", platform, string(content))
+		if !strings.Contains(string(content), "enable_plgm = true") {
+			t.Fatalf("platform %s: expected enable_plgm in tfvars:\n%s", platform, string(content))
 		}
 	}
 }
 
-func TestWriteTfvarsDockerYcsbSettings(t *testing.T) {
+func TestWriteTfvarsDockerPlgmSettings(t *testing.T) {
 	dir := t.TempDir()
 	origTerraformDir := terraformDir
 	terraformDir = dir
 	t.Cleanup(func() { terraformDir = origTerraformDir })
 
 	cfg := Config{
-		EnableYcsb:          true,
-		YcsbImage:           "custom/ycsb:dev",
-		YcsbOsImage:         "rockylinux:9",
-		YcsbContainerSuffix: "bench",
+		EnablePlgm:          true,
+		PlgmImage:           "custom/plgm:dev",
+		PlgmOsImage:         "alpine:3.21",
+		PlgmContainerSuffix: "bench",
+		PlgmExternalPort:    19999,
 		Clusters: map[string]ClusterConfig{
 			"cl01": {EnvTag: "test"},
 		},
 	}
 
-	if err := writeTfvars("docker-ycsb-settings", "docker", cfg); err != nil {
+	if err := writeTfvars("docker-plgm-settings", "docker", cfg); err != nil {
 		t.Fatalf("writeTfvars failed: %v", err)
 	}
 
-	content, err := os.ReadFile(tfvarsPath("docker-ycsb-settings", "docker"))
+	content, err := os.ReadFile(tfvarsPath("docker-plgm-settings", "docker"))
 	if err != nil {
 		t.Fatalf("read tfvars failed: %v", err)
 	}
 	tfvars := string(content)
 
 	for _, want := range []string{
-		"enable_ycsb = true",
-		`ycsb_image = "custom/ycsb:dev"`,
-		`ycsb_os_image = "rockylinux:9"`,
-		`ycsb_container_suffix = "bench"`,
+		"enable_plgm = true",
+		`plgm_image = "custom/plgm:dev"`,
+		`plgm_os_image = "alpine:3.21"`,
+		`plgm_container_suffix = "bench"`,
+		"plgm_external_port = 19999",
 	} {
 		if !strings.Contains(tfvars, want) {
 			t.Fatalf("expected %q in tfvars:\n%s", want, tfvars)
@@ -866,5 +868,30 @@ func TestSaveEnvironmentHandlerRequiresGlobalGCPProject(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "GCP project ID is required in Settings") {
 		t.Fatalf("expected missing project settings error, got %s", rec.Body.String())
+	}
+}
+
+func TestWriteTfvarsCloudPlgmLocalPort(t *testing.T) {
+	dir := t.TempDir()
+	origTerraformDir := terraformDir
+	terraformDir = dir
+	t.Cleanup(func() { terraformDir = origTerraformDir })
+
+	for _, platform := range []string{"gcp", "aws", "azure", "chaos"} {
+		cfg := Config{
+			EnablePlgm:    true,
+			PlgmLocalPort: "39999",
+			Clusters:      map[string]ClusterConfig{"cl01": {EnvTag: "test"}},
+		}
+		if err := writeTfvars("plgm-port-"+platform, platform, cfg); err != nil {
+			t.Fatalf("platform %s: writeTfvars failed: %v", platform, err)
+		}
+		content, err := os.ReadFile(tfvarsPath("plgm-port-"+platform, platform))
+		if err != nil {
+			t.Fatalf("platform %s: read tfvars failed: %v", platform, err)
+		}
+		if !strings.Contains(string(content), `plgm_local_port = "39999"`) {
+			t.Fatalf("platform %s: expected plgm_local_port in tfvars:\n%s", platform, string(content))
+		}
 	}
 }

@@ -153,6 +153,12 @@ variable "port_to_forward" {
   description = "Local port number to forward via SSH to access PMM UI over localhost"
 }
 
+variable "plgm_local_port" {
+  type        = string
+  default     = "29999"
+  description = "Local port forwarded via SSH to the plgm Web UI (127.0.0.1:9999 on the plgm host)"
+}
+
 #############
 # PMM
 #############
@@ -326,25 +332,25 @@ locals {
   ca_host = "${var.prefix}-${var.default_ca_host}"
 }
 
-variable "enable_ycsb" {
+variable "enable_plgm" {
   type        = bool
   default     = false
-  description = "Deploy a dedicated YCSB workload generator instance."
+  description = "Deploy a dedicated plgm load generator instance."
 }
 
-variable "default_ycsb_host" {
-  description = "Base YCSB host name"
+variable "default_plgm_host" {
+  description = "Base plgm host name"
   type        = string
-  default     = "ycsb"
+  default     = "plgm"
 }
 
 locals {
-  ycsb_host = "${var.prefix}-${var.default_ycsb_host}"
+  plgm_host = "${var.prefix}-${var.default_plgm_host}"
 }
 
-variable "ycsb_type" {
+variable "plgm_type" {
   default     = "e2-medium"
-  description = "GCP machine type of the YCSB server"
+  description = "GCP machine type of the plgm server"
 }
 
 #############
@@ -353,6 +359,31 @@ variable "ycsb_type" {
 
 locals {
   storage_endpoint = "https://storage.googleapis.com"
+}
+
+variable "create_backup_bucket" {
+  description = "Create a GCS bucket (plus service account/HMAC key) for PBM backups. When false, set existing_bucket_* to use an existing bucket, or leave them empty to skip cloud backup storage."
+  type        = bool
+  default     = true
+}
+
+variable "existing_bucket_name" {
+  description = "Name of an existing GCS bucket to use for PBM backups when create_backup_bucket = false. Leave empty to skip cloud backup storage."
+  type        = string
+  default     = ""
+}
+
+variable "existing_bucket_access_key" {
+  description = "HMAC access ID with read/write access to the existing bucket."
+  type        = string
+  default     = ""
+}
+
+variable "existing_bucket_secret_key" {
+  description = "HMAC secret for the existing bucket."
+  type        = string
+  default     = ""
+  sensitive   = true
 }
 
 variable "default_bucket_name" {
@@ -375,12 +406,13 @@ variable "backup_retention" {
 #############
 
 variable "image" {
-  description = "GCP machine image for all instances"
+  description = "GCP machine image for all instances (image path or image family path)"
   type        = string
-  default     = "projects/centos-cloud/global/images/centos-stream-9-v20231115"
+  default     = "projects/centos-cloud/global/images/family/centos-stream-9"
 }
 
-# Save money by running spot instances but they may be terminated by google at any time
+# Save money by running spot instances but they may be terminated by google at any time.
+# Do not use for benchmarks: preemption invalidates results. Never applied to the plgm client.
 variable "use_spot_instances" {
   type    = bool
   default = false
@@ -388,7 +420,99 @@ variable "use_spot_instances" {
 
 variable "data_disk_type" {
   default     = "pd-standard"
-  description = "GCP persistent disk type for MongoDB data disks (pd-standard, pd-ssd, pd-balanced)"
+  description = "Disk type for MongoDB data disks (pd-standard, pd-balanced, pd-ssd, pd-extreme, hyperdisk-balanced, hyperdisk-extreme, hyperdisk-throughput)"
+}
+
+variable "data_disk_iops" {
+  type        = number
+  default     = null
+  description = "Provisioned IOPS for data disks. Only applied to pd-extreme, hyperdisk-balanced and hyperdisk-extreme."
+}
+
+variable "data_disk_throughput" {
+  type        = number
+  default     = null
+  description = "Provisioned throughput (MiB/s) for data disks. Only applied to hyperdisk-balanced and hyperdisk-throughput."
+}
+
+variable "configsvr_disk_type" {
+  type        = string
+  default     = null
+  description = "Disk type for config server data disks. Defaults to data_disk_type. Provisioned IOPS/throughput only apply when it equals data_disk_type."
+}
+
+variable "boot_disk_type" {
+  type        = string
+  default     = null
+  description = "Boot disk type for MongoDB nodes and the plgm client. Defaults to the GCP default (pd-standard), which C3/C4/N4 machines do not support."
+}
+
+variable "boot_disk_size" {
+  type        = number
+  default     = null
+  description = "Boot disk size (GB) for MongoDB nodes and the plgm client. Defaults to the image size. MongoDB logs are written to the boot disk."
+}
+
+variable "min_cpu_platform" {
+  type        = string
+  default     = null
+  description = "Minimum CPU platform for MongoDB nodes and the plgm client (e.g. \"Intel Ice Lake\"). Pins the CPU generation for reproducible results. Not supported on E2/N4/C3/C4."
+}
+
+variable "nic_type" {
+  type        = string
+  default     = null
+  description = "vNIC type for MongoDB nodes and the plgm client: GVNIC or VIRTIO_NET. Defaults to the GCP default."
+
+  validation {
+    condition     = var.nic_type == null || contains(["GVNIC", "VIRTIO_NET"], coalesce(var.nic_type, "GVNIC"))
+    error_message = "nic_type must be GVNIC or VIRTIO_NET."
+  }
+}
+
+variable "tier1_networking" {
+  type        = bool
+  default     = false
+  description = "Enable Tier_1 per-VM egress bandwidth on MongoDB nodes and the plgm client. Requires nic_type = GVNIC and a large supported machine type."
+
+  validation {
+    condition     = !var.tier1_networking || var.nic_type == "GVNIC"
+    error_message = "tier1_networking requires nic_type = \"GVNIC\"."
+  }
+}
+
+variable "zone_mode" {
+  type        = string
+  default     = "spread"
+  description = "spread: members are distributed across zones (production-like). single: every instance is placed in one zone (lowest latency, no zone failure tolerance)."
+
+  validation {
+    condition     = contains(["spread", "single"], var.zone_mode)
+    error_message = "zone_mode must be \"spread\" or \"single\"."
+  }
+}
+
+variable "zones" {
+  type        = list(string)
+  default     = []
+  description = "Zones to use. Empty means all available zones in the region. With zone_mode = single only the first zone is used."
+}
+
+variable "compact_placement" {
+  type        = bool
+  default     = false
+  description = "Place MongoDB nodes and the plgm client in a compact (collocated) placement policy. Requires zone_mode = single and a supported machine series (not E2/N1)."
+
+  validation {
+    condition     = !var.compact_placement || var.zone_mode == "single"
+    error_message = "compact_placement requires zone_mode = \"single\"."
+  }
+}
+
+variable "labels" {
+  type        = map(string)
+  default     = {}
+  description = "Extra labels applied to every instance and disk (e.g. bench_run, mongo_version)."
 }
 
 ################

@@ -295,28 +295,37 @@ variable "ldap_servers" {
 }
 
 #############
-# YCSB
+# plgm (Percona Load Generator for MongoDB)
 #############
 
-variable "enable_ycsb" {
+variable "enable_plgm" {
   type        = bool
   default     = false
-  description = "Deploy a dedicated YCSB container for workload generation."
+  description = "Deploy a dedicated plgm load generator container (Web UI published on 127.0.0.1:plgm_external_port)."
 }
 
-variable "ycsb_container_suffix" {
-  default     = "ycsb"
-  description = "Suffix for YCSB container"
+variable "plgm_container_suffix" {
+  type        = string
+  default     = "plgm"
+  description = "Suffix for the plgm container"
 }
 
-variable "ycsb_os_image" {
-  description = "Base OS image for the custom Docker image created with YCSB"
-  default     = "redhat/ubi8-minimal"
+variable "plgm_os_image" {
+  type        = string
+  description = "Base OS image (Alpine-based) for the custom Docker image created with plgm. Built for linux/amd64."
+  default     = "alpine:3.22"
 }
 
-variable "ycsb_image" {
-  description = "Name of the local Docker image to be created for YCSB benchmark"
-  default     = "percona/ycsb"
+variable "plgm_image" {
+  type        = string
+  description = "Name of the local Docker image to be created for plgm"
+  default     = "percona/plgm"
+}
+
+variable "plgm_external_port" {
+  type        = number
+  default     = 9999
+  description = "Host port (bound to 127.0.0.1) that serves the plgm Web UI"
 }
 
 variable "prefix" {

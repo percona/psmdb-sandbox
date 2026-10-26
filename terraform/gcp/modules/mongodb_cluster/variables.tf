@@ -213,3 +213,73 @@ variable "subnet_cidr" {
   type    = string
   default = "10.128.0.0/20"
 }
+
+#############################
+# Benchmark hardware tunables
+#############################
+
+variable "zones" {
+  type        = list(string)
+  description = "Zones to spread members over (round-robin)"
+}
+
+variable "data_disk_iops" {
+  type    = number
+  default = null
+}
+
+variable "data_disk_throughput" {
+  type    = number
+  default = null
+}
+
+variable "boot_disk_type" {
+  type    = string
+  default = null
+}
+
+variable "boot_disk_size" {
+  type    = number
+  default = null
+}
+
+variable "min_cpu_platform" {
+  type    = string
+  default = null
+}
+
+variable "nic_type" {
+  type    = string
+  default = null
+}
+
+variable "tier1_networking" {
+  type    = bool
+  default = false
+}
+
+variable "resource_policies" {
+  type        = list(string)
+  default     = []
+  description = "Resource policy self links (compact placement)"
+}
+
+variable "labels" {
+  type    = map(string)
+  default = {}
+}
+
+variable "configsvr_disk_type" {
+  type    = string
+  default = "pd-standard"
+}
+
+variable "configsvr_disk_iops" {
+  type    = number
+  default = null
+}
+
+variable "configsvr_disk_throughput" {
+  type    = number
+  default = null
+}

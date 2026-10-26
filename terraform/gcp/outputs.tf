@@ -105,16 +105,17 @@ resource "local_file" "AnsibleInventoryCluster" {
       ip_pmm               = var.enable_pmm ? google_compute_instance.pmm[0].network_interface.0.access_config.0.nat_ip : ""
       hostname_ca          = var.enable_ca ? (var.ca_placement == "dedicated" ? local.ca_host : local.pmm_host) : ""
       ip_ca                = var.enable_ca ? (var.ca_placement == "dedicated" ? try(google_compute_instance.ca[0].network_interface.0.access_config.0.nat_ip, "") : try(google_compute_instance.pmm[0].network_interface.0.access_config.0.nat_ip, "")) : ""
-      hostname_ycsb        = var.enable_ycsb ? local.ycsb_host : ""
-      ip_ycsb              = var.enable_ycsb ? google_compute_instance.ycsb[0].network_interface.0.access_config.0.nat_ip : ""
+      hostname_plgm        = var.enable_plgm ? local.plgm_host : ""
+      ip_plgm              = var.enable_plgm ? google_compute_instance.plgm[0].network_interface.0.access_config.0.nat_ip : ""
       hostname_pcsm        = var.enable_pcsm ? local.pcsm_host : ""
       ip_pcsm              = var.enable_pcsm ? google_compute_instance.pcsm[0].network_interface.0.access_config.0.nat_ip : ""
       pcsm_version         = var.pcsm_version
       pcsm_is_source       = var.enable_pcsm && var.pcsm_source_kind == "cluster" && var.pcsm_source_name == each.key
       pcsm_is_target       = var.enable_pcsm && var.pcsm_target_kind == "cluster" && var.pcsm_target_name == each.key
-      bucket               = google_storage_bucket.mongo-backups.name
-      access_key           = google_storage_hmac_key.mongo-backup-service-account.access_id
-      secret_access_key    = google_storage_hmac_key.mongo-backup-service-account.secret
+      use_backup_storage   = local.use_backup_storage
+      bucket               = local.backup_bucket
+      access_key           = local.backup_access_key
+      secret_access_key    = local.backup_secret_key
       mongodb_distribution = var.clusters[each.key].mongodb_distribution != "" ? var.clusters[each.key].mongodb_distribution : var.mongodb_distribution
       mongo_release        = var.clusters[each.key].mongo_release != "" ? var.clusters[each.key].mongo_release : var.mongo_release
       mongo_version        = var.clusters[each.key].mongo_version != "" ? var.clusters[each.key].mongo_version : var.mongo_version
@@ -148,11 +149,12 @@ resource "local_file" "SSHConfigCluster" {
     ssh_private_key_path = var.ssh_private_key_path
     enable_ssh_gateway   = var.enable_ssh_gateway
     port_to_forward      = var.port_to_forward
+    plgm_local_port      = var.plgm_local_port
     ssh_gateway_name     = var.ssh_gateway_name
     hostname_pmm         = var.enable_pmm ? local.pmm_host : ""
     public_ip_pmm        = var.enable_pmm ? google_compute_instance.pmm[0].network_interface.0.access_config.0.nat_ip : ""
-    hostname_ycsb        = var.enable_ycsb ? local.ycsb_host : ""
-    public_ip_ycsb       = var.enable_ycsb ? google_compute_instance.ycsb[0].network_interface.0.access_config.0.nat_ip : ""
+    hostname_plgm        = var.enable_plgm ? local.plgm_host : ""
+    public_ip_plgm       = var.enable_plgm ? google_compute_instance.plgm[0].network_interface.0.access_config.0.nat_ip : ""
     hostname_pcsm        = var.enable_pcsm ? local.pcsm_host : ""
     public_ip_pcsm       = var.enable_pcsm ? google_compute_instance.pcsm[0].network_interface.0.access_config.0.nat_ip : ""
     pmm_port             = var.pmm_port
@@ -206,16 +208,17 @@ resource "local_file" "AnsibleInventoryRS" {
       ip_pmm               = var.enable_pmm ? google_compute_instance.pmm[0].network_interface.0.access_config.0.nat_ip : ""
       hostname_ca          = var.enable_ca ? (var.ca_placement == "dedicated" ? local.ca_host : local.pmm_host) : ""
       ip_ca                = var.enable_ca ? (var.ca_placement == "dedicated" ? try(google_compute_instance.ca[0].network_interface.0.access_config.0.nat_ip, "") : try(google_compute_instance.pmm[0].network_interface.0.access_config.0.nat_ip, "")) : ""
-      hostname_ycsb        = var.enable_ycsb ? local.ycsb_host : ""
-      ip_ycsb              = var.enable_ycsb ? google_compute_instance.ycsb[0].network_interface.0.access_config.0.nat_ip : ""
+      hostname_plgm        = var.enable_plgm ? local.plgm_host : ""
+      ip_plgm              = var.enable_plgm ? google_compute_instance.plgm[0].network_interface.0.access_config.0.nat_ip : ""
       hostname_pcsm        = var.enable_pcsm ? local.pcsm_host : ""
       ip_pcsm              = var.enable_pcsm ? google_compute_instance.pcsm[0].network_interface.0.access_config.0.nat_ip : ""
       pcsm_version         = var.pcsm_version
       pcsm_is_source       = var.enable_pcsm && var.pcsm_source_kind == "replset" && var.pcsm_source_name == each.key
       pcsm_is_target       = var.enable_pcsm && var.pcsm_target_kind == "replset" && var.pcsm_target_name == each.key
-      bucket               = google_storage_bucket.mongo-backups.name
-      access_key           = google_storage_hmac_key.mongo-backup-service-account.access_id
-      secret_access_key    = google_storage_hmac_key.mongo-backup-service-account.secret
+      use_backup_storage   = local.use_backup_storage
+      bucket               = local.backup_bucket
+      access_key           = local.backup_access_key
+      secret_access_key    = local.backup_secret_key
       mongodb_distribution = var.replsets[each.key].mongodb_distribution != "" ? var.replsets[each.key].mongodb_distribution : var.mongodb_distribution
       mongo_release        = var.replsets[each.key].mongo_release != "" ? var.replsets[each.key].mongo_release : var.mongo_release
       mongo_version        = var.replsets[each.key].mongo_version != "" ? var.replsets[each.key].mongo_version : var.mongo_version
@@ -245,10 +248,11 @@ resource "local_file" "SSHConfigRS" {
     ssh_gateway_name       = var.ssh_gateway_name
     enable_ssh_gateway     = var.enable_ssh_gateway
     port_to_forward        = var.port_to_forward
+    plgm_local_port        = var.plgm_local_port
     hostname_pmm           = var.enable_pmm ? local.pmm_host : ""
     public_ip_pmm          = var.enable_pmm ? google_compute_instance.pmm[0].network_interface.0.access_config.0.nat_ip : ""
-    hostname_ycsb          = var.enable_ycsb ? local.ycsb_host : ""
-    public_ip_ycsb         = var.enable_ycsb ? google_compute_instance.ycsb[0].network_interface.0.access_config.0.nat_ip : ""
+    hostname_plgm          = var.enable_plgm ? local.plgm_host : ""
+    public_ip_plgm         = var.enable_plgm ? google_compute_instance.plgm[0].network_interface.0.access_config.0.nat_ip : ""
     hostname_pcsm          = var.enable_pcsm ? local.pcsm_host : ""
     public_ip_pcsm         = var.enable_pcsm ? google_compute_instance.pcsm[0].network_interface.0.access_config.0.nat_ip : ""
     pmm_port               = var.pmm_port

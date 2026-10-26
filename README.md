@@ -18,7 +18,7 @@ and Percona ClusterSync for MongoDB (PCSM).
 - Backup and restore environments using PBM and provider object storage or SeaweedFS.
 - Monitoring environments with PMM.
 - Cluster synchronization scenarios with PCSM.
-- Workload experiments using YCSB.
+- Workload experiments using [plgm](https://github.com/Percona-Lab/percona-load-generator-mongodb) (Percona Load Generator for MongoDB).
 - Environments with TLS, audit logging, LDAP authentication, or Vault-backed PSMDB
   encryption at rest.
 
@@ -168,7 +168,7 @@ Libvirt provisions base VMs. Prepare an inventory and run Ansible manually.
 | Web UI and environment lifecycle | [UI guide](ui-go/README.md) |
 | MongoDB installation and operational playbooks | [Ansible guide](ansible/README.md) |
 | Supported topology expansion | [UI expansion workflow](ui-go/README.md#topology-expansion), [Ansible playbooks](ansible/README.md#running), [Docker expansion](terraform/docker/README.md#expanding-existing-docker-topologies) |
-| YCSB workloads | [Ansible workflow](ansible/README.md#ycsb-workloads), [Docker workflow](terraform/docker/README.md#simulating-a-workload-with-ycsb) |
+| plgm workloads | [Ansible workflow](ansible/README.md#plgm-load-generator), [Docker workflow](terraform/docker/README.md#simulating-a-workload-with-plgm) |
 | ClusterSync | [Ansible workflow](ansible/README.md#percona-clustersync), [Docker workflow](terraform/docker/README.md#percona-clustersync-for-mongodb) |
 | Vault-backed PSMDB encryption | [Encryption guide](docs/vault-encryption.md) |
 

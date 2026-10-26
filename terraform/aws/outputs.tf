@@ -77,16 +77,17 @@ resource "local_file" "AnsibleInventoryCluster" {
     ip_pmm               = var.enable_pmm ? aws_instance.pmm[0].public_ip : ""
     hostname_ca          = var.enable_ca ? (var.ca_placement == "dedicated" ? local.ca_host : local.pmm_host) : ""
     ip_ca                = var.enable_ca ? (var.ca_placement == "dedicated" ? try(aws_instance.ca[0].public_ip, "") : try(aws_instance.pmm[0].public_ip, "")) : ""
-    hostname_ycsb        = var.enable_ycsb ? aws_instance.ycsb[0].tags["Name"] : ""
-    ip_ycsb              = var.enable_ycsb ? aws_instance.ycsb[0].public_ip : ""
+    hostname_plgm        = var.enable_plgm ? aws_instance.plgm[0].tags["Name"] : ""
+    ip_plgm              = var.enable_plgm ? aws_instance.plgm[0].public_ip : ""
     hostname_pcsm        = var.enable_pcsm ? local.pcsm_host : ""
     ip_pcsm              = var.enable_pcsm ? aws_instance.pcsm[0].public_ip : ""
     pcsm_version         = var.pcsm_version
     pcsm_is_source       = var.enable_pcsm && var.pcsm_source_kind == "cluster" && var.pcsm_source_name == each.key
     pcsm_is_target       = var.enable_pcsm && var.pcsm_target_kind == "cluster" && var.pcsm_target_name == each.key
-    bucket               = aws_s3_bucket.mongo_backups.bucket
-    region               = aws_s3_bucket.mongo_backups.region
-    endpointUrl          = local.storage_endpoint
+    bucket               = local.backup_bucket
+    region               = local.backup_region
+    endpointUrl          = local.backup_endpoint
+    use_backup_storage   = local.use_backup_storage
     cluster              = each.value.cluster
     env_tag              = each.value.env_tag
     enable_pmm           = var.enable_pmm
@@ -114,8 +115,8 @@ resource "local_file" "AnsibleInventoryCluster" {
     ldap_users           = var.clusters[each.key].ldap_server != "" ? jsonencode(var.ldap_servers[var.clusters[each.key].ldap_server].users) : "[]"
     ldap_mongodb_users   = var.clusters[each.key].ldap_server != "" ? jsonencode(var.ldap_servers[var.clusters[each.key].ldap_server].mongodb_users) : "[]"
 
-    access_key           = aws_iam_access_key.mongo_backup_access_key.id
-    secret_access_key    = aws_iam_access_key.mongo_backup_access_key.secret
+    access_key           = local.backup_access_key
+    secret_access_key    = local.backup_secret_key
     mongodb_distribution = var.clusters[each.key].mongodb_distribution != "" ? var.clusters[each.key].mongodb_distribution : var.mongodb_distribution
     mongo_release        = var.clusters[each.key].mongo_release != "" ? var.clusters[each.key].mongo_release : var.mongo_release
     mongo_version        = var.clusters[each.key].mongo_version != "" ? var.clusters[each.key].mongo_version : var.mongo_version
@@ -149,11 +150,12 @@ resource "local_file" "SSHConfigCluster" {
     ssh_private_key_path = var.ssh_private_key_path
     enable_ssh_gateway   = var.enable_ssh_gateway
     port_to_forward      = var.port_to_forward
+    plgm_local_port      = var.plgm_local_port
     ssh_gateway_name     = var.ssh_gateway_name
     hostname_pmm         = var.enable_pmm ? aws_instance.pmm[0].tags["Name"] : ""
     public_ip_pmm        = var.enable_pmm ? aws_instance.pmm[0].public_ip : ""
-    hostname_ycsb        = var.enable_ycsb ? aws_instance.ycsb[0].tags["Name"] : ""
-    public_ip_ycsb       = var.enable_ycsb ? aws_instance.ycsb[0].public_ip : ""
+    hostname_plgm        = var.enable_plgm ? aws_instance.plgm[0].tags["Name"] : ""
+    public_ip_plgm       = var.enable_plgm ? aws_instance.plgm[0].public_ip : ""
     hostname_pcsm        = var.enable_pcsm ? local.pcsm_host : ""
     public_ip_pcsm       = var.enable_pcsm ? aws_instance.pcsm[0].public_ip : ""
     pmm_port             = var.pmm_port
@@ -203,23 +205,24 @@ resource "local_file" "AnsibleInventoryRS" {
     ldap_users           = var.replsets[each.key].ldap_server != "" ? jsonencode(var.ldap_servers[var.replsets[each.key].ldap_server].users) : "[]"
     ldap_mongodb_users   = var.replsets[each.key].ldap_server != "" ? jsonencode(var.ldap_servers[var.replsets[each.key].ldap_server].mongodb_users) : "[]"
 
-    region         = aws_s3_bucket.mongo_backups.region
-    hostname_pmm   = var.enable_pmm ? aws_instance.pmm[0].tags["Name"] : ""
-    ip_pmm         = var.enable_pmm ? aws_instance.pmm[0].public_ip : ""
-    hostname_ca    = var.enable_ca ? (var.ca_placement == "dedicated" ? local.ca_host : local.pmm_host) : ""
-    ip_ca          = var.enable_ca ? (var.ca_placement == "dedicated" ? try(aws_instance.ca[0].public_ip, "") : try(aws_instance.pmm[0].public_ip, "")) : ""
-    hostname_ycsb  = var.enable_ycsb ? aws_instance.ycsb[0].tags["Name"] : ""
-    ip_ycsb        = var.enable_ycsb ? aws_instance.ycsb[0].public_ip : ""
-    hostname_pcsm  = var.enable_pcsm ? local.pcsm_host : ""
-    ip_pcsm        = var.enable_pcsm ? aws_instance.pcsm[0].public_ip : ""
-    pcsm_version   = var.pcsm_version
-    pcsm_is_source = var.enable_pcsm && var.pcsm_source_kind == "replset" && var.pcsm_source_name == each.key
-    pcsm_is_target = var.enable_pcsm && var.pcsm_target_kind == "replset" && var.pcsm_target_name == each.key
-    bucket         = aws_s3_bucket.mongo_backups.bucket
-    endpointUrl    = local.storage_endpoint
+    region             = local.backup_region
+    hostname_pmm       = var.enable_pmm ? aws_instance.pmm[0].tags["Name"] : ""
+    ip_pmm             = var.enable_pmm ? aws_instance.pmm[0].public_ip : ""
+    hostname_ca        = var.enable_ca ? (var.ca_placement == "dedicated" ? local.ca_host : local.pmm_host) : ""
+    ip_ca              = var.enable_ca ? (var.ca_placement == "dedicated" ? try(aws_instance.ca[0].public_ip, "") : try(aws_instance.pmm[0].public_ip, "")) : ""
+    hostname_plgm      = var.enable_plgm ? aws_instance.plgm[0].tags["Name"] : ""
+    ip_plgm            = var.enable_plgm ? aws_instance.plgm[0].public_ip : ""
+    hostname_pcsm      = var.enable_pcsm ? local.pcsm_host : ""
+    ip_pcsm            = var.enable_pcsm ? aws_instance.pcsm[0].public_ip : ""
+    pcsm_version       = var.pcsm_version
+    pcsm_is_source     = var.enable_pcsm && var.pcsm_source_kind == "replset" && var.pcsm_source_name == each.key
+    pcsm_is_target     = var.enable_pcsm && var.pcsm_target_kind == "replset" && var.pcsm_target_name == each.key
+    bucket             = local.backup_bucket
+    endpointUrl        = local.backup_endpoint
+    use_backup_storage = local.use_backup_storage
 
-    access_key           = aws_iam_access_key.mongo_backup_access_key.id
-    secret_access_key    = aws_iam_access_key.mongo_backup_access_key.secret
+    access_key           = local.backup_access_key
+    secret_access_key    = local.backup_secret_key
     mongodb_distribution = var.replsets[each.key].mongodb_distribution != "" ? var.replsets[each.key].mongodb_distribution : var.mongodb_distribution
     mongo_release        = var.replsets[each.key].mongo_release != "" ? var.replsets[each.key].mongo_release : var.mongo_release
     mongo_version        = var.replsets[each.key].mongo_version != "" ? var.replsets[each.key].mongo_version : var.mongo_version
@@ -247,11 +250,12 @@ resource "local_file" "SSHConfigRS" {
     ssh_private_key_path   = var.ssh_private_key_path
     enable_ssh_gateway     = var.enable_ssh_gateway
     port_to_forward        = var.port_to_forward
+    plgm_local_port        = var.plgm_local_port
     ssh_gateway_name       = var.ssh_gateway_name
     hostname_pmm           = var.enable_pmm ? aws_instance.pmm[0].tags["Name"] : ""
     public_ip_pmm          = var.enable_pmm ? aws_instance.pmm[0].public_ip : ""
-    hostname_ycsb          = var.enable_ycsb ? aws_instance.ycsb[0].tags["Name"] : ""
-    public_ip_ycsb         = var.enable_ycsb ? aws_instance.ycsb[0].public_ip : ""
+    hostname_plgm          = var.enable_plgm ? aws_instance.plgm[0].tags["Name"] : ""
+    public_ip_plgm         = var.enable_plgm ? aws_instance.plgm[0].public_ip : ""
     hostname_pcsm          = var.enable_pcsm ? local.pcsm_host : ""
     public_ip_pcsm         = var.enable_pcsm ? aws_instance.pcsm[0].public_ip : ""
     pmm_port               = var.pmm_port

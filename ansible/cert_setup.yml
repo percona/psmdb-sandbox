@@ -387,3 +387,26 @@
         group: root
         mode: "0600"
       tags: copy_certs
+
+- name: Distribute client certificates to the load generator
+  hosts: plgm
+  become: true
+  vars:
+    cert_staging_dir: "{{ ca_staging_dir | default('/tmp/mongo_terraform_ansible/' ~ (cluster | default('default')) ~ '/cert_setup', true) }}"
+  tasks:
+    - name: Copy CA PEM file to load generator
+      copy:
+        src: "{{ cert_staging_dir }}/test-ca.pem"
+        dest: "{{ CAFile }}"
+        owner: root
+        group: root
+        mode: "0644"
+      tags: copy_certs
+
+    - name: Copy client PEM file to load generator
+      copy:
+        src: "{{ cert_staging_dir }}/client.pem"
+        dest: "{{ clientCertificateKeyFile }}"
+        owner: "{{ ansible_user }}"
+        mode: "0600"
+      tags: copy_certs

@@ -2,7 +2,8 @@ resource "google_compute_instance" "ca" {
   count        = var.enable_ca && var.ca_placement == "dedicated" ? 1 : 0
   name         = local.ca_host
   machine_type = var.ca_type
-  zone         = data.google_compute_zones.available.names[0]
+  zone         = local.zones[0]
+  labels       = var.labels
 
   boot_disk {
     initialize_params {

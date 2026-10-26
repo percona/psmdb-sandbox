@@ -140,9 +140,15 @@
         policy_rc_d: "{{ 101 if ansible_facts['os_family'] == 'Debian' and vault_encryption_effective | bool else omit }}"
       when: mongo_version is not defined or mongo_version == ''
 
+    - name: Resolve percona-server-mongodb-tools version for the pinned PSMDB version
+      include_tasks: tasks/psmdb_tools_pin.yml
+      when:
+        - mongo_version is defined and mongo_version != ''
+        - mongodb_distribution_effective == 'psmdb'
+
     - name: Install mongod packages from repository (specific version - Debian/Ubuntu)
       apt:
-        name: "{{ mongod_versioned_packages | map('regex_replace', '^(percona-server-mongodb(?:-mongos|-server|-tools)?|mongodb-org|mongodb-org-database|mongodb-org-server|mongodb-org-mongos|mongodb-org-tools|mongodb-enterprise|mongodb-enterprise-database|mongodb-enterprise-server|mongodb-enterprise-mongos|mongodb-enterprise-tools)$', '\\1=' ~ mongo_version ~ '*') | list }}"
+        name: "{{ (mongod_versioned_packages | map('regex_replace', '^(percona-server-mongodb(?:-mongos|-server)?|mongodb-org|mongodb-org-database|mongodb-org-server|mongodb-org-mongos|mongodb-org-tools|mongodb-enterprise|mongodb-enterprise-database|mongodb-enterprise-server|mongodb-enterprise-mongos|mongodb-enterprise-tools)$', '\\1=' ~ mongo_version ~ '*') | list) + (psmdb_tools_pkg_specs | default([])) }}"
         state: present
         allow_downgrade: true
         policy_rc_d: "{{ 101 if vault_encryption_effective | bool else omit }}"
@@ -152,7 +158,7 @@
 
     - name: Install mongod packages from repository (specific version - RedHat)
       yum:
-        name: "{{ mongod_versioned_packages | map('regex_replace', '^(percona-server-mongodb(?:-mongos|-server|-tools)?|mongodb-org|mongodb-org-database|mongodb-org-server|mongodb-org-mongos|mongodb-org-tools|mongodb-enterprise|mongodb-enterprise-database|mongodb-enterprise-server|mongodb-enterprise-mongos|mongodb-enterprise-tools)$', '\\1-' ~ mongo_version) | list }}"
+        name: "{{ (mongod_versioned_packages | map('regex_replace', '^(percona-server-mongodb(?:-mongos|-server)?|mongodb-org|mongodb-org-database|mongodb-org-server|mongodb-org-mongos|mongodb-org-tools|mongodb-enterprise|mongodb-enterprise-database|mongodb-enterprise-server|mongodb-enterprise-mongos|mongodb-enterprise-tools)$', '\\1-' ~ mongo_version) | list) + (psmdb_tools_pkg_specs | default([])) }}"
         state: present
       when:
         - mongo_version is defined and mongo_version != ''
@@ -218,6 +224,11 @@
         state: directory
       when: enable_audit_effective | bool
 
+    - name: Restore SELinux contexts on MongoDB paths
+      include_tasks: tasks/selinux_mongo_paths.yml
+      vars:
+        selinux_mongo_paths: "{{ [mongod_path, mongod_log_path] + ([audit_log_path | dirname] if enable_audit_effective | bool else []) }}"
+
     - name: Set up keyfile for encryption at rest
       copy:
         dest: "{{ encryption_keyfile }}"
@@ -240,11 +251,23 @@
       when: mongodb_primary | default(false)
 
     - name: Wait for MongoDB port
-      wait_for:
-        host: 127.0.0.1
-        port: "{{ mongo_port }}"
-        delay: 1
-        timeout: 60
+      block:
+        - name: Wait for MongoDB port
+          wait_for:
+            host: 127.0.0.1
+            port: "{{ mongo_port }}"
+            delay: 1
+            timeout: 60
+      rescue:
+        - name: Collect mongod startup diagnostics
+          shell: systemctl status mongod --no-pager -l; journalctl -u mongod --no-pager -n 50
+          register: mongod_diagnostics
+          changed_when: false
+          failed_when: false
+
+        - name: Report mongod startup failure
+          fail:
+            msg: "mongod is not listening on port {{ mongo_port }}:\n{{ mongod_diagnostics.stdout }}"
 
     - name: Check whether the new shard replica set is already initialized
       shell: >
