@@ -1,0 +1,30 @@
+---
+# Waits until the PMM server accepts authenticated API calls, i.e. it is up
+# and its admin password has been set (readyz alone succeeds before that).
+# The UI sets up the PMM server in parallel with the MongoDB hosts, so it may
+# still be starting when the clients are ready to register.
+- name: Wait for the PMM server
+  run_once: true
+  when: (groups['pmm'] | default([])) | length > 0
+  block:
+    - name: Wait for the PMM server to accept API logins
+      ansible.builtin.uri:
+        url: "https://{{ hostvars[groups['pmm'][0]].ansible_facts['fqdn'] }}:{{ pmm_external_port }}/v1/server/version"
+        url_username: "{{ pmm_server_user }}"
+        url_password: "{{ pmm_server_pwd }}"
+        force_basic_auth: true
+        validate_certs: false
+        status_code: 200
+      register: pmm_server_api
+      until: pmm_server_api.status == 200
+      retries: "{{ ((pmm_server_wait_timeout | int) / 10) | round(0, 'ceil') | int }}"
+      delay: 10
+
+  rescue:
+    - name: Report that the PMM server is not ready
+      ansible.builtin.fail:
+        msg: >-
+          PMM server at {{ hostvars[groups['pmm'][0]].ansible_facts['fqdn'] }}:{{ pmm_external_port }}
+          was not ready after {{ ((pmm_server_wait_timeout | int) / 60) | round(1) }} min
+          (last status: {{ pmm_server_api.status | default('unknown') }}).
+          Check the PMM server setup, or raise pmm_server_wait_timeout.

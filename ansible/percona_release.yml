@@ -4,12 +4,6 @@
   hosts: cfg:shards:replsets:mongos
   gather_facts: "{{ not (skip_repeated_facts | default(false) | bool) }}"
   become: yes
-  vars:
-    pmm_enabled: "{{ enable_pmm_agent | default(enable_pmm | default((groups['pmm'] | default([]) | length) > 0)) | bool }}"
-    pbm_enabled: "{{ enable_pbm | default(true) | bool }}"
-    mongodb_repo_line: "{{ mongo_release_effective if mongodb_distribution_effective != 'psmdb' else '' }}"
-    mongodb_repo_product: "{{ 'mongodb-org' if mongodb_distribution_effective == 'community' else 'mongodb-enterprise' }}"
-    mongodb_repo_host: "{{ 'repo.mongodb.org' if mongodb_distribution_effective == 'community' else 'repo.mongodb.com' }}"
   environment:
     PERCONA_TELEMETRY_DISABLE: "{{ '1' if disable_telemetry else '0' }}"
   tasks:

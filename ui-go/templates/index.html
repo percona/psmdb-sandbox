@@ -4,10 +4,6 @@
   <h1>Environments</h1>
   <div class="page-header-actions">
     <button class="btn btn-outline" type="button" onclick="openPlatformSettings()">Settings</button>
-    {{if .HasDeleted}}
-    <button class="btn btn-outline btn-danger-outline" onclick="cleanupDeleted()"
-            title="Remove all destroyed environments from the list">🧹 Cleanup Deleted</button>
-    {{end}}
     <a href="/new" class="btn btn-primary">+ New Environment</a>
   </div>
 </div>
@@ -33,8 +29,8 @@
     <tbody>
       {{range .Environments}}
       <tr class="env-row{{if eq .Env.Status "deleted"}} env-row-deleted{{end}}"
-          onclick="{{if ne .Env.Status "deleted"}}window.location.href='/environment/{{.ID}}'{{end}}"
-          style="{{if ne .Env.Status "deleted"}}cursor:pointer{{end}}">
+          onclick="window.location.href='/environment/{{.ID}}'"
+          style="cursor:pointer">
         <td class="env-id-cell">
           <span class="env-id">{{.ID}}</span>
         </td>
@@ -53,9 +49,8 @@
         </td>
         <td class="env-nowrap"><small>{{formatDate .Env.CreatedAt}}</small></td>
         <td class="env-actions-cell" onclick="event.stopPropagation()">
-          {{if ne .Env.Status "deleted"}}
           <a href="/environment/{{.ID}}" class="btn btn-secondary btn-sm">Manage</a>
-          {{end}}
+          <a href="/configure/{{.Env.Platform}}?from={{.ID}}" class="btn btn-outline btn-sm" title="Create a new environment from this definition">Duplicate</a>
           <button class="btn btn-outline btn-sm btn-danger-outline" title="Remove environment" aria-label="Remove environment {{.ID}}" onclick="deleteEnvironment('{{.ID}}', '{{.Env.Status}}', '{{.Env.Platform}}')">X</button>
         </td>
       </tr>

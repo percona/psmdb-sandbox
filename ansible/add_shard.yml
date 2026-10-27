@@ -8,18 +8,6 @@
   environment:
     PERCONA_TELEMETRY_DISABLE: "{{ '1' if disable_telemetry else '0' }}"
 
-  vars:
-    mongodb_repo_line: "{{ mongo_release_effective if mongodb_distribution_effective != 'psmdb' else '' }}"
-    mongodb_repo_product: "{{ 'mongodb-org' if mongodb_distribution_effective == 'community' else 'mongodb-enterprise' }}"
-    mongodb_repo_host: "{{ 'repo.mongodb.org' if mongodb_distribution_effective == 'community' else 'repo.mongodb.com' }}"
-    mongo_tls_flags: >-
-      {% if use_tls | bool %}
-      --tls
-      --tlsCertificateKeyFile {{ clientCertificateKeyFile }}
-      --tlsCAFile {{ CAFile }}
-      --tlsAllowInvalidCertificates
-      {% endif %}
-
   tasks:
     - name: Validate MongoDB integration compatibility
       include_tasks: tasks/mongodb_compatibility.yml
@@ -165,15 +153,8 @@
         - ansible_facts['os_family'] == 'RedHat'
 
     - name: Disable Percona telemetry
-      systemd:
-        name: percona-telemetry-agent
-        enabled: false
-        state: stopped
-        daemon_reload: yes
-      ignore_errors: true
-      when:
-        - disable_telemetry | bool
-        - mongodb_distribution_effective == 'psmdb'
+      include_tasks: tasks/disable_telemetry.yml
+      when: mongodb_distribution_effective == 'psmdb'
 
     - name: Grant MongoDB access to its TLS certificate
       file:
@@ -251,23 +232,7 @@
       when: mongodb_primary | default(false)
 
     - name: Wait for MongoDB port
-      block:
-        - name: Wait for MongoDB port
-          wait_for:
-            host: 127.0.0.1
-            port: "{{ mongo_port }}"
-            delay: 1
-            timeout: 60
-      rescue:
-        - name: Collect mongod startup diagnostics
-          shell: systemctl status mongod --no-pager -l; journalctl -u mongod --no-pager -n 50
-          register: mongod_diagnostics
-          changed_when: false
-          failed_when: false
-
-        - name: Report mongod startup failure
-          fail:
-            msg: "mongod is not listening on port {{ mongo_port }}:\n{{ mongod_diagnostics.stdout }}"
+      include_tasks: tasks/wait_for_mongod.yml
 
     - name: Check whether the new shard replica set is already initialized
       shell: >
@@ -347,14 +312,6 @@
 - name: Register the new shard with mongos
   hosts: "{{ new_shard_group }}"
   tags: add_shard
-  vars:
-    mongo_tls_flags: >-
-      {% if use_tls | bool %}
-      --tls
-      --tlsCertificateKeyFile {{ clientCertificateKeyFile }}
-      --tlsCAFile {{ CAFile }}
-      --tlsAllowInvalidCertificates
-      {% endif %}
   tasks:
     - name: Add new shard to the cluster if needed
       shell: |

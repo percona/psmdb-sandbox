@@ -485,7 +485,6 @@ type AppSettings struct {
 
 type IndexData struct {
 	Environments []EnvEntry
-	HasDeleted   bool
 	Settings     AppSettings
 	LocalSSHUser string
 }
@@ -497,6 +496,7 @@ type NewEnvData struct {
 type ConfigureData struct {
 	Platform                     string
 	EnvID                        string
+	DuplicateOf                  string // source env ID when pre-filling a new env from an existing one
 	Config                       Config
 	Regions                      []string
 	DefaultAuditFilter           string

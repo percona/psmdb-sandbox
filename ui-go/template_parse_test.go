@@ -437,6 +437,14 @@ func TestCloudReadmesDocumentManualPCSMFlow(t *testing.T) {
 }
 
 func TestMongoShellUsesDedicatedClientCertificate(t *testing.T) {
+	groupVars, err := os.ReadFile(filepath.Join("..", "ansible", "group_vars", "all.yml"))
+	if err != nil {
+		t.Fatalf("read group_vars/all.yml: %v", err)
+	}
+	if !strings.Contains(string(groupVars), "--tlsCertificateKeyFile {{ clientCertificateKeyFile }}") {
+		t.Error("group_vars/all.yml mongo_tls_flags does not use the dedicated client certificate")
+	}
+
 	playbooks := []string{
 		"add_replset_member.yml",
 		"add_shard.yml",
@@ -449,8 +457,12 @@ func TestMongoShellUsesDedicatedClientCertificate(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read %s: %v", name, err)
 		}
-		if !strings.Contains(string(content), "clientCertificateKeyFile") {
+		s := string(content)
+		if !strings.Contains(s, "clientCertificateKeyFile") && !strings.Contains(s, "{{ mongo_tls_flags }}") {
 			t.Errorf("%s does not use the dedicated client certificate", name)
+		}
+		if strings.Contains(s, "mongo_tls_flags:") {
+			t.Errorf("%s redefines mongo_tls_flags; use the group_vars definition", name)
 		}
 	}
 

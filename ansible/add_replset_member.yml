@@ -10,16 +10,6 @@
 
   vars:
     replset_seed_host: "{{ seed_member | default(groups[target_replset | default('replsets')] | first) }}"
-    mongodb_repo_line: "{{ mongo_release_effective if mongodb_distribution_effective != 'psmdb' else '' }}"
-    mongodb_repo_product: "{{ 'mongodb-org' if mongodb_distribution_effective == 'community' else 'mongodb-enterprise' }}"
-    mongodb_repo_host: "{{ 'repo.mongodb.org' if mongodb_distribution_effective == 'community' else 'repo.mongodb.com' }}"
-    mongo_tls_flags: >-
-      {% if use_tls | bool %}
-      --tls
-      --tlsCertificateKeyFile {{ clientCertificateKeyFile }}
-      --tlsCAFile {{ CAFile }}
-      --tlsAllowInvalidCertificates
-      {% endif %}
 
   tasks:
     - name: Validate MongoDB integration compatibility
@@ -210,14 +200,8 @@
         - not arbiter | default(false)
 
     - name: Disable Percona telemetry
-      systemd:
-        name: percona-telemetry-agent
-        enabled: false
-        state: stopped
-        daemon_reload: yes
-      ignore_errors: true
+      include_tasks: tasks/disable_telemetry.yml
       when:
-        - disable_telemetry | bool
         - mongodb_distribution_effective == 'psmdb'
         - replset_member_to_add | bool
         - not arbiter | default(false)
@@ -316,23 +300,7 @@
         - not arbiter | default(false)
 
     - name: Wait for MongoDB port on new replica set member
-      block:
-        - name: Wait for MongoDB port on new replica set member
-          wait_for:
-            host: 127.0.0.1
-            port: "{{ mongo_port }}"
-            delay: 1
-            timeout: 60
-      rescue:
-        - name: Collect mongod startup diagnostics
-          shell: systemctl status mongod --no-pager -l; journalctl -u mongod --no-pager -n 50
-          register: mongod_diagnostics
-          changed_when: false
-          failed_when: false
-
-        - name: Report mongod startup failure
-          fail:
-            msg: "mongod is not listening on port {{ mongo_port }}:\n{{ mongod_diagnostics.stdout }}"
+      include_tasks: tasks/wait_for_mongod.yml
       when:
         - replset_member_to_add | bool
         - not arbiter | default(false)

@@ -8,7 +8,10 @@
       {{.EnvID}}
     </h1>
   </div>
-  <a href="/configure/{{.Env.Platform}}?env_id={{.EnvID}}" class="btn btn-outline" id="edit-config-link">Edit Configuration</a>
+  <div class="page-header-actions">
+    <a href="/configure/{{.Env.Platform}}?from={{.EnvID}}" class="btn btn-outline" title="Create a new environment from this definition">Duplicate</a>
+    <a href="/configure/{{.Env.Platform}}?env_id={{.EnvID}}" class="btn btn-outline" id="edit-config-link">Edit Configuration</a>
+  </div>
 </div>
 
 <!-- Status bar with inline expandable job output -->
@@ -28,6 +31,7 @@
       <button class="btn btn-outline btn-sm" onclick="clearTerminal()" title="Clear the output terminal">Clear</button>
     </div>
   </div>
+  <div class="job-tabs" id="job-tabs" style="display:none"></div>
   <div class="terminal-wrapper" id="terminal-wrapper" style="display:none">
     <div class="terminal" id="terminal"></div>
     <div class="terminal-sidebar">
@@ -221,6 +225,7 @@
       <h2>📋 Last Job Output</h2>
       <span id="logs-job-status" class="badge"></span>
     </div>
+    <div class="job-tabs" id="logs-job-tabs" style="display:none"></div>
     <div class="terminal-wrapper modal-terminal-wrapper" id="logs-terminal-wrapper">
       <div class="terminal" id="logs-terminal"></div>
       <div class="terminal-sidebar">
@@ -244,10 +249,15 @@
 <div class="modal-backdrop" id="destroy-modal" style="display:none">
   <div class="modal">
     <h2>⚠️ Confirm Destroy</h2>
-    <p>This will permanently destroy all resources for <strong>{{.EnvID}}</strong>.
+    <p>This will permanently destroy all {{if eq .Env.Platform "docker"}}containers and volumes{{else}}infrastructure{{end}} for <strong>{{.EnvID}}</strong>.
        This action cannot be undone.</p>
+    <p>The environment definition is kept so you can redeploy it later.</p>
+    <label class="settings-checkbox">
+      <input type="checkbox" id="destroy-remove-definition">
+      <span>Also remove the environment definition</span>
+    </label>
     <div class="modal-actions">
-      <button class="btn btn-danger" onclick="runAction('destroy'); closeDestroyModal()">Yes, Destroy</button>
+      <button class="btn btn-danger" onclick="runDestroy()">Yes, Destroy</button>
       <button class="btn btn-outline" onclick="closeDestroyModal()">Cancel</button>
     </div>
   </div>
@@ -475,7 +485,15 @@ async function showClusterSyncLogs() {
   try { const data = await apiFetch(`/api/environment/${ENV_ID}/clustersync/log`); pre.textContent = data.log || 'No logs.'; } catch (err) { pre.textContent = err.message; }
 }
 
-function confirmDestroy() { document.getElementById('destroy-modal').style.display = 'flex'; }
+function confirmDestroy() {
+  document.getElementById('destroy-remove-definition').checked = false;
+  document.getElementById('destroy-modal').style.display = 'flex';
+}
+function runDestroy() {
+  const removeDefinition = document.getElementById('destroy-remove-definition').checked;
+  closeDestroyModal();
+  runAction('destroy', { remove_definition: removeDefinition });
+}
 function closeDestroyModal() { document.getElementById('destroy-modal').style.display = 'none'; }
 
 // Re-run confirmation modal (deploy/provision/install on running env).
@@ -588,19 +606,40 @@ function closeInventoryModal(evt) {
 async function showLastLogs() {
   const modal   = document.getElementById('logs-modal');
   const badge   = document.getElementById('logs-job-status');
+  const tabs    = document.getElementById('logs-job-tabs');
   renderLogsTerminal('Loading…');
   badge.textContent = '';
   badge.className = 'badge';
+  tabs.style.display = 'none';
   modal.style.display = 'flex';
   try {
-    const jobId = {{if .Env.LastJobID}}{{json .Env.LastJobID}}{{else}}null{{end}};
+    const jobId = currentJobId || {{if .Env.LastJobID}}{{json .Env.LastJobID}}{{else}}null{{end}};
     if (!jobId) { renderLogsTerminal('No previous job found.'); return; }
     const data = await apiFetch(`/api/job/${jobId}/log`);
-    renderLogsTerminal(data.log || '(empty)');
+    const mainLog = data.log || '(empty)';
+    renderLogsTerminal(mainLog);
     if (data.status) {
       badge.textContent = data.status;
       badge.className = 'badge ' + getStatusBadgeClass(data.status);
     }
+    const partsData = await apiFetch(`/api/job/${jobId}/parts`).catch(() => ({ parts: [] }));
+    const parts = partsData.parts || [];
+    if (!parts.length) return;
+    let active = 'main';
+    const show = async name => {
+      active = name;
+      renderJobTabs(tabs, parts, active, show, null);
+      if (name === 'main') { renderLogsTerminal(mainLog); return; }
+      renderLogsTerminal('Loading…');
+      try {
+        const partLog = await apiFetch(`/api/job/${jobId}/log?part=${encodeURIComponent(name)}`);
+        if (active === name) renderLogsTerminal(partLog.log || '(empty)');
+      } catch (err) {
+        if (active === name) renderLogsTerminal('Error: ' + err.message);
+      }
+    };
+    renderJobTabs(tabs, parts, active, show, null);
+    tabs.style.display = '';
   } catch (err) {
     renderLogsTerminal('Error: ' + err.message);
   }
@@ -632,7 +671,10 @@ function formatDuration(secs) {
   return m > 0 ? `${m}m ${s}s` : `${s}s`;
 }
 
-function clearTerminal() { document.getElementById('terminal').innerHTML = ''; }
+function clearTerminal() {
+  document.getElementById('terminal').innerHTML = '';
+  if (jobTabs.active === 'main') jobTabs.mainLines = [];
+}
 
 let autoScroll = true;
 function toggleAutoScroll() {
@@ -782,7 +824,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (logsTerm) logsTerm.addEventListener('scroll', logsTermUpdateSlider);
 });
 
-function appendToTerminal(text) {
+function appendTerminalLine(text) {
   const term = document.getElementById('terminal');
   const line = document.createElement('div');
   line.className = 'terminal-line';
@@ -792,6 +834,179 @@ function appendToTerminal(text) {
     term.scrollTop = term.scrollHeight;
     termUpdateSlider();
   }
+}
+
+// appendToTerminal adds a line of the main job output. It is kept in memory so
+// the Main tab can be redrawn after viewing a parallel playbook tab.
+function appendToTerminal(text) {
+  jobTabs.mainLines.push(text);
+  if (jobTabs.active === 'main') appendTerminalLine(text);
+}
+
+// ─── Parallel playbook tabs ──────────────────────────────────────────────────
+// Deploys run main.yml against each inventory (plus the PMM server) in
+// parallel. Each run has its own log, shown in its own tab. Only the active
+// tab is streamed, to stay within the browser's per-host connection limit.
+
+const jobTabs = {
+  jobId: null,
+  parts: [],
+  active: 'main',
+  mainLines: [],
+  partSource: null,
+  pollTimer: null,
+  tickTimer: null,
+  polledAt: 0,
+};
+
+function partStatusClass(status) {
+  if (status === 'running') return 'running';
+  if (status === 'success') return 'success';
+  if (!status || status === 'pending') return '';
+  return 'failed';
+}
+
+// renderJobTabs draws a "Main" tab plus one tab per part into container.
+// polledAt (ms) lets running parts show a live elapsed time between polls.
+// Buttons are rebuilt only when the set of tabs changes and are otherwise
+// updated in place, so the 1s refresh never swallows a click.
+function renderJobTabs(container, parts, active, onSelect, polledAt) {
+  const tabs = [{ name: 'main', label: 'Main' }].concat(parts.map(p => ({ name: p.name, label: p.name, part: p })));
+  const key = tabs.map(t => t.name).join('\n');
+  if (container.dataset.key !== key) {
+    container.innerHTML = '';
+    container.dataset.key = key;
+    tabs.forEach(tab => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'job-tab';
+      btn.dataset.name = tab.name;
+      if (tab.part) {
+        const dot = document.createElement('span');
+        dot.className = 'job-tab-dot';
+        btn.appendChild(dot);
+      }
+      const label = document.createElement('span');
+      label.textContent = tab.label;
+      btn.appendChild(label);
+      if (tab.part) {
+        const el = document.createElement('span');
+        el.className = 'job-tab-elapsed';
+        btn.appendChild(el);
+      }
+      container.appendChild(btn);
+    });
+  }
+  // Re-bound on each render so the callback always sees the current state.
+  container.onclick = ev => {
+    const btn = ev.target.closest('.job-tab');
+    if (btn && container.contains(btn)) onSelect(btn.dataset.name);
+  };
+  tabs.forEach((tab, i) => {
+    const btn = container.children[i];
+    btn.classList.toggle('active', tab.name === active);
+    btn.title = tab.part ? `${tab.part.name}: ${tab.part.status}` : 'Main job output';
+    if (!tab.part) return;
+    btn.querySelector('.job-tab-dot').className = 'job-tab-dot ' + partStatusClass(tab.part.status);
+    let text = '';
+    if (tab.part.start) {
+      let secs = tab.part.elapsed || 0;
+      if (tab.part.status === 'running' && polledAt) secs += Math.floor((Date.now() - polledAt) / 1000);
+      text = formatDuration(secs);
+    }
+    btn.querySelector('.job-tab-elapsed').textContent = text;
+  });
+}
+
+function drawLiveJobTabs() {
+  const container = document.getElementById('job-tabs');
+  if (!container) return;
+  const visible = outputVisible && jobTabs.parts.length > 0;
+  container.style.display = visible ? '' : 'none';
+  if (visible) renderJobTabs(container, jobTabs.parts, jobTabs.active, selectJobTab, jobTabs.polledAt);
+}
+
+function closePartSource() {
+  if (jobTabs.partSource) { jobTabs.partSource.close(); jobTabs.partSource = null; }
+}
+
+function selectJobTab(name) {
+  closePartSource();
+  jobTabs.active = name;
+  const term = document.getElementById('terminal');
+  term.innerHTML = '';
+  autoScroll = true;
+  const pauseBtn = document.getElementById('btn-auto-scroll');
+  if (pauseBtn) pauseBtn.textContent = '⏸ Pause';
+  drawLiveJobTabs();
+  if (name === 'main') {
+    const frag = document.createDocumentFragment();
+    jobTabs.mainLines.forEach(text => {
+      const line = document.createElement('div');
+      line.className = 'terminal-line';
+      line.textContent = text;
+      frag.appendChild(line);
+    });
+    term.appendChild(frag);
+    term.scrollTop = term.scrollHeight;
+    termUpdateSlider();
+    return;
+  }
+  const es = new EventSource(`/api/job/${jobTabs.jobId}/stream?part=${encodeURIComponent(name)}`);
+  jobTabs.partSource = es;
+  es.addEventListener('message', ev => { if (jobTabs.active === name) appendTerminalLine(JSON.parse(ev.data)); });
+  es.addEventListener('done', ev => {
+    const st = JSON.parse(ev.data);
+    if (jobTabs.active === name) appendTerminalLine(`\n✔ ${name} finished: ${st}`);
+    es.close();
+    if (jobTabs.partSource === es) jobTabs.partSource = null;
+    pollJobParts();
+  });
+  es.onerror = () => { es.close(); if (jobTabs.partSource === es) jobTabs.partSource = null; };
+}
+
+async function pollJobParts() {
+  const jobId = jobTabs.jobId;
+  if (!jobId) return;
+  try {
+    const data = await apiFetch(`/api/job/${jobId}/parts`);
+    if (jobTabs.jobId !== jobId) return;
+    jobTabs.parts = data.parts || [];
+    jobTabs.polledAt = Date.now();
+    drawLiveJobTabs();
+  } catch (_) { /* keep the last known state */ }
+}
+
+function resetJobTabs(jobId) {
+  clearInterval(jobTabs.pollTimer);
+  clearInterval(jobTabs.tickTimer);
+  closePartSource();
+  jobTabs.jobId = jobId;
+  jobTabs.parts = [];
+  jobTabs.active = 'main';
+  jobTabs.mainLines = [];
+  jobTabs.pollTimer = null;
+  jobTabs.tickTimer = null;
+  drawLiveJobTabs();
+}
+
+function startJobTabs(jobId) {
+  jobTabs.jobId = jobId;
+  pollJobParts();
+  clearInterval(jobTabs.pollTimer);
+  clearInterval(jobTabs.tickTimer);
+  jobTabs.pollTimer = setInterval(pollJobParts, 3000);
+  jobTabs.tickTimer = setInterval(drawLiveJobTabs, 1000);
+}
+
+// finishJobTabs stops polling once the job is done. The tabs stay available
+// so finished per-playbook logs can still be viewed.
+function finishJobTabs() {
+  clearInterval(jobTabs.pollTimer);
+  clearInterval(jobTabs.tickTimer);
+  jobTabs.pollTimer = null;
+  jobTabs.tickTimer = null;
+  pollJobParts();
 }
 
 // Toggle whether the raw terminal output is visible.
@@ -823,6 +1038,7 @@ function toggleOutput() {
     if (btn) btn.textContent = '▼ Output';
     if (pauseBtn) pauseBtn.style.display = 'none';
   }
+  drawLiveJobTabs();
 }
 
 function setProgressLabel(action) {
@@ -865,6 +1081,7 @@ function showTerminalSection(action) {
   outputVisible = false;
   autoScroll = true;
   document.getElementById('terminal-wrapper').style.display = 'none';
+  drawLiveJobTabs();
   const dot = document.getElementById('status-progress-dot');
   const lbl = document.getElementById('progress-label');
   const pauseBtn = document.getElementById('btn-auto-scroll');
@@ -896,8 +1113,21 @@ function setStatus(status) {
   const overrides = {
     'configure_in_progress': 'Installing…',
     'configure_failed': 'Install Failed',
+    'deleted': 'Destroyed',
   };
   label.textContent = overrides[status] || status.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  applyDestroyedButtonState();
+}
+
+// Actions that need deployed infrastructure; unavailable once destroyed.
+const NEEDS_INFRA_BUTTON_IDS = ['btn-stop', 'btn-restart', 'btn-destroy', 'btn-reset', 'btn-configure'];
+
+function applyDestroyedButtonState() {
+  if (currentStatus !== 'deleted') return;
+  NEEDS_INFRA_BUTTON_IDS.forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) btn.disabled = true;
+  });
 }
 
 function getStatusBadgeClass(status) {
@@ -933,7 +1163,10 @@ function setButtonsDisabled(disabled) {
   }
   const cancelBtn = document.getElementById('btn-cancel-job');
   if (cancelBtn) cancelBtn.style.display = disabled ? '' : 'none';
-  if (!disabled) setClusterSyncButtonState(currentClusterSyncStatus);
+  if (!disabled) {
+    setClusterSyncButtonState(currentClusterSyncStatus);
+    applyDestroyedButtonState();
+  }
 }
 
 function toggleAdvanced() {
@@ -955,6 +1188,7 @@ async function refreshEnvStatus() {
 // Current status tracked client-side so we can gate confirmations.
 let currentStatus = {{json .Env.Status}};
 let envStatusPollTimer = null;
+applyDestroyedButtonState();
 
 function startEnvStatusPolling() {
   if (envStatusPollTimer !== null) clearInterval(envStatusPollTimer);
@@ -964,7 +1198,7 @@ function startEnvStatusPolling() {
 // Actions that require confirmation when environment is already running.
 const CONFIRM_ACTIONS = new Set(['deploy', 'provision', 'configure']);
 
-async function runAction(action) {
+async function runAction(action, options = {}) {
   if (PLATFORM === 'chaos' && CHAOS_GUARDED_ACTIONS.has(action)) {
     const reachable = await verifyChaosReachability();
     if (!reachable) return;
@@ -977,7 +1211,7 @@ async function runAction(action) {
     openRerunModal(action, `The environment is currently running. Are you sure you want to run "${label}" again? This may overwrite existing data.`);
     return;
   }
-  executeAction(action);
+  executeAction(action, options);
 }
 
 async function verifyChaosReachability() {
@@ -990,8 +1224,9 @@ async function verifyChaosReachability() {
   }
 }
 
-async function executeAction(action) {
+async function executeAction(action, options = {}) {
   if (activeEventSource) { activeEventSource.close(); activeEventSource = null; }
+  resetJobTabs(null);
   showTerminalSection(action);
   clearTerminal();
   setButtonsDisabled(true);
@@ -1002,7 +1237,7 @@ async function executeAction(action) {
     const resp = await fetch(`/api/environment/${ENV_ID}/action`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action }),
+      body: JSON.stringify({ action, ...options }),
     });
     const data = await resp.json();
     if (!resp.ok) { appendToTerminal(`Error: ${data.error || 'Unknown error'}`); setButtonsDisabled(false); hideProgressIndicator(); return; }
@@ -1011,6 +1246,7 @@ async function executeAction(action) {
     const es = new EventSource(`/api/job/${data.job_id}/stream`);
     activeEventSource = es;
     currentJobId = data.job_id;
+    startJobTabs(data.job_id);
     es.addEventListener('message', ev => appendToTerminal(JSON.parse(ev.data)));
     es.addEventListener('done', ev => {
       const s = JSON.parse(ev.data);
@@ -1018,8 +1254,14 @@ async function executeAction(action) {
       appendToTerminal(`\n✔ Job finished: ${s}`);
       es.close(); activeEventSource = null; setButtonsDisabled(false);
       hideProgressIndicator();
+      finishJobTabs();
       if (action === 'destroy' && s !== 'success') {
         appendToTerminal('⚠ Destroy failed – environment has been retained. Check the output above and retry.');
+      }
+      if (action === 'destroy' && s === 'success' && options.remove_definition) {
+        appendToTerminal('Environment definition removed. Returning to the environment list…');
+        setTimeout(() => { window.location.href = '/'; }, 1500);
+        return;
       }
       // Refresh the status bar from the server so it reflects the
       // final persisted state (e.g. deleted, reset_success, stop_failed, …).
@@ -1031,6 +1273,7 @@ async function executeAction(action) {
       appendToTerminal('\n⚠ Stream connection lost.');
       es.close(); activeEventSource = null; setButtonsDisabled(false);
       hideProgressIndicator();
+      finishJobTabs();
       refreshEnvStatus();
     };
   } catch (err) {
@@ -1066,17 +1309,19 @@ async function cancelJob() {
     const es = new EventSource(`/api/job/${jobId}/stream`);
     activeEventSource = es;
     currentJobId = jobId;
+    startJobTabs(jobId);
     es.addEventListener('message', ev => appendToTerminal(JSON.parse(ev.data)));
     es.addEventListener('done', async ev => {
       const st = JSON.parse(ev.data);
       setJobBadge(st); appendToTerminal(`\n✔ Job finished: ${st}`);
       es.close(); activeEventSource = null; setButtonsDisabled(false);
       hideProgressIndicator();
+      finishJobTabs();
       await refreshEnvStatus();
       loadHosts();
 		await refreshClusterSyncPanel();
     });
-    es.onerror = () => { es.close(); activeEventSource = null; setButtonsDisabled(false); hideProgressIndicator(); refreshEnvStatus(); };
+    es.onerror = () => { es.close(); activeEventSource = null; setButtonsDisabled(false); hideProgressIndicator(); finishJobTabs(); refreshEnvStatus(); };
   } else {
     // Job already completed before page load – refresh status bar to reflect final state.
     refreshEnvStatus();

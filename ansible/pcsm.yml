@@ -109,6 +109,8 @@
   become: true
   gather_facts: "{{ not (skip_repeated_facts | default(false) | bool) }}"
   tags: pcsm,install
+  environment:
+    PERCONA_TELEMETRY_DISABLE: "{{ '1' if disable_telemetry else '0' }}"
   vars:
     pcsm_package_name: percona-clustersync-mongodb
     pcsm_service_name: pcsm
@@ -166,6 +168,9 @@
         state: present
         allow_downgrade: true
       when: ansible_facts.os_family == 'RedHat'
+
+    - name: Disable Percona telemetry
+      ansible.builtin.include_tasks: tasks/disable_telemetry.yml
 
     - name: Create PCSM configuration directory
       ansible.builtin.file:

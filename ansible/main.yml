@@ -12,30 +12,63 @@
         skip_repeated_facts: true
       tags: always
 
+# skip_repeated_facts is passed as an import var because play-level
+# gather_facts cannot see host facts set by set_fact above. Imported playbooks
+# run on their own still gather their own facts.
 - import_playbook: os_conf.yml
+  vars:
+    skip_repeated_facts: true
 
 - import_playbook: percona_release.yml
+  vars:
+    skip_repeated_facts: true
 
 - import_playbook: vault_server.yml
+  vars:
+    skip_repeated_facts: true
 
 - import_playbook: ldap_install.yml
+  vars:
+    skip_repeated_facts: true
 
 - import_playbook: seaweedfs_install.yml
+  vars:
+    skip_repeated_facts: true
 
 - import_playbook: mongod_install.yml
+  vars:
+    skip_repeated_facts: true
 
 - import_playbook: mongos_install.yml
+  vars:
+    skip_repeated_facts: true
 
 - import_playbook: sharding_setup.yml
+  vars:
+    skip_repeated_facts: true
 
 - import_playbook: mongot_install.yml
+  vars:
+    skip_repeated_facts: true
 
 - import_playbook: nfs_server.yml
+  vars:
+    skip_repeated_facts: true
 
 - import_playbook: pbm_install.yml
+  vars:
+    skip_repeated_facts: true
+
+# plgm does not need PMM, so it runs before the PMM client plays, which may
+# wait for a PMM server that is still being set up in parallel.
+- import_playbook: plgm_install.yml
+  vars:
+    skip_repeated_facts: true
 
 - import_playbook: pmm_server_install.yml
+  vars:
+    skip_repeated_facts: true
 
 - import_playbook: pmm_client_install.yml
-
-- import_playbook: plgm_install.yml
+  vars:
+    skip_repeated_facts: true

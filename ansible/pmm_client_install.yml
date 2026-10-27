@@ -3,8 +3,6 @@
   hosts: pmm
   gather_facts: "{{ not (skip_repeated_facts | default(false) | bool) }}"
   tags: monitoring
-  vars:
-    pmm_enabled: "{{ enable_pmm_agent | default(enable_pmm | default((groups['pmm'] | default([]) | length) > 0)) | bool }}"
   tasks:
     - name: Dummy task to force fact gathering
       debug:
@@ -18,8 +16,6 @@
   tags: install,monitoring
   environment:
     PERCONA_TELEMETRY_DISABLE: "{{ '1' if disable_telemetry else '0' }}"
-  vars:
-    pmm_enabled: "{{ enable_pmm_agent | default(enable_pmm | default((groups['pmm'] | default([]) | length) > 0)) | bool }}"
   tasks:
     - name: Install pmm-client
       ansible.builtin.include_tasks: tasks/install_pmm_client.yml
@@ -30,9 +26,11 @@
   gather_facts: "{{ not (skip_repeated_facts | default(false) | bool) }}"
   become: true
   tags: monitoring
-  vars:
-    pmm_enabled: "{{ enable_pmm_agent | default(enable_pmm | default((groups['pmm'] | default([]) | length) > 0)) | bool }}"
   tasks:
+    - name: Wait for the PMM server
+      ansible.builtin.import_tasks: tasks/wait_for_pmm_server.yml
+      when: pmm_enabled | bool
+
     - name: Ensure pmm-agent is started
       service:
         name: pmm-agent
@@ -123,6 +121,9 @@
   become: true
   tags: monitoring
   tasks:
+    - name: Wait for the PMM server
+      ansible.builtin.import_tasks: tasks/wait_for_pmm_server.yml
+
     - name: Ensure pmm-agent is started
       ansible.builtin.service:
         name: pmm-agent
@@ -146,7 +147,6 @@
   become: true
   tags: install,monitoring
   vars:
-    pmm_enabled: "{{ enable_pmm_agent | default(enable_pmm | default((groups['pmm'] | default([]) | length) > 0)) | bool }}"
     pcsm_pmm_service_name: "{{ inventory_hostname }}-pcsm"
   environment:
     PERCONA_TELEMETRY_DISABLE: "{{ '1' if disable_telemetry else '0' }}"
@@ -180,20 +180,17 @@
       when: pmm_enabled | bool
 
     - name: Disable Percona telemetry on PCSM
-      ansible.builtin.systemd:
-        name: percona-telemetry-agent
-        enabled: false
-        state: stopped
-        daemon_reload: true
-      ignore_errors: true
-      when:
-        - pmm_enabled | bool
-        - disable_telemetry | bool
+      ansible.builtin.include_tasks: tasks/disable_telemetry.yml
+      when: pmm_enabled | bool
 
     - name: Ensure pmm-agent is started on PCSM
       ansible.builtin.service:
         name: pmm-agent
         state: started
+      when: pmm_enabled | bool
+
+    - name: Wait for the PMM server
+      ansible.builtin.import_tasks: tasks/wait_for_pmm_server.yml
       when: pmm_enabled | bool
 
     - name: Point PCSM pmm-agent to the PMM server

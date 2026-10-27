@@ -17,15 +17,6 @@
   environment:
     PERCONA_TELEMETRY_DISABLE: "{{ '1' if disable_telemetry else '0' }}"
 
-  vars:
-    mongo_tls_flags: >-
-      {% if use_tls | bool %}
-      --tls
-      --tlsCertificateKeyFile {{ clientCertificateKeyFile }}
-      --tlsCAFile {{ CAFile }}
-      --tlsAllowInvalidCertificates
-      {% endif %}
-
   tasks:    
     - name: Install mongos packages from repository (latest)
       package:
@@ -51,15 +42,8 @@
         - ansible_facts['os_family'] == 'RedHat'
 
     - name: Disable Percona telemetry
-      systemd:
-        name: percona-telemetry-agent
-        enabled: false
-        state: stopped
-        daemon_reload: yes
-      ignore_errors: true
-      when:
-        - disable_telemetry | bool
-        - mongodb_distribution_effective == 'psmdb'
+      include_tasks: tasks/disable_telemetry.yml
+      when: mongodb_distribution_effective == 'psmdb'
 
     # The standalone official mongos package does not create the mongod account.
     - name: Ensure mongos system group exists

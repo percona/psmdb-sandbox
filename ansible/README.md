@@ -288,7 +288,9 @@ controller paths, Docker/Libvirt workflows, and destruction semantics.
   - pmm_server
     - Deploys a PMM server using Docker
   - monitoring
-    - Deploys PMM client and registers with a PMM Server
+    - Deploys PMM client and registers with a PMM Server. Before registering, clients wait up to `pmm_server_wait_timeout` seconds (default 600) for the PMM server API to accept logins
+  - plgm
+    - Installs plgm (Percona Load Generator for MongoDB)
 
 ### Available tags for `cert_setup.yml`:
 

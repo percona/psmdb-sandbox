@@ -74,11 +74,8 @@ async function deleteEnvironment(envId, status, platform) {
 
   let msg;
   if (isDestroyed) {
-    if (isDocker) {
-      msg = `Remove environment "${envId}" from the list? Docker containers have already been destroyed.`;
-    } else {
-      msg = `Remove environment "${envId}" from the list? Cloud resources have already been destroyed.`;
-    }
+    const what = isDocker ? 'Docker containers have' : 'Cloud resources have';
+    msg = `Remove the definition of environment "${envId}"? ${what} already been destroyed; you will no longer be able to redeploy it.`;
   } else {
     if (isDocker) {
       msg = `⚠️ WARNING: Docker containers for environment "${envId}" may still be running (status: ${status}).\n\nThis will only remove the environment from this UI — it will NOT stop or remove the containers.\n\nAre you sure you want to proceed?`;
@@ -95,15 +92,3 @@ async function deleteEnvironment(envId, status, platform) {
   }
 }
 
-/**
- * Purge all environments marked as "Deleted" from the index page.
- */
-async function cleanupDeleted() {
-  if (!confirm('Remove all destroyed environments from the list? Their cloud resources have already been destroyed.')) return;
-  try {
-    await apiFetch('/api/environments/deleted', 'DELETE');
-    location.reload();
-  } catch (err) {
-    alert('Error during cleanup: ' + err.message);
-  }
-}

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +19,89 @@ var jobPIDs sync.Map
 
 func jobLogPath(jobID string) string    { return filepath.Join(jobsDir, jobID+".log") }
 func jobStatusPath(jobID string) string { return filepath.Join(jobsDir, jobID+".status") }
+
+// Parallel playbook runs ("parts") write their files next to the job log.
+// The shell block from parallelConfigureShell creates them.
+func jobPartsPath(jobID string) string { return filepath.Join(jobsDir, jobID+".parts") }
+func jobPartFile(jobID, part, ext string) string {
+	return filepath.Join(jobsDir, jobID+"."+part+"."+ext)
+}
+
+// JobPart describes one parallel playbook run within a job.
+type JobPart struct {
+	Name    string `json:"name"`
+	Status  string `json:"status"`
+	Start   int64  `json:"start,omitempty"`
+	End     int64  `json:"end,omitempty"`
+	Elapsed int64  `json:"elapsed"`
+}
+
+func readEpochFile(path string) int64 {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	n, _ := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
+	return n
+}
+
+func partStatusFinal(status string) bool {
+	return status != "" && status != "running" && status != "pending"
+}
+
+// readJobParts returns the job's parallel parts in launch order, or nil when
+// the job did not run playbooks in parallel.
+func readJobParts(jobID string, now time.Time) []JobPart {
+	data, err := os.ReadFile(jobPartsPath(jobID))
+	if err != nil {
+		return nil
+	}
+	jobStatusBytes, _ := os.ReadFile(jobStatusPath(jobID))
+	jobStatus := strings.TrimSpace(string(jobStatusBytes))
+	var parts []JobPart
+	seen := map[string]bool{}
+	for _, line := range strings.Split(string(data), "\n") {
+		name := strings.TrimSpace(line)
+		if !validJobPartName(name) || seen[name] {
+			continue
+		}
+		seen[name] = true
+		statusBytes, _ := os.ReadFile(jobPartFile(jobID, name, "status"))
+		p := JobPart{
+			Name:   name,
+			Status: strings.TrimSpace(string(statusBytes)),
+			Start:  readEpochFile(jobPartFile(jobID, name, "start")),
+			End:    readEpochFile(jobPartFile(jobID, name, "end")),
+		}
+		if p.Status == "" {
+			p.Status = "pending"
+		}
+		// A cancelled or crashed job leaves parts that will never finish.
+		if !partStatusFinal(p.Status) && partStatusFinal(jobStatus) {
+			p.Status = "interrupted"
+		}
+		switch {
+		case p.Start > 0 && p.End >= p.Start:
+			p.Elapsed = p.End - p.Start
+		case p.Start > 0 && !partStatusFinal(p.Status):
+			p.Elapsed = max(now.Unix()-p.Start, 0)
+		}
+		parts = append(parts, p)
+	}
+	return parts
+}
+
+func jobHasPart(jobID, part string) bool {
+	if !validJobPartName(part) {
+		return false
+	}
+	for _, p := range readJobParts(jobID, time.Now()) {
+		if p.Name == part {
+			return true
+		}
+	}
+	return false
+}
 
 // secureID returns a cryptographically random hex string of length 2*n bytes.
 func secureID(n int) string {
@@ -83,6 +167,8 @@ func runJob(jobID string, cmd []string, cwd string, extraEnv map[string]string, 
 	for k, v := range extraEnv {
 		execCmd.env = append(execCmd.env, k+"="+v)
 	}
+	// Parallel playbook blocks write per-part logs next to the job log.
+	execCmd.env = append(execCmd.env, "PSMDB_JOB_ID="+jobID, "PSMDB_JOBS_DIR="+jobsDir)
 
 	finalStatus := runProcess(jobID, execCmd.name, execCmd.args, execCmd.env, cwd, logFile)
 
@@ -113,6 +199,7 @@ func runProcess(jobID string, name string, args []string, envVars []string, cwd 
 	proc.Env = envVars
 	proc.Stdout = logFile
 	proc.Stderr = logFile
+	configureJobProcess(proc)
 	if err := proc.Start(); err != nil {
 		fmt.Fprintf(logFile, "\nError starting process: %v\n", err)
 		return "error"
@@ -133,10 +220,21 @@ func cancelJob(jobID string) bool {
 		return false
 	}
 	proc := val.(*os.Process)
-	if err := proc.Kill(); err != nil {
+	if err := killJobProcess(proc); err != nil {
 		slog.Warn("cancel job kill failed", "job", jobID, "err", err)
 	}
 	return true
+}
+
+// killAllJobs stops every running job. Jobs run in their own process group,
+// so they would otherwise outlive the UI when it is interrupted.
+func killAllJobs() {
+	jobPIDs.Range(func(key, val any) bool {
+		if err := killJobProcess(val.(*os.Process)); err != nil {
+			slog.Warn("shutdown job kill failed", "job", key, "err", err)
+		}
+		return true
+	})
 }
 
 // POST /api/job/{job_id}/cancel

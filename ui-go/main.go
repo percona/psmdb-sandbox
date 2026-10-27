@@ -12,10 +12,12 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 	"unicode"
 )
@@ -295,6 +297,8 @@ var funcMap = template.FuncMap{
 			return "Installing…"
 		case "configure_failed":
 			return "Install Failed"
+		case "deleted":
+			return "Destroyed"
 		}
 		words := strings.ReplaceAll(s, "_", " ")
 		var out []rune
@@ -632,7 +636,6 @@ func main() {
 	mux.HandleFunc("GET /api/provider-auth/{platform}/status", providerAuthStatusHandler)
 	mux.HandleFunc("POST /api/environment", saveEnvironmentHandler)
 	mux.HandleFunc("DELETE /api/environment/{env_id}", deleteEnvironmentHandler)
-	mux.HandleFunc("DELETE /api/environments/deleted", purgeDeletedEnvironmentsHandler)
 	mux.HandleFunc("GET /api/environment/{env_id}/tfvars", getTfvarsHandler)
 	mux.HandleFunc("GET /api/environment/{env_id}/inventory", getInventoryHandler)
 	mux.HandleFunc("GET /api/environment/{env_id}/hosts", getHostsHandler)
@@ -646,6 +649,7 @@ func main() {
 	mux.HandleFunc("GET /api/job/{job_id}/status", jobStatusHandler)
 	mux.HandleFunc("GET /api/job/{job_id}/stream", jobStreamHandler)
 	mux.HandleFunc("GET /api/job/{job_id}/log", jobLogHandler)
+	mux.HandleFunc("GET /api/job/{job_id}/parts", jobPartsHandler)
 	mux.HandleFunc("POST /api/job/{job_id}/cancel", jobCancelHandler)
 
 	// Static files
@@ -668,6 +672,17 @@ func main() {
 		Addr:    host + addr,
 		Handler: mux,
 	}
+	// Jobs run in their own process group, so stop them explicitly when the
+	// UI is interrupted, as the terminal would have done before.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		sig := <-sigCh
+		slog.Info("shutting down, stopping running jobs", "signal", sig.String())
+		killAllJobs()
+		os.Exit(130)
+	}()
+
 	slog.Info("listening", "addr", "http://"+host+addr)
 	if err := srv.ListenAndServe(); err != nil {
 		log.Fatal(err)

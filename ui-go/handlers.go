@@ -257,14 +257,10 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	sort.Strings(ids)
 	entries := make([]EnvEntry, 0, len(ids))
-	hasDeleted := false
 	for _, id := range ids {
 		entries = append(entries, EnvEntry{id, state[id]})
-		if state[id].Status == "deleted" {
-			hasDeleted = true
-		}
 	}
-	renderPage(w, "index", IndexData{Environments: entries, HasDeleted: hasDeleted, Settings: settings, LocalSSHUser: currentLocalUser()})
+	renderPage(w, "index", IndexData{Environments: entries, Settings: settings, LocalSSHUser: currentLocalUser()})
 }
 
 // GET /new
@@ -296,15 +292,29 @@ func configureHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	images := defaultImages
+	duplicateOf := ""
 	if envID != "" {
 		if env, ok := state[envID]; ok {
 			cfg = env.Config
 			images = builtinDefaultImages
 		}
+	} else if from := r.URL.Query().Get("from"); from != "" {
+		src, ok := state[from]
+		if !envIDRe.MatchString(from) || !ok {
+			http.Redirect(w, r, "/", http.StatusFound)
+			return
+		}
+		if src.Platform != platform {
+			http.Redirect(w, r, "/configure/"+src.Platform+"?from="+from, http.StatusFound)
+			return
+		}
+		cfg = duplicateConfig(src.Config, platform, state)
+		images = builtinDefaultImages
+		duplicateOf = from
 	}
 	normalizeTopologyUseTLS(&cfg)
 	normalizeCAProvisioning(&cfg)
-	if platform == "chaos" && envID == "" {
+	if platform == "chaos" && envID == "" && duplicateOf == "" {
 		cfg.DeleteAfterDays = 7
 	}
 	if cfg.EnableBackup == nil && envID == "" {
@@ -327,6 +337,7 @@ func configureHandler(w http.ResponseWriter, r *http.Request) {
 	renderPage(w, "configure", ConfigureData{
 		Platform:                        platform,
 		EnvID:                           envID,
+		DuplicateOf:                     duplicateOf,
 		Config:                          cfg,
 		Regions:                         defaultRegions(platform),
 		PreloadedImages:                 preloadedImages(platform),
@@ -1253,6 +1264,8 @@ func saveEnvironmentHandler(w http.ResponseWriter, r *http.Request) {
 		EnvID    string `json:"env_id"`
 		Platform string `json:"platform"`
 		Config   Config `json:"config"`
+		// Create rejects the save when an environment with this ID exists.
+		Create bool `json:"create"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		jsonError(w, 400, "invalid JSON: "+err.Error())
@@ -1301,6 +1314,13 @@ func saveEnvironmentHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	existing := state[payload.EnvID]
+	if existing != nil && payload.Create {
+		jsonError(w, 409, fmt.Sprintf("an environment named %q already exists; choose a different name", payload.EnvID))
+		return
+	}
+	if existing != nil {
+		existing = withoutStaleAppliedConfig(existing)
+	}
 	if existing == nil && payload.Platform != "docker" {
 		settings, err := loadAppSettings()
 		if err != nil {
@@ -1475,54 +1495,8 @@ func deleteEnvironmentHandler(w http.ResponseWriter, r *http.Request) {
 	env := state[envID]
 	delete(state, envID)
 	saveState(state)
-
-	if env != nil {
-		if env.Platform == "chaos" {
-			removeManagedChaosTokenFile(env.Config.ChaosApiTokenPath)
-		}
-		removeClusterSyncSecrets(envID)
-		p := tfvarsPath(envID, env.Platform)
-		os.Remove(p)
-		os.Remove(tfstatePath(envID, env.Platform))
-		os.Remove(tfstateBackupPath(envID, env.Platform))
-		if env.Platform == "docker" {
-			cleanupDockerModuleArtifacts(env.Config)
-		}
-	} else {
-		for _, pl := range platforms {
-			os.Remove(tfvarsPath(envID, pl))
-			os.Remove(tfstatePath(envID, pl))
-			os.Remove(tfstateBackupPath(envID, pl))
-		}
-	}
+	removeEnvironmentArtifacts(envID, env)
 	writeJSON(w, 200, map[string]string{"status": "deleted"})
-}
-
-// DELETE /api/environments/deleted
-func purgeDeletedEnvironmentsHandler(w http.ResponseWriter, r *http.Request) {
-	state, err := loadState()
-	if err != nil {
-		jsonError(w, 500, "state error: "+err.Error())
-		return
-	}
-	count := 0
-	for id, env := range state {
-		if env.Status == "deleted" {
-			if env.Platform == "chaos" {
-				removeManagedChaosTokenFile(env.Config.ChaosApiTokenPath)
-			}
-			delete(state, id)
-			os.Remove(tfvarsPath(id, env.Platform))
-			os.Remove(tfstatePath(id, env.Platform))
-			os.Remove(tfstateBackupPath(id, env.Platform))
-			if env.Platform == "docker" {
-				cleanupDockerModuleArtifacts(env.Config)
-			}
-			count++
-		}
-	}
-	saveState(state)
-	writeJSON(w, 200, map[string]interface{}{"removed": count})
 }
 
 // GET /api/environment/{env_id}/tfvars
@@ -1671,6 +1645,8 @@ func environmentActionHandler(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, 404, "environment not found")
 		return
 	}
+	env = withoutStaleAppliedConfig(env)
+	state[envID] = env
 	if env.Config.ClusterSync.Enabled {
 		if err := ensureClusterSyncSecrets(envID, env.Platform, &env.Config); err != nil {
 			jsonError(w, 500, "ClusterSync secret setup failed: "+err.Error())
@@ -1680,12 +1656,22 @@ func environmentActionHandler(w http.ResponseWriter, r *http.Request) {
 
 	var body struct {
 		Action string `json:"action"`
+		// RemoveDefinition, when set on a destroy action, removes the saved
+		// environment definition once the destroy succeeds.
+		RemoveDefinition bool `json:"remove_definition"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		jsonError(w, 400, "invalid JSON")
 		return
 	}
 	action := body.Action
+	removeDefinition := action == "destroy" && body.RemoveDefinition
+	if action == "deploy" && env.Platform == "docker" {
+		if err := validateDockerPortConflicts(envID, env.Config, state); err != nil {
+			jsonError(w, 400, err.Error())
+			return
+		}
+	}
 	if action == "deploy" || action == "provision" || action == "configure" || action == "restart" {
 		if err := validateVaultConfig(env.Platform, env.Config); err != nil {
 			jsonError(w, 400, err.Error())
@@ -1756,37 +1742,35 @@ func environmentActionHandler(w http.ResponseWriter, r *http.Request) {
 	// overwrite each other's files (e.g. "myenv_inventory_cl01").
 	filePrefix := strDefault(env.Config.Prefix, envID)
 
+	// ansibleExtraArgsFor returns the extra ansible-playbook arguments for one
+	// inventory (shell-quoted, with a leading space, or empty).
+	ansibleExtraArgsFor := func(playbookPath, name string, extraVars map[string]string) string {
+		extraVarsArg := ""
+		effectiveVars := topologyAnsibleVars(env.Config, platform, name, extraVars)
+		if len(vaultTopologies(env.Config)) > 0 {
+			effectiveVars["vault_controller_dir"] = vaultControllerDir(envID)
+		}
+		if len(effectiveVars) > 0 {
+			encoded, _ := json.Marshal(effectiveVars)
+			extraVarsArg = " --extra-vars " + shellQuote(string(encoded))
+		}
+		if len(vaultTopologies(env.Config)) > 0 && filepath.Base(playbookPath) != "vault_server.yml" {
+			extraVarsArg += " --skip-tags vault"
+		}
+		return extraVarsArg
+	}
+
 	cloudAnsibleCmdFor := func(playbookPath string, waitForSSH bool, names []string, extraVars map[string]string) string {
 		var b strings.Builder
 		for _, name := range names {
-			extraVarsArg := ""
-			effectiveVars := topologyAnsibleVars(env.Config, platform, name, extraVars)
-			if len(vaultTopologies(env.Config)) > 0 {
-				effectiveVars["vault_controller_dir"] = vaultControllerDir(envID)
-			}
-			if len(effectiveVars) > 0 {
-				encoded, _ := json.Marshal(effectiveVars)
-				extraVarsArg = " --extra-vars " + shellQuote(string(encoded))
-			}
+			extraVarsArg := ansibleExtraArgsFor(playbookPath, name, extraVars)
 			inv := shellQuote(filePrefix + "_inventory_" + name)
-			if len(vaultTopologies(env.Config)) > 0 && filepath.Base(playbookPath) != "vault_server.yml" {
-				extraVarsArg += " --skip-tags vault"
-			}
 			b.WriteString(fmt.Sprintf(
 				`{ [ -f %[1]s ] || { printf "ERROR: inventory file %%s not found\n" %[1]s; exit 1; }; `,
 				inv,
 			))
 			if waitForSSH {
-				b.WriteString(fmt.Sprintf(
-					`printf "Waiting for SSH on %%s (up to 10 min)…\n" %[1]s; `+
-						`_ssh_ready=false; `+
-						`for _n in $(seq 1 20); do `+
-						`ansible -i %[1]s all -m ping --timeout=10 2>&1 && { _ssh_ready=true; break; }; `+
-						`printf "  attempt %%s/20 – not ready yet, retrying in 10s…\n" "$_n"; `+
-						`[ "$_n" -lt 20 ] && sleep 10; done; `+
-						`$_ssh_ready || { printf "ERROR: timed out waiting for SSH (%%s)\n" %[1]s; exit 1; }; `,
-					inv,
-				))
+				b.WriteString(sshWaitShell(inv, "all"))
 			}
 			b.WriteString(fmt.Sprintf(
 				`printf "==> ansible-playbook -i %%s\n" %[1]s; ansible-playbook -i %[1]s %[2]s%[3]s || exit $?; }`,
@@ -1814,16 +1798,7 @@ func environmentActionHandler(w http.ResponseWriter, r *http.Request) {
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf(`{ [ -f %[1]s ] || { printf "ERROR: inventory file %%s not found\n" %[1]s; exit 1; }; `, inv))
 		if waitForSSH {
-			b.WriteString(fmt.Sprintf(
-				`printf "Waiting for SSH on %%s (up to 10 min)…\n" %[1]s; `+
-					`_ssh_ready=false; `+
-					`for _n in $(seq 1 20); do `+
-					`ansible -i %[1]s all -m ping --timeout=10 2>&1 && { _ssh_ready=true; break; }; `+
-					`printf "  attempt %%s/20 – not ready yet, retrying in 10s…\n" "$_n"; `+
-					`[ "$_n" -lt 20 ] && sleep 10; done; `+
-					`$_ssh_ready || { printf "ERROR: timed out waiting for SSH (%%s)\n" %[1]s; exit 1; }; `,
-				inv,
-			))
+			b.WriteString(sshWaitShell(inv, "all"))
 		}
 		b.WriteString(fmt.Sprintf(`printf "==> ansible-playbook -i %%s\n" %[1]s; ansible-playbook -i %[1]s %[2]s --extra-vars %[3]s || exit $?; }`, inv, shellQuote(filepath.Join(ansibleDir, "pcsm.yml")), shellQuote(string(vars))))
 		return b.String()
@@ -1849,6 +1824,29 @@ func environmentActionHandler(w http.ResponseWriter, r *http.Request) {
 		steps = append(steps, cloudAnsibleCmdFor(filepath.Join(ansibleDir, "main.yml"), waitForSSH, names, nil))
 		if env.Config.ClusterSync.Enabled {
 			steps = append(steps, cloudPCSMCmd(waitForSSH))
+		}
+		return strings.Join(steps, " && ")
+	}
+	// cloudFullConfigureCmd configures every inventory of the environment.
+	// Unlike cloudConfigureCmdFor, it runs main.yml against all inventories in
+	// parallel and sets up the PMM server alongside the MongoDB hosts.
+	cloudFullConfigureCmd := func() string {
+		steps := make([]string, 0, 3)
+		if certCmd := cloudCertificateCmdFor(invNames, true); certCmd != "" {
+			steps = append(steps, certCmd)
+		}
+		mainPlaybook := filepath.Join(ansibleDir, "main.yml")
+		invs := make([]parallelInventory, 0, len(invNames))
+		for _, name := range invNames {
+			invs = append(invs, parallelInventory{
+				Name:      name,
+				Inventory: filePrefix + "_inventory_" + name,
+				ExtraArgs: ansibleExtraArgsFor(mainPlaybook, name, nil),
+			})
+		}
+		steps = append(steps, parallelConfigureShell(mainPlaybook, invs))
+		if env.Config.ClusterSync.Enabled {
+			steps = append(steps, cloudPCSMCmd(true))
 		}
 		return strings.Join(steps, " && ")
 	}
@@ -1988,14 +1986,14 @@ func environmentActionHandler(w http.ResponseWriter, r *http.Request) {
 					}
 				} else {
 					shellCmd += sshConfigInjectShell()
-					shellCmd += " && " + cloudConfigureCmdFor(invNames, true)
+					shellCmd += " && " + cloudFullConfigureCmd()
 				}
 			} else {
 				shellCmd += sshConfigInjectShell()
 				if len(vaultTopologies(env.Config)) > 0 {
 					shellCmd += " && " + cloudVaultCmd(true)
 				}
-				shellCmd += " && " + cloudConfigureCmdFor(invNames, true)
+				shellCmd += " && " + cloudFullConfigureCmd()
 			}
 		} else if appliedConfig != nil {
 			_, unsupported := analyseTopologyChange(*appliedConfig, env.Config)
@@ -2042,7 +2040,7 @@ func environmentActionHandler(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, 400, "configure action is not applicable to Docker environments")
 			return
 		}
-		configureCmd := cloudConfigureCmdFor(invNames, true)
+		configureCmd := cloudFullConfigureCmd()
 		if len(vaultTopologies(env.Config)) > 0 {
 			configureCmd = cloudVaultCmd(true) + " && " + configureCmd
 		}
@@ -2135,7 +2133,7 @@ func environmentActionHandler(w http.ResponseWriter, r *http.Request) {
 		})
 		if action == "destroy" {
 			if status == "success" {
-				e.Status = "deleted"
+				markEnvironmentDestroyed(e)
 				os.Remove(varfile)
 				os.Remove(tfstatePath(envID, platform))
 				os.Remove(tfstateBackupPath(envID, platform))
@@ -2144,6 +2142,12 @@ func environmentActionHandler(w http.ResponseWriter, r *http.Request) {
 				}
 				removeClusterSyncSecrets(envID)
 				os.RemoveAll(vaultControllerDir(envID))
+				if removeDefinition {
+					delete(st, envID)
+					saveState(st)
+					removeEnvironmentArtifacts(envID, e)
+					return
+				}
 			} else {
 				e.Status = "destroy_failed"
 			}
@@ -2309,6 +2313,14 @@ func jobStreamHandler(w http.ResponseWriter, r *http.Request) {
 
 	logPath := jobLogPath(jobID)
 	statusPath := jobStatusPath(jobID)
+	part := r.URL.Query().Get("part")
+	if part != "" {
+		if !jobHasPart(jobID, part) {
+			http.Error(w, "unknown job part", http.StatusNotFound)
+			return
+		}
+		logPath = jobPartFile(jobID, part, "log")
+	}
 
 	for i := 0; i < 20; i++ {
 		if _, err := os.Stat(logPath); err == nil {
@@ -2339,7 +2351,10 @@ func jobStreamHandler(w http.ResponseWriter, r *http.Request) {
 
 		statusBytes, _ := os.ReadFile(statusPath)
 		status := strings.TrimSpace(string(statusBytes))
-		if status != "" && status != "running" {
+		if part != "" {
+			status = jobPartStatus(jobID, part)
+		}
+		if partStatusFinal(status) {
 			statusJSON, _ := json.Marshal(status)
 			fmt.Fprintf(w, "event: done\ndata: %s\n\n", statusJSON)
 			flusher.Flush()
@@ -2357,6 +2372,15 @@ func jobStreamHandler(w http.ResponseWriter, r *http.Request) {
 // GET /api/job/{job_id}/log
 func jobLogHandler(w http.ResponseWriter, r *http.Request) {
 	jobID := r.PathValue("job_id")
+	if part := r.URL.Query().Get("part"); part != "" {
+		if !jobHasPart(jobID, part) {
+			jsonError(w, http.StatusNotFound, "unknown job part")
+			return
+		}
+		content, _ := os.ReadFile(jobPartFile(jobID, part, "log"))
+		writeJSON(w, 200, map[string]string{"log": stripAnsi(string(content)), "status": jobPartStatus(jobID, part)})
+		return
+	}
 	logPath := jobLogPath(jobID)
 	content, err := os.ReadFile(logPath)
 	if err != nil {
@@ -2369,6 +2393,28 @@ func jobLogHandler(w http.ResponseWriter, r *http.Request) {
 		status = "unknown"
 	}
 	writeJSON(w, 200, map[string]string{"log": stripAnsi(string(content)), "status": status})
+}
+
+// jobPartStatus returns a part's status, reporting parts of a finished job
+// that never completed as "interrupted".
+func jobPartStatus(jobID, part string) string {
+	for _, p := range readJobParts(jobID, time.Now()) {
+		if p.Name == part {
+			return p.Status
+		}
+	}
+	return "unknown"
+}
+
+// GET /api/job/{job_id}/parts – parallel playbook runs of a job (empty when
+// the job ran its playbooks sequentially).
+func jobPartsHandler(w http.ResponseWriter, r *http.Request) {
+	jobID := r.PathValue("job_id")
+	parts := readJobParts(jobID, time.Now())
+	if parts == nil {
+		parts = []JobPart{}
+	}
+	writeJSON(w, 200, map[string]any{"parts": parts})
 }
 
 // assignDockerReplsetPorts auto-assigns unique port ranges to Docker replica
