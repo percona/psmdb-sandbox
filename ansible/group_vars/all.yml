@@ -35,6 +35,10 @@ mongodb_repo_signing_key: "{{ '9' if mongodb_major_effective | int == 9 else (mo
 mongodb_apt_component: "{{ 'main' if ansible_facts['distribution'] == 'Debian' else 'multiverse' }}"
 mongo_repo_default: release
 mongo_repo_effective: "{{ mongo_repo | default(mongo_repo_default, true) | trim }}"
+# Official MongoDB (community/enterprise) repository coordinates.
+mongodb_repo_line: "{{ mongo_release_effective if mongodb_distribution_effective != 'psmdb' else '' }}"
+mongodb_repo_product: "{{ 'mongodb-org' if mongodb_distribution_effective == 'community' else 'mongodb-enterprise' }}"
+mongodb_repo_host: "{{ 'repo.mongodb.org' if mongodb_distribution_effective == 'community' else 'repo.mongodb.com' }}"
 
 # We can also use perconalab/pmm-server-fb:PR-number-hash or perconalab/pmm-server:dev-latest. In that case set experimental to true.
 # pmm_image (default docker.io/percona/pmm-server:latest) comes from the inventory too.
@@ -207,6 +211,15 @@ certificateKeyFile: /etc/ssl/server.pem
 clientCertificateKeyFile: /etc/ssl/client.pem
 CAFile: /etc/ssl/test-ca.pem
 
+# mongosh TLS arguments, empty when use_tls is false.
+mongo_tls_flags: >-
+  {% if use_tls | bool %}
+  --tls
+  --tlsCertificateKeyFile {{ clientCertificateKeyFile }}
+  --tlsCAFile {{ CAFile }}
+  --tlsAllowInvalidCertificates
+  {% endif %}
+
 ##########################
 ## Data-at-rest Encryption
 ##########################
@@ -251,6 +264,12 @@ pmm_dir: /var/lib/docker
 pmm_server_user: admin
 # Warning! This is just an example, replace with your own for prod use!
 pmm_server_pwd: admin
+# Seconds PMM clients wait for the PMM server API before registering. The UI
+# sets up the PMM server in parallel with the MongoDB hosts.
+pmm_server_wait_timeout: 600
+
+# Install and register PMM clients; defaults to whether the inventory has a [pmm] host.
+pmm_enabled: "{{ enable_pmm_agent | default(enable_pmm | default((groups['pmm'] | default([]) | length) > 0)) | bool }}"
 
 # PMM agent parameters
 mongodb_pmm_user: pmm
@@ -277,6 +296,8 @@ watchtower_token: 89220f28d5017b6a5806a7c589485c2b
 ## Backup
 ###############
   
+pbm_enabled: "{{ enable_pbm | default(true) | bool }}"
+
 # PBM database user and password
 pbmuser: pbm
 # Warning! This is just an example, replace with your own for prod use!

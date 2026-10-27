@@ -4,8 +4,6 @@
   gather_facts: "{{ not (skip_repeated_facts | default(false) | bool) }}"
   become: yes
   tags: install,backup
-  vars:
-    pbm_enabled: "{{ enable_pbm | default(true) | bool }}"
   environment:
     PERCONA_TELEMETRY_DISABLE: "{{ '1' if disable_telemetry else '0' }}"
   tasks:
@@ -41,15 +39,8 @@
         - pbm_enabled | bool
 
     - name: Disable Percona telemetry
-      systemd:
-        name: percona-telemetry-agent
-        enabled: false
-        state: stopped
-        daemon_reload: yes
-      ignore_errors: true
-      when:
-        - pbm_enabled | bool
-        - disable_telemetry | bool
+      include_tasks: tasks/disable_telemetry.yml
+      when: pbm_enabled | bool
 
     - name: Grant PBM access to the client TLS certificate
       file:
@@ -67,7 +58,6 @@
   tags: backup
   become: true
   vars:
-    pbm_enabled: "{{ enable_pbm | default(true) | bool }}"
     replset_group: "{{ (group_names | difference(['replsets', 'shards']))[0] }}"
     replset_name: "{{ replset_group if cluster is defined and cluster == replset_group else (cluster ~ '-' ~ replset_group if cluster is defined else replset_group) }}"
   tasks:
@@ -81,8 +71,6 @@
   gather_facts: "{{ not (skip_repeated_facts | default(false) | bool) }}"
   tags: backup
   become: true
-  vars:
-    pbm_enabled: "{{ enable_pbm | default(true) | bool }}"
   tasks:
     - name: generate PBM_MONGODB_URI
       set_fact:
@@ -94,8 +82,6 @@
   gather_facts: "{{ not (skip_repeated_facts | default(false) | bool) }}"
   tags: backup
   become: true
-  vars:
-    pbm_enabled: "{{ enable_pbm | default(true) | bool }}"
   tasks:
     - name: Load OS-specific variables
       include_vars: "vars/{{ ansible_facts['os_family'] }}.yml"
@@ -149,8 +135,6 @@
   gather_facts: "{{ not (skip_repeated_facts | default(false) | bool) }}"
   tags: backup
   become: true
-  vars:
-    pbm_enabled: "{{ enable_pbm | default(true) | bool }}"
   tasks:
     - name: Configure filesystem-backed PBM storage
       ansible.builtin.include_tasks: pbm_nfs.yml
@@ -163,8 +147,6 @@
   gather_facts: "{{ not (skip_repeated_facts | default(false) | bool) }}"
   become: yes
   tags: backup
-  vars:
-    pbm_enabled: "{{ enable_pbm | default(true) | bool }}"
   tasks:
     - name: set up storage location for PBM
       shell: pbm config --file '{{ pbm_config_path }}' --mongodb-uri '{{ mongodb_uri }}'

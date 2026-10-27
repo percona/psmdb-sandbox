@@ -1,0 +1,22 @@
+---
+# Waits for mongod to listen on mongo_port and, if it does not, fails with the
+# service status and recent journal output.
+- name: Wait for MongoDB port
+  block:
+    - name: Wait for MongoDB port
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ mongo_port }}"
+        delay: 1
+        timeout: 60
+  rescue:
+    - name: Collect mongod startup diagnostics
+      become: true
+      ansible.builtin.shell: systemctl status mongod --no-pager -l; journalctl -u mongod --no-pager -n 50
+      register: mongod_diagnostics
+      changed_when: false
+      failed_when: false
+
+    - name: Report mongod startup failure
+      ansible.builtin.fail:
+        msg: "mongod is not listening on port {{ mongo_port }}:\n{{ mongod_diagnostics.stdout }}"

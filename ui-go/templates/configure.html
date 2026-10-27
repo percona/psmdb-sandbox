@@ -5,6 +5,7 @@
   <div>
     <a href="/new" class="back-link">← Platforms</a>
     <h1>Configure <span class="platform-badge platform-{{$p}}">{{upper $p}}</span> Environment</h1>
+    {{if .DuplicateOf}}<p class="text-muted">Duplicate of <strong>{{.DuplicateOf}}</strong>. Choose a new name for this environment.</p>{{end}}
   </div>
 </div>
 
@@ -5195,6 +5196,8 @@ document.getElementById('config-form').addEventListener('submit', async (e) => {
   }
   if (envId) config.prefix = envId;
   const payload = { env_id: envId || undefined, platform: PLATFORM, config };
+  // New (or duplicated) environments must not overwrite an existing one.
+  if (!document.querySelector('[data-env-id]').dataset.envId) payload.create = true;
 
   const bareClientError = validateBareClients(config);
   if (bareClientError) {

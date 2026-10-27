@@ -4,8 +4,6 @@
 - hosts: cfg:shards:replsets
   gather_facts: false
   become: yes
-  vars:
-    pbm_enabled: "{{ enable_pbm | default(true) | bool }}"
   tasks:
     - name: Wipe arbiter directory contents
       shell: rm -rf {{ mongod_path }}/*
@@ -50,7 +48,6 @@
   hosts: replsets
   become: true
   vars:
-    pbm_enabled: "{{ enable_pbm | default(true) | bool }}"
     replset_group: "{{ (group_names | difference(['replsets', 'shards']))[0] }}"
     replset_name: "{{ replset_group if cluster is defined and cluster == replset_group else (cluster ~ '-' ~ replset_group if cluster is defined else replset_group) }}"
 
@@ -70,8 +67,6 @@
 - name: Resync pbm storage (sharded clusters)
   hosts: cfg
   become: true
-  vars:
-    pbm_enabled: "{{ enable_pbm | default(true) | bool }}"
   tasks:
     - block:
         - name: generate PBM_MONGODB_URI
@@ -88,8 +83,6 @@
 - hosts: cfg:shards:replsets:mongos
   become: yes
   gather_facts: false
-  vars:
-    pmm_enabled: "{{ enable_pmm_agent | default(enable_pmm | default((groups['pmm'] | default([]) | length) > 0)) | bool }}"
   tasks:
     - name: Restart pmm service
       systemd:

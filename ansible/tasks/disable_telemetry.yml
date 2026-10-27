@@ -1,0 +1,17 @@
+---
+# Stops the Percona telemetry agent installed alongside Percona packages.
+# Callers add their own conditions (distribution, feature flags) to the include.
+#
+# This only handles an agent that is already installed. The play that installs
+# Percona packages must also set, so package scripts skip telemetry setup:
+#   environment:
+#     PERCONA_TELEMETRY_DISABLE: "{{ '1' if disable_telemetry else '0' }}"
+- name: Disable Percona telemetry
+  become: true
+  ansible.builtin.systemd:
+    name: percona-telemetry-agent
+    enabled: false
+    state: stopped
+    daemon_reload: true
+  ignore_errors: true
+  when: disable_telemetry | bool

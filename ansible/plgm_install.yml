@@ -3,6 +3,7 @@
   hosts: plgm
   become: yes
   gather_facts: "{{ not (skip_repeated_facts | default(false) | bool) }}"
+  tags: plgm
   vars:
     plgm_install_dir: "/opt/plgm/{{ plgm_version }}"
     plgm_data_dir: /var/lib/plgm

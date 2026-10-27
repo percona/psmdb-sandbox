@@ -302,12 +302,12 @@ a:hover { text-decoration: underline; }
   .progress-dot { animation: none; }
 }
 
-/* ─── Deleted env row (greyed out) ──────────────────────────────── */
+/* ─── Destroyed env row (definition kept, nothing deployed) ─────── */
 .env-row-deleted td {
-  opacity: 0.55;
+  color: var(--color-muted);
 }
-.env-row-deleted:hover td {
-  background: inherit;
+.env-row-deleted td.env-actions-cell {
+  color: inherit;
 }
 
 /* ─── Empty state ────────────────────────────────────────────────── */
@@ -632,6 +632,47 @@ tr:last-child td { border-bottom: none; }
   cursor: pointer;
   accent-color: #4a6fa5;
 }
+
+/* Tabs for parallel playbook runs above a terminal */
+.job-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 6px 6px 0;
+  background: #0d0f14;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.job-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  color: var(--color-muted);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.job-tab:hover { color: var(--color-text); }
+.job-tab.active {
+  background: #0a0c10;
+  border-color: rgba(255, 255, 255, 0.10);
+  color: var(--color-text);
+}
+.job-tab-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-muted);
+  flex-shrink: 0;
+}
+.job-tab-dot.running { background: var(--color-warning); animation: pulse 1s ease-in-out infinite; }
+.job-tab-dot.success { background: var(--color-success); }
+.job-tab-dot.failed  { background: var(--color-danger); }
+.job-tab-elapsed { color: var(--color-muted); font-size: 0.7rem; }
 
 .progress-dot {
   width: 10px;
