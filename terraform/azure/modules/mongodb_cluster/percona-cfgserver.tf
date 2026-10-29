@@ -1,7 +1,7 @@
 # Public IP
 resource "azurerm_public_ip" "cfg" {
   for_each            = local.cfg_members
-  name                = "${var.cluster_name}-${var.configsvr_tag}0${each.value}-nic-public-ip"
+  name                = "${var.prefix}-${var.cluster_name}-${var.configsvr_tag}0${each.value}-nic-public-ip"
   location            = var.location
   resource_group_name = var.resource_group_name
   allocation_method   = "Dynamic"
@@ -10,7 +10,7 @@ resource "azurerm_public_ip" "cfg" {
 # Create managed data disks for config servers
 resource "azurerm_managed_disk" "cfg_disk" {
   for_each             = local.cfg_members
-  name                 = "${var.cluster_name}-${var.configsvr_tag}0${each.value}-data"
+  name                 = "${var.prefix}-${var.cluster_name}-${var.configsvr_tag}0${each.value}-data"
   location             = var.location
   resource_group_name  = var.resource_group_name
   storage_account_type = var.data_disk_type
@@ -20,7 +20,7 @@ resource "azurerm_managed_disk" "cfg_disk" {
 
 # Create NSG for configsvr
 resource "azurerm_network_security_group" "mongodb_cfgsvr_nsg" {
-  name                = "${var.cluster_name}-${var.configsvr_tag}-nsg"
+  name                = "${var.prefix}-${var.cluster_name}-${var.configsvr_tag}-nsg"
   location            = var.location
   resource_group_name = var.resource_group_name
 
@@ -64,7 +64,7 @@ resource "azurerm_network_security_group" "mongodb_cfgsvr_nsg" {
 # Create configsvr VM instances
 resource "azurerm_linux_virtual_machine" "cfg" {
   for_each            = local.cfg_members
-  name                = "${var.cluster_name}-${var.configsvr_tag}0${each.value}"
+  name                = "${var.prefix}-${var.cluster_name}-${var.configsvr_tag}0${each.value}"
   location            = var.location
   resource_group_name = var.resource_group_name
   size                = var.configsvr_type
@@ -97,7 +97,7 @@ resource "azurerm_linux_virtual_machine" "cfg" {
 
   custom_data = base64encode(<<EOT
 #!/bin/bash
-hostnamectl set-hostname "${var.cluster_name}-${var.configsvr_tag}0${each.value}"
+hostnamectl set-hostname "${var.prefix}-${var.cluster_name}-${var.configsvr_tag}0${each.value}"
 echo "127.0.0.1 $(hostname) localhost" > /etc/hosts
 
 # Wait for the disk to appear
@@ -122,7 +122,7 @@ EOT
 # Create NICs for configsvr
 resource "azurerm_network_interface" "cfg" {
   for_each            = local.cfg_members
-  name                = "${var.cluster_name}-${var.configsvr_tag}0${each.value}-nic"
+  name                = "${var.prefix}-${var.cluster_name}-${var.configsvr_tag}0${each.value}-nic"
   location            = var.location
   resource_group_name = var.resource_group_name
 

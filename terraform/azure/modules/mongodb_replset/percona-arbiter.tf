@@ -1,7 +1,7 @@
 # Public IP
 resource "azurerm_public_ip" "arbiter" {
   for_each            = local.arbiter_members
-  name                = "${var.rs_name}-${var.arbiter_tag}${each.value}-nic-public-ip"
+  name                = "${var.prefix}-${var.rs_name}-${var.arbiter_tag}${each.value}-nic-public-ip"
   location            = var.location
   resource_group_name = var.resource_group_name
   allocation_method   = "Dynamic"
@@ -9,7 +9,7 @@ resource "azurerm_public_ip" "arbiter" {
 
 # NSG for arbiter nodes
 resource "azurerm_network_security_group" "mongodb_arbiter_nsg" {
-  name                = "${var.rs_name}-${var.arbiter_tag}-nsg"
+  name                = "${var.prefix}-${var.rs_name}-${var.arbiter_tag}-nsg"
   location            = var.location
   resource_group_name = var.resource_group_name
 
@@ -53,7 +53,7 @@ resource "azurerm_network_security_group" "mongodb_arbiter_nsg" {
 # NIC for arbiter nodes
 resource "azurerm_network_interface" "arbiter" {
   for_each            = local.arbiter_members
-  name                = "${var.rs_name}-${var.arbiter_tag}${each.value}-nic"
+  name                = "${var.prefix}-${var.rs_name}-${var.arbiter_tag}${each.value}-nic"
   location            = var.location
   resource_group_name = var.resource_group_name
 
@@ -68,7 +68,7 @@ resource "azurerm_network_interface" "arbiter" {
 # Arbiter VMs
 resource "azurerm_linux_virtual_machine" "arbiter" {
   for_each            = local.arbiter_members
-  name                = "${var.rs_name}-${var.arbiter_tag}${each.value}"
+  name                = "${var.prefix}-${var.rs_name}-${var.arbiter_tag}${each.value}"
   location            = var.location
   resource_group_name = var.resource_group_name
   size                = var.arbiter_type
@@ -104,7 +104,7 @@ resource "azurerm_linux_virtual_machine" "arbiter" {
 
   custom_data = base64encode(<<EOT
 #!/bin/bash
-hostnamectl set-hostname "${var.rs_name}-${var.arbiter_tag}${each.value}"
+hostnamectl set-hostname "${var.prefix}-${var.rs_name}-${var.arbiter_tag}${each.value}"
 echo "127.0.0.1 $(hostname) localhost" > /etc/hosts
 EOT
   )

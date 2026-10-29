@@ -20,7 +20,7 @@ resource "aws_ebs_volume" "replset_disk" {
   iops              = local.data_disk_iops
   throughput        = local.data_disk_throughput
   tags = {
-    Name = "${var.rs_name}-${var.replset_tag}${each.value}-data"
+    Name = "${var.prefix}-${var.rs_name}-${var.replset_tag}${each.value}-data"
   }
 }
 
@@ -46,7 +46,7 @@ resource "aws_instance" "replset" {
   subnet_id = data.aws_subnet.details[each.value % var.subnet_count].id
   key_name  = var.my_key_pair
   tags = {
-    Name          = "${var.rs_name}-${var.replset_tag}${each.value}"
+    Name          = "${var.prefix}-${var.rs_name}-${var.replset_tag}${each.value}"
     ansible-group = var.replset_tag
   }
   vpc_security_group_ids = [aws_security_group.replsetsvr_sg.id]
@@ -63,7 +63,7 @@ resource "aws_instance" "replset" {
     chmod 600 "$home_dir/.ssh/authorized_keys"
 
     # Set the hostname
-    hostnamectl set-hostname "${var.rs_name}-${var.replset_tag}${each.value}"
+    hostnamectl set-hostname "${var.prefix}-${var.rs_name}-${var.replset_tag}${each.value}"
 
     # Update /etc/hosts to reflect the hostname change
     echo "127.0.0.1 $(hostname).${data.aws_route53_zone.private_zone.name} $(hostname) localhost" > /etc/hosts    
@@ -96,11 +96,11 @@ resource "aws_volume_attachment" "replset_volume_attachment" {
 }
 
 resource "aws_security_group" "replsetsvr_sg" {
-  name        = "${var.rs_name}-${var.replset_tag}-sg"
+  name        = "${var.prefix}-${var.rs_name}-${var.replset_tag}-sg"
   description = "Allow traffic to MongoDB replset instances"
   vpc_id      = data.aws_vpc.vpc-network.id
   tags = {
-    Name = "${var.rs_name}-${var.replset_tag}-sg"
+    Name = "${var.prefix}-${var.rs_name}-${var.replset_tag}-sg"
   }
 }
 
@@ -149,7 +149,7 @@ resource "aws_security_group_rule" "mongodb-replset-egress" {
 resource "aws_route53_record" "replsetsvr_dns_record" {
   for_each = local.replset_members
   zone_id  = data.aws_route53_zone.private_zone.zone_id
-  name     = "${var.rs_name}-${var.replset_tag}${each.value}"
+  name     = "${var.prefix}-${var.rs_name}-${var.replset_tag}${each.value}"
   type     = "A"
   ttl      = "300"
   records  = [aws_instance.replset[each.key].private_ip]

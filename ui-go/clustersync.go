@@ -367,11 +367,9 @@ func clusterSyncURI(envID, platform string, cfg Config, kind, name, user, passwo
 	if kind == "cluster" {
 		count := intDefault(cfg.Clusters[name].MongosCount, 2)
 		for i := 0; i < count; i++ {
-			host := fmt.Sprintf("%s-mongodb-mongos0%d", name, i)
+			host := fmt.Sprintf("%s-%s-mongodb-mongos0%d", prefix, name, i)
 			if platform == "docker" {
 				host = fmt.Sprintf("%s-%s-mongos0%d", prefix, name, i)
-			} else if platform == "chaos" {
-				host = fmt.Sprintf("%s-%s-mongodb-mongos0%d", prefix, name, i)
 			}
 			members = append(members, host+":27017")
 		}
@@ -379,11 +377,9 @@ func clusterSyncURI(envID, platform string, cfg Config, kind, name, user, passwo
 		rs := cfg.Replsets[name]
 		count := intDefault(rs.DataNodesPerReplset, 2)
 		for i := 0; i < count; i++ {
-			host, port := fmt.Sprintf("%s-mongodb-svr%d", name, i), 27017
+			host, port := fmt.Sprintf("%s-%s-mongodb-svr%d", prefix, name, i), 27017
 			if platform == "docker" {
 				host, port = fmt.Sprintf("%s-%s-svr%d", prefix, name, i), intDefault(rs.ReplsetPort, 27017)+i
-			} else if platform == "chaos" {
-				host = fmt.Sprintf("%s-%s-mongodb-svr%d", prefix, name, i)
 			}
 			members = append(members, host+":"+strconv.Itoa(port))
 		}

@@ -94,6 +94,9 @@ On existing supported releases, Community/Enterprise uses logical backups and
 PSMDB retains physical backups as its default.
 An explicit Ansible `pbm_backup_type` still overrides the distribution-aware
 default. Community does not support audit logging or encryption at rest.
+Community/Enterprise do not support PSMDB's profiler `rateLimit`, so they profile
+a 1% sample through `slowOpSampleRate` instead; compare benchmark results only
+between deployments created with this setting.
 
 References: [MongoDB 9.0 release notes](https://www.mongodb.com/docs/manual/release-notes/9.0/),
 [PBM compatibility](https://docs.percona.com/percona-backup-mongodb/details/versions.html),

@@ -1,6 +1,6 @@
 resource "google_compute_disk" "cfg_disk" {
   for_each               = local.cfg_members
-  name                   = "${var.cluster_name}-${var.configsvr_tag}0${each.value}-data"
+  name                   = "${var.prefix}-${var.cluster_name}-${var.configsvr_tag}0${each.value}-data"
   type                   = var.configsvr_disk_type
   provisioned_iops       = local.configsvr_disk_iops
   provisioned_throughput = local.configsvr_disk_throughput
@@ -11,13 +11,13 @@ resource "google_compute_disk" "cfg_disk" {
 
 resource "google_compute_instance" "cfg" {
   for_each                  = local.cfg_members
-  name                      = "${var.cluster_name}-${var.configsvr_tag}0${each.value}"
+  name                      = "${var.prefix}-${var.cluster_name}-${var.configsvr_tag}0${each.value}"
   machine_type              = var.configsvr_type
   min_cpu_platform          = var.min_cpu_platform
   resource_policies         = var.resource_policies
   allow_stopping_for_update = true
   zone                      = var.zones[each.value % length(var.zones)]
-  tags                      = ["${var.cluster_name}-${var.configsvr_tag}"]
+  tags                      = ["${var.prefix}-${var.cluster_name}-${var.configsvr_tag}"]
   labels = merge(var.labels, {
     ansible-group = "cfg",
     environment   = var.env_tag
@@ -57,7 +57,7 @@ resource "google_compute_instance" "cfg" {
   metadata_startup_script = <<EOT
     #!/bin/bash
     # Set the hostname
-    hostnamectl set-hostname "${var.cluster_name}-${var.configsvr_tag}0${each.value}"
+    hostnamectl set-hostname "${var.prefix}-${var.cluster_name}-${var.configsvr_tag}0${each.value}"
 
     # Update /etc/hosts to reflect the hostname change
     echo "127.0.0.1 $(hostname) localhost" > /etc/hosts    
@@ -78,11 +78,11 @@ resource "google_compute_instance" "cfg" {
 }
 
 resource "google_compute_firewall" "mongodb-cfgsvr-firewall" {
-  name          = "${var.cluster_name}-${var.configsvr_tag}-firewall"
+  name          = "${var.prefix}-${var.cluster_name}-${var.configsvr_tag}-firewall"
   network       = var.vpc
   direction     = "INGRESS"
   source_ranges = ["${var.subnet_cidr}"]
-  target_tags   = ["${var.cluster_name}-${var.configsvr_tag}"]
+  target_tags   = ["${var.prefix}-${var.cluster_name}-${var.configsvr_tag}"]
   allow {
     protocol = "tcp"
     ports    = [var.configsvr_port]

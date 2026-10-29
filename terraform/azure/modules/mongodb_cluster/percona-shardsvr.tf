@@ -44,7 +44,7 @@ locals {
 # Public IP
 resource "azurerm_public_ip" "shard" {
   for_each            = local.shard_members
-  name                = "${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}svr${each.value.replica_index}-nic-public-ip"
+  name                = "${var.prefix}-${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}svr${each.value.replica_index}-nic-public-ip"
   location            = var.location
   resource_group_name = var.resource_group_name
   allocation_method   = "Dynamic"
@@ -52,7 +52,7 @@ resource "azurerm_public_ip" "shard" {
 
 # NSG for shard nodes
 resource "azurerm_network_security_group" "mongodb_shard_nsg" {
-  name                = "${var.cluster_name}-${var.shardsvr_tag}-nsg"
+  name                = "${var.prefix}-${var.cluster_name}-${var.shardsvr_tag}-nsg"
   location            = var.location
   resource_group_name = var.resource_group_name
 
@@ -111,7 +111,7 @@ resource "azurerm_network_security_group" "mongodb_shard_nsg" {
 # Data disks for each shard node
 resource "azurerm_managed_disk" "shard_disk" {
   for_each             = local.shard_members
-  name                 = "${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}svr${each.value.replica_index}-data"
+  name                 = "${var.prefix}-${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}svr${each.value.replica_index}-data"
   location             = var.location
   resource_group_name  = var.resource_group_name
   storage_account_type = var.data_disk_type
@@ -122,7 +122,7 @@ resource "azurerm_managed_disk" "shard_disk" {
 # NIC for shard node
 resource "azurerm_network_interface" "shard" {
   for_each            = local.shard_members
-  name                = "${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}svr${each.value.replica_index}-nic"
+  name                = "${var.prefix}-${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}svr${each.value.replica_index}-nic"
   location            = var.location
   resource_group_name = var.resource_group_name
 
@@ -137,7 +137,7 @@ resource "azurerm_network_interface" "shard" {
 # VM for each shard server
 resource "azurerm_linux_virtual_machine" "shard" {
   for_each            = local.shard_members
-  name                = "${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}svr${each.value.replica_index}"
+  name                = "${var.prefix}-${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}svr${each.value.replica_index}"
   location            = var.location
   resource_group_name = var.resource_group_name
   size                = var.shardsvr_type
@@ -174,7 +174,7 @@ resource "azurerm_linux_virtual_machine" "shard" {
 
   custom_data = base64encode(<<EOT
 #!/bin/bash
-hostnamectl set-hostname "${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}svr${each.value.replica_index}"
+hostnamectl set-hostname "${var.prefix}-${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}svr${each.value.replica_index}"
 echo "127.0.0.1 $(hostname) localhost" > /etc/hosts
 
 # Wait for the disk to appear

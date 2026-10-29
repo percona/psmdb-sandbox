@@ -1,12 +1,12 @@
 resource "google_compute_instance" "mongos" {
   for_each                  = local.mongos_members
-  name                      = "${var.cluster_name}-${var.mongos_tag}0${each.value}"
+  name                      = "${var.prefix}-${var.cluster_name}-${var.mongos_tag}0${each.value}"
   machine_type              = var.mongos_type
   min_cpu_platform          = var.min_cpu_platform
   resource_policies         = var.resource_policies
   allow_stopping_for_update = true
   zone                      = var.zones[each.value % length(var.zones)]
-  tags                      = ["${var.cluster_name}-${var.mongos_tag}"]
+  tags                      = ["${var.prefix}-${var.cluster_name}-${var.mongos_tag}"]
   labels = merge(var.labels, {
     ansible-group = "mongos",
     environment   = var.env_tag
@@ -42,7 +42,7 @@ resource "google_compute_instance" "mongos" {
   metadata_startup_script = <<EOT
     #!/bin/bash
     # Set the hostname
-    hostnamectl set-hostname "${var.cluster_name}-${var.mongos_tag}0${each.value}"
+    hostnamectl set-hostname "${var.prefix}-${var.cluster_name}-${var.mongos_tag}0${each.value}"
 
     # Update /etc/hosts to reflect the hostname change
     echo "127.0.0.1 $(hostname) localhost" > /etc/hosts    
@@ -50,11 +50,11 @@ resource "google_compute_instance" "mongos" {
 }
 
 resource "google_compute_firewall" "mongodb-mongos-firewall" {
-  name          = "${var.cluster_name}-${var.mongos_tag}-firewall"
+  name          = "${var.prefix}-${var.cluster_name}-${var.mongos_tag}-firewall"
   network       = var.vpc
   direction     = "INGRESS"
   source_ranges = ["${var.subnet_cidr}"]
-  target_tags   = ["${var.cluster_name}-${var.mongos_tag}"]
+  target_tags   = ["${var.prefix}-${var.cluster_name}-${var.mongos_tag}"]
   allow {
     protocol = "tcp"
     ports    = [var.mongos_port]

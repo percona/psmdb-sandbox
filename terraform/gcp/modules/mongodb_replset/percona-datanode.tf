@@ -7,7 +7,7 @@ locals {
 
 resource "google_compute_disk" "replset_disk" {
   for_each               = local.replset_members
-  name                   = "${var.rs_name}-${var.replset_tag}${each.value}-data"
+  name                   = "${var.prefix}-${var.rs_name}-${var.replset_tag}${each.value}-data"
   type                   = var.data_disk_type
   provisioned_iops       = local.data_disk_iops
   provisioned_throughput = local.data_disk_throughput
@@ -18,13 +18,13 @@ resource "google_compute_disk" "replset_disk" {
 
 resource "google_compute_instance" "replset" {
   for_each                  = local.replset_members
-  name                      = "${var.rs_name}-${var.replset_tag}${each.value}"
+  name                      = "${var.prefix}-${var.rs_name}-${var.replset_tag}${each.value}"
   machine_type              = var.replsetsvr_type
   min_cpu_platform          = var.min_cpu_platform
   resource_policies         = var.resource_policies
   allow_stopping_for_update = true
   zone                      = var.zones[each.value % length(var.zones)]
-  tags                      = ["${var.rs_name}-${var.replset_tag}"]
+  tags                      = ["${var.prefix}-${var.rs_name}-${var.replset_tag}"]
   labels = merge(var.labels, {
     ansible-group = var.replset_tag,
     environment   = var.env_tag
@@ -64,7 +64,7 @@ resource "google_compute_instance" "replset" {
   metadata_startup_script = <<EOT
     #!/bin/bash
     # Set the hostname
-    hostnamectl set-hostname "${var.rs_name}-${var.replset_tag}${each.value}"
+    hostnamectl set-hostname "${var.prefix}-${var.rs_name}-${var.replset_tag}${each.value}"
 
     # Update /etc/hosts to reflect the hostname change
     echo "127.0.0.1 $(hostname) localhost" > /etc/hosts    
@@ -85,11 +85,11 @@ resource "google_compute_instance" "replset" {
 }
 
 resource "google_compute_firewall" "mongodb-replsetsvr-firewall" {
-  name          = "${var.rs_name}-${var.replset_tag}-firewall"
+  name          = "${var.prefix}-${var.rs_name}-${var.replset_tag}-firewall"
   network       = var.vpc
   direction     = "INGRESS"
   source_ranges = ["${var.subnet_cidr}"]
-  target_tags   = ["${var.rs_name}-${var.replset_tag}"]
+  target_tags   = ["${var.prefix}-${var.rs_name}-${var.replset_tag}"]
   allow {
     protocol = "tcp"
     ports    = [var.replsetsvr_port]

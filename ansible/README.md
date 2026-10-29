@@ -6,6 +6,11 @@ For fresh 9.0 deployments, see [MongoDB 9.0 deployment notes](../docs/mongodb-9.
 On supported releases, Community/Enterprise use logical PBM backups by default
 and PSMDB retains physical backups. `pbm_backup_type` can override the default.
 PBM is disabled for MongoDB 9.0 until backup/restore compatibility is verified.
+The profiler samples about 1% of operations on every distribution
+(`mongod_profile_rate_limit`, default 100): PSMDB uses `mode: all` with
+`rateLimit`, while Community/Enterprise use `mode: slowOp` with slowms 0 and an
+equivalent `slowOpSampleRate`, which also writes the sampled operations to the
+mongod log.
 
 ## Prerequisites
 

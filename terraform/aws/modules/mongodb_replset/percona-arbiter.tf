@@ -1,7 +1,7 @@
 resource "aws_instance" "arbiter" {
   for_each = local.arbiter_members
   tags = {
-    Name          = "${var.rs_name}-${var.arbiter_tag}${each.value}"
+    Name          = "${var.prefix}-${var.rs_name}-${var.arbiter_tag}${each.value}"
     ansible-group = var.replset_tag
     environment   = var.env_tag
   }
@@ -39,7 +39,7 @@ resource "aws_instance" "arbiter" {
     chmod 600 "$home_dir/.ssh/authorized_keys"
 
     # Set the hostname
-    hostnamectl set-hostname "${var.rs_name}-${var.arbiter_tag}${each.value}"
+    hostnamectl set-hostname "${var.prefix}-${var.rs_name}-${var.arbiter_tag}${each.value}"
 
     # Update /etc/hosts to reflect the hostname change
     echo "127.0.0.1 $(hostname).${data.aws_route53_zone.private_zone.name} $(hostname) localhost" > /etc/hosts    
@@ -47,12 +47,12 @@ resource "aws_instance" "arbiter" {
 }
 
 resource "aws_security_group" "mongodb-arbiter-sg" {
-  name        = "${var.rs_name}-${var.arbiter_tag}-sg"
+  name        = "${var.prefix}-${var.rs_name}-${var.arbiter_tag}-sg"
   description = "Allow traffic to MongoDB arbiter instances"
   vpc_id      = data.aws_vpc.vpc-network.id
 
   tags = {
-    Name        = "${var.rs_name}-${var.arbiter_tag}-sg"
+    Name        = "${var.prefix}-${var.rs_name}-${var.arbiter_tag}-sg"
     environment = var.env_tag
   }
 }
@@ -102,7 +102,7 @@ resource "aws_security_group_rule" "mongodb-arbiter-egress" {
 resource "aws_route53_record" "arbiter_dns_record" {
   for_each = local.arbiter_members
   zone_id  = data.aws_route53_zone.private_zone.zone_id
-  name     = "${var.rs_name}-${var.arbiter_tag}${each.value}"
+  name     = "${var.prefix}-${var.rs_name}-${var.arbiter_tag}${each.value}"
   type     = "A"
   ttl      = "300"
   records  = [aws_instance.arbiter[each.key].private_ip]

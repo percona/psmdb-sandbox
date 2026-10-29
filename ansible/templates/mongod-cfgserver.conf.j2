@@ -77,11 +77,15 @@ security:
 {% endif %}
 
 operationProfiling:
+{% if mongodb_distribution_effective == 'psmdb' %}
    slowOpThresholdMs: 200
    mode: all
 #   slowOpSampleRate: 0.1
-{% if mongodb_distribution_effective == 'psmdb' %}
-   rateLimit: 100
+   rateLimit: {{ mongod_profile_rate_limit }}
+{% else %}
+   slowOpThresholdMs: 0
+   mode: slowOp
+   slowOpSampleRate: {{ mongod_profile_sample_rate }}
 {% endif %}
 
 {% if enable_audit_effective %}

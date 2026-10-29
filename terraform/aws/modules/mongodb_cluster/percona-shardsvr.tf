@@ -56,7 +56,7 @@ resource "aws_ebs_volume" "shard_disk" {
   iops              = local.data_disk_iops
   throughput        = local.data_disk_throughput
   tags = {
-    Name        = "${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}svr${each.value.replica_index}-data"
+    Name        = "${var.prefix}-${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}svr${each.value.replica_index}-data"
     environment = var.env_tag
   }
 }
@@ -83,7 +83,7 @@ resource "aws_instance" "shard" {
   subnet_id = data.aws_subnet.details[each.value.replica_index % var.subnet_count].id
   key_name  = var.my_key_pair
   tags = {
-    Name          = "${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}svr${each.value.replica_index}"
+    Name          = "${var.prefix}-${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}svr${each.value.replica_index}"
     ansible-group = tostring(each.value.shard_index)
     ansible-index = tostring(each.value.replica_index)
   }
@@ -100,7 +100,7 @@ resource "aws_instance" "shard" {
     chmod 600 "$home_dir/.ssh/authorized_keys"
 
     # Set the hostname
-    hostnamectl set-hostname "${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}svr${each.value.replica_index}"
+    hostnamectl set-hostname "${var.prefix}-${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}svr${each.value.replica_index}"
 
     # Update /etc/hosts to reflect the hostname change
     echo "127.0.0.1 $(hostname).${data.aws_route53_zone.private_zone.name} $(hostname) localhost" > /etc/hosts    
@@ -134,12 +134,12 @@ resource "aws_volume_attachment" "shard_volume_attachment" {
 }
 
 resource "aws_security_group" "mongodb_shardsvr_sg" {
-  name        = "${var.cluster_name}-${var.shardsvr_tag}-sg"
+  name        = "${var.prefix}-${var.cluster_name}-${var.shardsvr_tag}-sg"
   description = "Allow traffic to MongoDB shardsvr instances"
   vpc_id      = data.aws_vpc.vpc-network.id
 
   tags = {
-    Name = "${var.cluster_name}-${var.shardsvr_tag}-sg"
+    Name = "${var.prefix}-${var.cluster_name}-${var.shardsvr_tag}-sg"
   }
 }
 
@@ -199,7 +199,7 @@ resource "aws_security_group_rule" "mongodb-shardsvr-egress" {
 resource "aws_route53_record" "shard_dns_record" {
   for_each = local.shard_members
   zone_id  = data.aws_route53_zone.private_zone.zone_id
-  name     = "${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}svr${each.value.replica_index}"
+  name     = "${var.prefix}-${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}svr${each.value.replica_index}"
   type     = "A"
   ttl      = "300"
   records  = [aws_instance.shard[each.key].private_ip]

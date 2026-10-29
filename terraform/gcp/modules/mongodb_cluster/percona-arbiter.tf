@@ -1,12 +1,12 @@
 resource "google_compute_instance" "arbiter" {
   for_each                  = local.arbiter_members
-  name                      = "${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}arb${each.value.arbiter_index}"
+  name                      = "${var.prefix}-${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}arb${each.value.arbiter_index}"
   machine_type              = var.arbiter_type
   min_cpu_platform          = var.min_cpu_platform
   resource_policies         = var.resource_policies
   allow_stopping_for_update = true
   zone                      = var.zones[(var.shardsvr_replicas + each.value.arbiter_index) % length(var.zones)]
-  tags                      = ["${var.cluster_name}-${var.arbiter_tag}"]
+  tags                      = ["${var.prefix}-${var.cluster_name}-${var.arbiter_tag}"]
   labels = merge(var.labels, {
     ansible-group = tostring(each.value.shard_index),
     ansible-index = tostring(each.value.arbiter_index),
@@ -43,7 +43,7 @@ resource "google_compute_instance" "arbiter" {
   metadata_startup_script = <<EOT
     #!/bin/bash
     # Set the hostname
-    hostnamectl set-hostname "${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}arb${each.value.arbiter_index}"
+    hostnamectl set-hostname "${var.prefix}-${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}arb${each.value.arbiter_index}"
 
     # Update /etc/hosts to reflect the hostname change
     echo "127.0.0.1 $(hostname) localhost" > /etc/hosts    
@@ -51,11 +51,11 @@ resource "google_compute_instance" "arbiter" {
 }
 
 resource "google_compute_firewall" "mongodb-arbiter-firewall" {
-  name          = "${var.cluster_name}-${var.arbiter_tag}-firewall"
+  name          = "${var.prefix}-${var.cluster_name}-${var.arbiter_tag}-firewall"
   network       = var.vpc
   direction     = "INGRESS"
   source_ranges = ["${var.subnet_cidr}"]
-  target_tags   = ["${var.cluster_name}-${var.arbiter_tag}"]
+  target_tags   = ["${var.prefix}-${var.cluster_name}-${var.arbiter_tag}"]
   allow {
     protocol = "tcp"
     ports    = [var.arbiter_port]

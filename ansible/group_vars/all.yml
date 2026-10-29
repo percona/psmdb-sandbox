@@ -159,6 +159,13 @@ enable_audit_default: false
 enable_audit_effective: "{{ enable_audit | default(enable_audit_default, true) | bool }}"
 audit_log_path: /var/log/mongo/auditLog.json
 
+# Profiler sampling for PMM Query Analytics. PSMDB profiles every operation
+# (mode: all) rate-limited to 1 in mongod_profile_rate_limit. Community and
+# Enterprise ignore rateLimit, and profiling level 2 overrides slowOpSampleRate,
+# so they use slowOp mode with slowms 0 and an equivalent sample rate instead.
+mongod_profile_rate_limit: 100
+mongod_profile_sample_rate: "{{ 1.0 / (mongod_profile_rate_limit | int) }}"
+
 # MongoDB Search / Vector Search (mongot) experimental support.
 enable_mongot_default: false
 enable_mongot_effective: "{{ enable_mongot | default(enable_mongot_default, true) | bool }}"

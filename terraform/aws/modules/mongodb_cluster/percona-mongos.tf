@@ -20,7 +20,7 @@ resource "aws_instance" "mongos" {
   subnet_id = data.aws_subnet.details[each.value % var.subnet_count].id
   key_name  = var.my_key_pair
   tags = {
-    Name          = "${var.cluster_name}-${var.mongos_tag}0${each.value}"
+    Name          = "${var.prefix}-${var.cluster_name}-${var.mongos_tag}0${each.value}"
     ansible-group = "mongos"
   }
   vpc_security_group_ids = [aws_security_group.mongodb_mongos_sg.id]
@@ -37,7 +37,7 @@ resource "aws_instance" "mongos" {
     chmod 600 "$home_dir/.ssh/authorized_keys"
 
     # Set the hostname
-    hostnamectl set-hostname "${var.cluster_name}-${var.mongos_tag}0${each.value}"
+    hostnamectl set-hostname "${var.prefix}-${var.cluster_name}-${var.mongos_tag}0${each.value}"
 
     # Update /etc/hosts to reflect the hostname change
     echo "127.0.0.1 $(hostname).${data.aws_route53_zone.private_zone.name} $(hostname) localhost" > /etc/hosts    
@@ -45,12 +45,12 @@ resource "aws_instance" "mongos" {
 }
 
 resource "aws_security_group" "mongodb_mongos_sg" {
-  name        = "${var.cluster_name}-${var.mongos_tag}-sg"
+  name        = "${var.prefix}-${var.cluster_name}-${var.mongos_tag}-sg"
   description = "Allow traffic to MongoDB mongos instances"
   vpc_id      = data.aws_vpc.vpc-network.id
 
   tags = {
-    Name = "${var.cluster_name}-${var.mongos_tag}-sg"
+    Name = "${var.prefix}-${var.cluster_name}-${var.mongos_tag}-sg"
   }
 }
 
@@ -99,7 +99,7 @@ resource "aws_security_group_rule" "mongodb-mongos-egress" {
 resource "aws_route53_record" "mongos_dns_record" {
   for_each = local.mongos_members
   zone_id  = data.aws_route53_zone.private_zone.zone_id
-  name     = "${var.cluster_name}-${var.mongos_tag}0${each.value}"
+  name     = "${var.prefix}-${var.cluster_name}-${var.mongos_tag}0${each.value}"
   type     = "A"
   ttl      = "300"
   records  = [aws_instance.mongos[each.key].private_ip]

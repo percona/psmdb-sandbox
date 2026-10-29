@@ -74,6 +74,16 @@ func TestClusterSyncChaosURIUsesEnvironmentPrefix(t *testing.T) {
 	}
 }
 
+func TestClusterSyncCloudURIUsesEnvironmentPrefix(t *testing.T) {
+	cfg := clusterSyncTestConfig()
+	for _, platform := range []string{"gcp", "aws", "azure"} {
+		uri := clusterSyncURI("test", platform, cfg, "replset", "source", pcsmSourceUser, "secret")
+		if !strings.Contains(uri, "test-source-mongodb-svr0:27017") || !strings.Contains(uri, "replicaSet=source") {
+			t.Fatalf("unexpected %s URI: %s", platform, uri)
+		}
+	}
+}
+
 func TestClusterSyncRejectsUnsupportedMongoVersionLine(t *testing.T) {
 	cfg := clusterSyncTestConfig()
 	source := cfg.Replsets["source"]

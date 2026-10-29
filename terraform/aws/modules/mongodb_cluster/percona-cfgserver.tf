@@ -6,7 +6,7 @@ resource "aws_ebs_volume" "cfg_disk" {
   iops              = local.configsvr_disk_iops
   throughput        = local.configsvr_disk_throughput
   tags = {
-    Name        = "${var.cluster_name}-${var.configsvr_tag}0${each.value}-data"
+    Name        = "${var.prefix}-${var.cluster_name}-${var.configsvr_tag}0${each.value}-data"
     environment = var.env_tag
   }
 }
@@ -33,7 +33,7 @@ resource "aws_instance" "cfg" {
   subnet_id = data.aws_subnet.details[each.value % var.subnet_count].id
   key_name  = var.my_key_pair
   tags = {
-    Name          = "${var.cluster_name}-${var.configsvr_tag}0${each.value}"
+    Name          = "${var.prefix}-${var.cluster_name}-${var.configsvr_tag}0${each.value}"
     ansible-group = "cfg"
     environment   = var.env_tag
   }
@@ -51,7 +51,7 @@ resource "aws_instance" "cfg" {
     chmod 600 "$home_dir/.ssh/authorized_keys"
 
     # Set the hostname
-    hostnamectl set-hostname "${var.cluster_name}-${var.configsvr_tag}0${each.value}"
+    hostnamectl set-hostname "${var.prefix}-${var.cluster_name}-${var.configsvr_tag}0${each.value}"
 
     # Update /etc/hosts to reflect the hostname change
     echo "127.0.0.1 $(hostname).${data.aws_route53_zone.private_zone.name} $(hostname) localhost" > /etc/hosts    
@@ -84,12 +84,12 @@ resource "aws_volume_attachment" "cfg_volume_attachment" {
 }
 
 resource "aws_security_group" "mongodb_cfgsvr_sg" {
-  name        = "${var.cluster_name}-${var.configsvr_tag}-sg"
+  name        = "${var.prefix}-${var.cluster_name}-${var.configsvr_tag}-sg"
   description = "Allow traffic to MongoDB configsvr instances"
   vpc_id      = data.aws_vpc.vpc-network.id
 
   tags = {
-    Name = "${var.cluster_name}-${var.configsvr_tag}-sg"
+    Name = "${var.prefix}-${var.cluster_name}-${var.configsvr_tag}-sg"
   }
 }
 
@@ -138,7 +138,7 @@ resource "aws_security_group_rule" "mongodb-configsvr-egress" {
 resource "aws_route53_record" "cfgsvr_dns_record" {
   for_each = local.cfg_members
   zone_id  = data.aws_route53_zone.private_zone.zone_id
-  name     = "${var.cluster_name}-${var.configsvr_tag}0${each.value}"
+  name     = "${var.prefix}-${var.cluster_name}-${var.configsvr_tag}0${each.value}"
   type     = "A"
   ttl      = "300"
   records  = [aws_instance.cfg[each.key].private_ip]

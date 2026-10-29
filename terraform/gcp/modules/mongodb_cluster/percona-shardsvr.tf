@@ -43,7 +43,7 @@ locals {
 
 resource "google_compute_disk" "shard_disk" {
   for_each               = local.shard_members
-  name                   = "${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}svr${each.value.replica_index}-data"
+  name                   = "${var.prefix}-${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}svr${each.value.replica_index}-data"
   type                   = var.data_disk_type
   provisioned_iops       = local.data_disk_iops
   provisioned_throughput = local.data_disk_throughput
@@ -54,13 +54,13 @@ resource "google_compute_disk" "shard_disk" {
 
 resource "google_compute_instance" "shard" {
   for_each                  = local.shard_members
-  name                      = "${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}svr${each.value.replica_index}"
+  name                      = "${var.prefix}-${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}svr${each.value.replica_index}"
   machine_type              = var.shardsvr_type
   min_cpu_platform          = var.min_cpu_platform
   resource_policies         = var.resource_policies
   allow_stopping_for_update = true
   zone                      = var.zones[each.value.replica_index % length(var.zones)]
-  tags                      = ["${var.cluster_name}-${var.shardsvr_tag}"]
+  tags                      = ["${var.prefix}-${var.cluster_name}-${var.shardsvr_tag}"]
   labels = merge(var.labels, {
     ansible-group = tostring(each.value.shard_index),
     ansible-index = tostring(each.value.replica_index),
@@ -101,7 +101,7 @@ resource "google_compute_instance" "shard" {
   metadata_startup_script = <<EOT
     #!/bin/bash
     # Set the hostname
-    hostnamectl set-hostname "${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}svr${each.value.replica_index}"
+    hostnamectl set-hostname "${var.prefix}-${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}svr${each.value.replica_index}"
 
     # Update /etc/hosts to reflect the hostname change
     echo "127.0.0.1 $(hostname) localhost" > /etc/hosts    
@@ -123,11 +123,11 @@ resource "google_compute_instance" "shard" {
 }
 
 resource "google_compute_firewall" "mongodb-shardsvr-firewall" {
-  name          = "${var.cluster_name}-${var.shardsvr_tag}-firewall"
+  name          = "${var.prefix}-${var.cluster_name}-${var.shardsvr_tag}-firewall"
   network       = var.vpc
   direction     = "INGRESS"
   source_ranges = ["${var.subnet_cidr}"]
-  target_tags   = ["${var.cluster_name}-${var.shardsvr_tag}"]
+  target_tags   = ["${var.prefix}-${var.cluster_name}-${var.shardsvr_tag}"]
   allow {
     protocol = "tcp"
     ports    = [var.shard_port]
@@ -136,11 +136,11 @@ resource "google_compute_firewall" "mongodb-shardsvr-firewall" {
 
 resource "google_compute_firewall" "mongodb-shardsvr-mongot-firewall" {
   count         = var.enable_mongot ? 1 : 0
-  name          = "${var.cluster_name}-${var.shardsvr_tag}-mongot-firewall"
+  name          = "${var.prefix}-${var.cluster_name}-${var.shardsvr_tag}-mongot-firewall"
   network       = var.vpc
   direction     = "INGRESS"
   source_ranges = [var.subnet_cidr]
-  target_tags   = ["${var.cluster_name}-${var.shardsvr_tag}"]
+  target_tags   = ["${var.prefix}-${var.cluster_name}-${var.shardsvr_tag}"]
 
   allow {
     protocol = "tcp"

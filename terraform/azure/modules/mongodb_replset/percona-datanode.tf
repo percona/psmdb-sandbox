@@ -8,7 +8,7 @@ locals {
 # Public IP
 resource "azurerm_public_ip" "replset" {
   for_each            = local.replset_members
-  name                = "${var.rs_name}-${var.replset_tag}${each.value}-nic-public-ip"
+  name                = "${var.prefix}-${var.rs_name}-${var.replset_tag}${each.value}-nic-public-ip"
   location            = var.location
   resource_group_name = var.resource_group_name
   allocation_method   = "Dynamic"
@@ -16,7 +16,7 @@ resource "azurerm_public_ip" "replset" {
 
 # Network-security group for the replica-set
 resource "azurerm_network_security_group" "replset_nsg" {
-  name                = "${var.rs_name}-${var.replset_tag}-nsg"
+  name                = "${var.prefix}-${var.rs_name}-${var.replset_tag}-nsg"
   location            = var.location
   resource_group_name = var.resource_group_name
 
@@ -60,7 +60,7 @@ resource "azurerm_network_security_group" "replset_nsg" {
 # Managed data-disk for every data-bearing member
 resource "azurerm_managed_disk" "replset_disk" {
   for_each             = local.replset_members
-  name                 = "${var.rs_name}-${var.replset_tag}${each.value}-data"
+  name                 = "${var.prefix}-${var.rs_name}-${var.replset_tag}${each.value}-data"
   location             = var.location
   resource_group_name  = var.resource_group_name
   storage_account_type = var.data_disk_type
@@ -71,7 +71,7 @@ resource "azurerm_managed_disk" "replset_disk" {
 # Network-interface for every member
 resource "azurerm_network_interface" "replset" {
   for_each            = local.replset_members
-  name                = "${var.rs_name}-${var.replset_tag}${each.value}-nic"
+  name                = "${var.prefix}-${var.rs_name}-${var.replset_tag}${each.value}-nic"
   location            = var.location
   resource_group_name = var.resource_group_name
 
@@ -86,7 +86,7 @@ resource "azurerm_network_interface" "replset" {
 # VM for every replica-set member
 resource "azurerm_linux_virtual_machine" "replset" {
   for_each            = local.replset_members
-  name                = "${var.rs_name}-${var.replset_tag}${each.value}"
+  name                = "${var.prefix}-${var.rs_name}-${var.replset_tag}${each.value}"
   location            = var.location
   resource_group_name = var.resource_group_name
   size                = var.replsetsvr_type
@@ -125,7 +125,7 @@ resource "azurerm_linux_virtual_machine" "replset" {
 #!/bin/bash
 
 # Set the hostname
-hostnamectl set-hostname "${var.rs_name}-${var.replset_tag}${each.value}"
+hostnamectl set-hostname "${var.prefix}-${var.rs_name}-${var.replset_tag}${each.value}"
 echo "127.0.0.1 $(hostname) localhost" > /etc/hosts
 
 # Wait for the disk to appear

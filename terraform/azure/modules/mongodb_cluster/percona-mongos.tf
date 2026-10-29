@@ -1,7 +1,7 @@
 # Public IP
 resource "azurerm_public_ip" "mongos" {
   for_each            = local.mongos_members
-  name                = "${var.cluster_name}-${var.mongos_tag}0${each.value}-nic-public-ip"
+  name                = "${var.prefix}-${var.cluster_name}-${var.mongos_tag}0${each.value}-nic-public-ip"
   location            = var.location
   resource_group_name = var.resource_group_name
   allocation_method   = "Dynamic"
@@ -9,7 +9,7 @@ resource "azurerm_public_ip" "mongos" {
 
 # NSG for mongos
 resource "azurerm_network_security_group" "mongodb_mongos_nsg" {
-  name                = "${var.cluster_name}-${var.mongos_tag}-nsg"
+  name                = "${var.prefix}-${var.cluster_name}-${var.mongos_tag}-nsg"
   location            = var.location
   resource_group_name = var.resource_group_name
 
@@ -53,7 +53,7 @@ resource "azurerm_network_security_group" "mongodb_mongos_nsg" {
 # NICs for mongos nodes
 resource "azurerm_network_interface" "mongos" {
   for_each            = local.mongos_members
-  name                = "${var.cluster_name}-${var.mongos_tag}0${each.value}-nic"
+  name                = "${var.prefix}-${var.cluster_name}-${var.mongos_tag}0${each.value}-nic"
   location            = var.location
   resource_group_name = var.resource_group_name
 
@@ -69,7 +69,7 @@ resource "azurerm_network_interface" "mongos" {
 # mongos VM instances
 resource "azurerm_linux_virtual_machine" "mongos" {
   for_each            = local.mongos_members
-  name                = "${var.cluster_name}-${var.mongos_tag}0${each.value}"
+  name                = "${var.prefix}-${var.cluster_name}-${var.mongos_tag}0${each.value}"
   location            = var.location
   resource_group_name = var.resource_group_name
   size                = var.mongos_type
@@ -106,7 +106,7 @@ resource "azurerm_linux_virtual_machine" "mongos" {
 
   custom_data = base64encode(<<EOT
 #!/bin/bash
-hostnamectl set-hostname "${var.cluster_name}-${var.mongos_tag}0${each.value}"
+hostnamectl set-hostname "${var.prefix}-${var.cluster_name}-${var.mongos_tag}0${each.value}"
 echo "127.0.0.1 $(hostname) localhost" > /etc/hosts
 EOT
   )

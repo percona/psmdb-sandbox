@@ -1,7 +1,7 @@
 # Public IP
 resource "azurerm_public_ip" "arbiter" {
   for_each            = local.arbiter_members
-  name                = "${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}arb${each.value.arbiter_index}-nic-public-ip"
+  name                = "${var.prefix}-${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}arb${each.value.arbiter_index}-nic-public-ip"
   location            = var.location
   resource_group_name = var.resource_group_name
   allocation_method   = "Dynamic"
@@ -9,7 +9,7 @@ resource "azurerm_public_ip" "arbiter" {
 
 resource "azurerm_linux_virtual_machine" "arbiter" {
   for_each            = local.arbiter_members
-  name                = "${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}arb${each.value.arbiter_index}"
+  name                = "${var.prefix}-${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}arb${each.value.arbiter_index}"
   location            = var.location
   resource_group_name = var.resource_group_name
   size                = var.arbiter_type
@@ -21,7 +21,7 @@ resource "azurerm_linux_virtual_machine" "arbiter" {
   os_disk {
     caching              = "ReadWrite"
     storage_account_type = "Standard_LRS"
-    name                 = "${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}arb${each.value.arbiter_index}-os-disk"
+    name                 = "${var.prefix}-${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}arb${each.value.arbiter_index}-os-disk"
   }
 
   source_image_reference {
@@ -46,7 +46,7 @@ resource "azurerm_linux_virtual_machine" "arbiter" {
 
   custom_data = base64encode(<<EOT
     #!/bin/bash
-    hostnamectl set-hostname "${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}arb${each.value.arbiter_index}"
+    hostnamectl set-hostname "${var.prefix}-${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}arb${each.value.arbiter_index}"
     echo "127.0.0.1 $(hostname) localhost" > /etc/hosts
   EOT
   )
@@ -54,7 +54,7 @@ resource "azurerm_linux_virtual_machine" "arbiter" {
 
 resource "azurerm_network_interface" "arbiter" {
   for_each            = local.arbiter_members
-  name                = "${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}arb${each.value.arbiter_index}-nic"
+  name                = "${var.prefix}-${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}arb${each.value.arbiter_index}-nic"
   location            = var.location
   resource_group_name = var.resource_group_name
 
@@ -67,7 +67,7 @@ resource "azurerm_network_interface" "arbiter" {
 }
 
 resource "azurerm_network_security_group" "arbiter" {
-  name                = "${var.cluster_name}-${var.arbiter_tag}-nsg"
+  name                = "${var.prefix}-${var.cluster_name}-${var.arbiter_tag}-nsg"
   location            = var.location
   resource_group_name = var.resource_group_name
 
