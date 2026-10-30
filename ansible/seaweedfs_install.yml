@@ -95,3 +95,17 @@
       systemd:
         name: seaweedfs
         state: restarted
+
+# The SeaweedFS server is shared by every inventory of an environment. The UI
+# configures it from one inventory only; the others skip the seaweedfs tag and
+# wait here, so later PBM plays never target a server that is not up yet.
+- name: Wait for SeaweedFS S3 storage
+  hosts: seaweedfs
+  gather_facts: "{{ not (skip_repeated_facts | default(false) | bool) }}"
+  tags: install,backup
+  tasks:
+    - name: Wait for SeaweedFS S3 endpoint
+      wait_for:
+        port: "{{ seaweedfs_port | default(8333) }}"
+        host: "{{ ansible_facts['default_ipv4']['address'] }}"
+        timeout: "{{ seaweedfs_wait_timeout | default(600) }}"

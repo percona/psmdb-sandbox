@@ -1,0 +1,130 @@
+---
+# Install and configure mongos without starting it, so it can run before the
+# config servers exist. main.yml runs this in the "Install MongoDB" play, in
+# parallel with the mongod installs; mongos_install.yml runs it only if it has
+# not run yet, then (re)starts the router.
+#
+# The caller must set become and the PERCONA_TELEMETRY_DISABLE environment.
+# Sets mongos_restart_needed when a file that requires a restart changed.
+
+- name: Install mongos packages from repository (latest)
+  package:
+    name: "{{ mongos_packages }}"
+    state: present
+  when: mongo_version is not defined or mongo_version == ''
+
+- name: Install mongos packages from repository (specific version - Debian/Ubuntu)
+  apt:
+    name: "{{ mongos_versioned_packages | map('regex_replace', '^(percona-server-mongodb-mongos|mongodb-org-mongos|mongodb-enterprise-mongos)$', '\\1=' ~ mongo_version ~ '*') | list }}"
+    state: present
+    allow_downgrade: true
+  when:
+    - mongo_version is defined and mongo_version != ''
+    - ansible_facts['os_family'] == 'Debian'
+
+- name: Install mongos packages from repository (specific version - RedHat)
+  yum:
+    name: "{{ mongos_versioned_packages | map('regex_replace', '^(percona-server-mongodb-mongos|mongodb-org-mongos|mongodb-enterprise-mongos)$', '\\1-' ~ mongo_version) | list }}"
+    state: present
+  when:
+    - mongo_version is defined and mongo_version != ''
+    - ansible_facts['os_family'] == 'RedHat'
+
+- name: Disable Percona telemetry
+  include_tasks: "{{ playbook_dir }}/tasks/disable_telemetry.yml"
+  when: mongodb_distribution_effective == 'psmdb'
+
+# The standalone official mongos package does not create the mongod account.
+- name: Ensure mongos system group exists
+  ansible.builtin.group:
+    name: "{{ mongo_os_group }}"
+    system: true
+
+- name: Ensure mongos system user exists
+  ansible.builtin.user:
+    name: "{{ mongo_os_user }}"
+    group: "{{ mongo_os_group }}"
+    system: true
+    create_home: false
+
+- name: Grant mongos access to its TLS certificate
+  file:
+    path: "{{ certificateKeyFile }}"
+    owner: "{{ mongo_os_user }}"
+    group: "{{ mongo_os_group }}"
+    mode: "0600"
+  when: use_tls | bool
+
+- name: Create logs directory for mongos
+  file:
+    path: "{{ mongod_log_path }}"
+    state: directory
+    mode: '0755'
+    owner: "{{ mongo_os_user }}"
+    group: "{{ mongo_os_group }}"
+
+- name: Ensure audit log directory exists
+  file:
+    path: "{{ audit_log_path | dirname }}"
+    state: directory
+    mode: '0750'
+    owner: "{{ mongo_os_user }}"
+    group: "{{ mongo_os_group }}"
+  when: enable_audit_effective | bool
+
+- name: Restore SELinux contexts on MongoDB paths
+  include_tasks: "{{ playbook_dir }}/tasks/selinux_mongo_paths.yml"
+  vars:
+    selinux_mongo_paths: "{{ [mongod_log_path] + ([audit_log_path | dirname] if enable_audit_effective | bool else []) }}"
+
+- name: Configure mongo shell alias
+  lineinfile:
+    path: /etc/profile
+    line: >
+      alias mongo='mongosh admin {{ mongo_tls_flags }}
+      -u {{ mongo_admin_user }}
+      -p {{ mongo_admin_password }}
+      --port {{ mongo_port }}
+      --host {{ ansible_facts['fqdn'] }}'
+    state: present
+
+- name: Set up shared mongo keyfile
+  copy:
+    dest: "{{ keyFile_location }}"
+    content: "{{ keyfile_content }}"
+    owner: "{{ mongo_os_user }}"
+    group: root
+    mode: 0600
+  when: not use_tls | bool
+  register: mongos_keyfile_result
+
+- name: Copy mongos.conf
+  template:
+    src: "{{ playbook_dir }}/templates/mongos.conf.j2"
+    dest: /etc/mongos.conf
+    owner: root
+    group: root
+    mode: 0644
+  register: mongos_conf_result
+
+- name: Setup logrotate conf for mongos
+  template:
+    src: "{{ playbook_dir }}/templates/logrotate-mongos.conf.j2"
+    dest: /etc/logrotate.d/mongos
+    mode: 0644
+
+- name: Copy systemd template file for mongos
+  template:
+    src: "{{ playbook_dir }}/templates/mongos.service.j2"
+    dest: /usr/lib/systemd/system/mongos.service
+    mode: 0644
+  register: mongos_unit_result
+
+- name: Record that mongos is prepared
+  set_fact:
+    mongos_prepared: true
+    mongos_restart_needed: >-
+      {{ (mongos_restart_needed | default(false) | bool)
+         or (mongos_keyfile_result is changed)
+         or (mongos_conf_result is changed)
+         or (mongos_unit_result is changed) }}
