@@ -78,6 +78,9 @@ func sshWaitShell(inv, pattern string) string {
 //     PMM client plays wait for the PMM server API before registering (see
 //     ansible/tasks/wait_for_pmm_server.yml).
 //   - plgm is configured only by the first inventory with a [plgm] group.
+//   - The shared SeaweedFS server is configured only by the first inventory
+//     with a [seaweedfs] group. The other runs skip the seaweedfs tag and
+//     wait for its S3 endpoint instead (see ansible/seaweedfs_install.yml).
 //
 // Each run writes $PSMDB_JOBS_DIR/$PSMDB_JOB_ID.<part>.{log,status,start,end},
 // and the part names are listed in $PSMDB_JOB_ID.parts. A failed run does not
@@ -91,13 +94,14 @@ func parallelConfigureShell(playbook string, invs []parallelInventory) string {
 	var b strings.Builder
 	w := func(format string, args ...any) { fmt.Fprintf(&b, format+"\n", args...) }
 
-	w(`{ _psb_dir="${PSMDB_JOBS_DIR:-.}"; _psb_id="${PSMDB_JOB_ID:-job}"; _psb_pids=""; _psb_pmm=""; _psb_plgm=""`)
+	w(`{ _psb_dir="${PSMDB_JOBS_DIR:-.}"; _psb_id="${PSMDB_JOB_ID:-job}"; _psb_pids=""; _psb_pmm=""; _psb_plgm=""; _psb_sw=""`)
 	w(`_psb_run() { _psb_b="$_psb_dir/$_psb_id.$1"; date +%%s > "$_psb_b.start"; echo running > "$_psb_b.status"; printf '==> [%%s] started\n' "$1"; ( "$2" ) > "$_psb_b.log" 2>&1; _psb_rc=$?; date +%%s > "$_psb_b.end"; if [ "$_psb_rc" -eq 0 ]; then _psb_st=success; else _psb_st="failed:$_psb_rc"; fi; echo "$_psb_st" > "$_psb_b.status"; _psb_s=$(( $(cat "$_psb_b.end") - $(cat "$_psb_b.start") )); printf '==> [%%s] finished: %%s (%%dm %%ds)\n' "$1" "$_psb_st" $((_psb_s / 60)) $((_psb_s %% 60)); return "$_psb_rc"; }`)
 
 	for i, inv := range invs {
 		q := shellQuote(inv.Inventory)
 		w(`if [ -z "$_psb_pmm" ] && grep -qs '^\[pmm\]' %s; then _psb_pmm=%d; fi`, q, i)
 		w(`if [ -z "$_psb_plgm" ] && grep -qs '^\[plgm\]' %s; then _psb_plgm=%d; fi`, q, i)
+		w(`if [ -z "$_psb_sw" ] && grep -qs '^\[seaweedfs\]' %s; then _psb_sw=%d; fi`, q, i)
 	}
 
 	// PMM server run: uses the vars of whichever inventory provides [pmm].
@@ -115,6 +119,7 @@ func parallelConfigureShell(playbook string, invs []parallelInventory) string {
 		w(`_psb_p_%d() { [ -f %s ] || { printf "ERROR: inventory file %%s not found\n" %s; exit 1; }; %s`, i, q, q, sshWaitShell(q, "all"))
 		w(`_psb_skip=""; if [ -n "$_psb_pmm" ]; then _psb_skip=pmm_server; fi`)
 		w(`if [ -n "$_psb_plgm" ] && [ "$_psb_plgm" != %d ]; then _psb_skip="${_psb_skip:+$_psb_skip,}plgm"; fi`, i)
+		w(`if [ -n "$_psb_sw" ] && [ "$_psb_sw" != %d ]; then _psb_skip="${_psb_skip:+$_psb_skip,}seaweedfs"; fi`, i)
 		w(`if [ -n "$_psb_skip" ]; then printf "==> ansible-playbook -i %%s --skip-tags %%s\n" %s "$_psb_skip"; %s --skip-tags "$_psb_skip" || exit $?`, q, run)
 		w(`else printf "==> ansible-playbook -i %%s\n" %s; %s || exit $?; fi; }`, q, run)
 	}

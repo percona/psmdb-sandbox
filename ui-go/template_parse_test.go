@@ -449,7 +449,7 @@ func TestMongoShellUsesDedicatedClientCertificate(t *testing.T) {
 		"add_replset_member.yml",
 		"add_shard.yml",
 		"mongod_install.yml",
-		"mongos_install.yml",
+		"tasks/mongos_prepare.yml",
 		"sharding_setup.yml",
 	}
 	for _, name := range playbooks {

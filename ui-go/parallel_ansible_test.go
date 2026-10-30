@@ -261,6 +261,51 @@ func TestParallelConfigureWithoutPMMRunsPlainPlaybook(t *testing.T) {
 	}
 }
 
+func TestParallelConfigureSetsUpSeaweedFSOnce(t *testing.T) {
+	r := runParallelShell(t, map[string]string{
+		"pmm_clients": invPMMClients,
+		"cl01":        "[cfg]\nh1\n\n[seaweedfs]\nsw1\n",
+		"rs01":        "[replsets:children]\nrs01\n\n[seaweedfs]\nsw1\n",
+	}, []string{"pmm_clients", "cl01", "rs01"}, "")
+	if r.err != nil {
+		t.Fatalf("shell failed: %v\n%s", r.err, r.out)
+	}
+	cl, _ := r.find(t, "-i env_inventory_cl01 ")
+	if strings.Contains(cl, "seaweedfs") {
+		t.Errorf("cl01 is the first inventory with SeaweedFS and should configure it: %s", cl)
+	}
+	rs, _ := r.find(t, "-i env_inventory_rs01 ")
+	if !strings.Contains(rs, "--skip-tags pmm_server,seaweedfs") {
+		t.Errorf("rs01 should skip the shared SeaweedFS setup: %s", rs)
+	}
+	pc, _ := r.find(t, "-i env_inventory_pmm_clients ")
+	if !strings.Contains(pc, "--skip-tags pmm_server,seaweedfs") {
+		t.Errorf("pmm_clients should skip the SeaweedFS setup: %s", pc)
+	}
+}
+
+// Runs that skip the seaweedfs tag must still wait for the shared server.
+func TestSeaweedFSWaitPlayIsNotTaggedSeaweedFS(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "ansible", "seaweedfs_install.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, wait, ok := strings.Cut(string(data), "\n- name: Wait for SeaweedFS S3 storage\n")
+	if !ok {
+		t.Fatal("missing the SeaweedFS wait play")
+	}
+	tags := ""
+	for _, line := range strings.Split(wait, "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "tags:"); ok {
+			tags = v
+			break
+		}
+	}
+	if !strings.Contains(tags, "install") || strings.Contains(tags, "seaweedfs") {
+		t.Errorf("wait play tags = %q, want install without seaweedfs", tags)
+	}
+}
+
 func TestParallelConfigureRunsInParallel(t *testing.T) {
 	r := runParallelShell(t, map[string]string{
 		"cl01": invClusterWithPMM, "rs01": invReplsetWithPMM,
