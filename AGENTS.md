@@ -48,6 +48,7 @@ Run the tests relevant to the change:
 - Preview first: `ansible ... --playbook-dir . -m template ... --check --diff` (run from `ansible/` so `group_vars` load), or `ansible-playbook --check --diff`.
 - `ansible/restart.yml` is **not** rolling: it restarts every mongod at once, plus pbm-agent and pmm-agent. For live replica sets, restart secondaries one at a time (wait for SECONDARY), then `rs.stepDown()` the primary and restart it.
 - After a rolling restart the primary may no longer be the host marked `mongodb_primary=True` in the inventory.
+- Don't worry about changing existing environments when doing new code, no need to fix them. Only consider new environments. 
 
 ## Workflow
 

@@ -1064,7 +1064,7 @@ func requireSettingsFile(label, path string, required bool) error {
 	return nil
 }
 
-func applySSHSettingsToNewEnvironment(platform string, cfg *Config, settings AppSettings) error {
+func applySSHSettingsToEnvironment(platform string, cfg *Config, settings AppSettings) error {
 	if platform == "docker" {
 		return nil
 	}
@@ -1321,13 +1321,13 @@ func saveEnvironmentHandler(w http.ResponseWriter, r *http.Request) {
 	if existing != nil {
 		existing = withoutStaleAppliedConfig(existing)
 	}
-	if existing == nil && payload.Platform != "docker" {
+	if payload.Platform != "docker" {
 		settings, err := loadAppSettings()
 		if err != nil {
 			jsonError(w, 500, "settings load failed: "+err.Error())
 			return
 		}
-		if err := applySSHSettingsToNewEnvironment(payload.Platform, &payload.Config, settings); err != nil {
+		if err := applySSHSettingsToEnvironment(payload.Platform, &payload.Config, settings); err != nil {
 			jsonError(w, 400, err.Error())
 			return
 		}
