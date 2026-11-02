@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 )
@@ -94,6 +95,44 @@ func TestSaveDestroyedEnvironmentAllowsTopologyChange(t *testing.T) {
 	}
 	if env.Config.Clusters["cl01"].ConfigsvrCount != 5 {
 		t.Fatal("expected updated topology to be saved")
+	}
+}
+
+func TestSaveExistingEnvironmentAppliesCurrentSSHSettings(t *testing.T) {
+	useTempState(t)
+	origSettingsFile := settingsFile
+	settingsFile = t.TempDir() + "/settings.json"
+	t.Cleanup(func() { settingsFile = origSettingsFile })
+
+	if err := saveAppSettings(AppSettings{SSHUser: "new-user", ChaosApiTokenPath: "/tmp/chaos-token"}); err != nil {
+		t.Fatalf("save settings: %v", err)
+	}
+	if err := saveState(map[string]*Environment{
+		"envone": {Platform: "chaos", Config: Config{Prefix: "envone", MySSHUser: "old-user"}, Status: "deleted"},
+	}); err != nil {
+		t.Fatalf("saveState failed: %v", err)
+	}
+
+	body := `{"env_id":"envone","platform":"chaos","config":{"delete_after_days":3}}`
+	rec := httptest.NewRecorder()
+	saveEnvironmentHandler(rec, httptest.NewRequest(http.MethodPost, "/api/environment", strings.NewReader(body)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	state, err := loadState()
+	if err != nil {
+		t.Fatalf("loadState failed: %v", err)
+	}
+	if got := state["envone"].Config.MySSHUser; got != "new-user" {
+		t.Fatalf("expected SSH user from current settings, got %q", got)
+	}
+	tfvars, err := os.ReadFile(tfvarsPath("envone", "chaos"))
+	if err != nil {
+		t.Fatalf("read tfvars: %v", err)
+	}
+	if !strings.Contains(string(tfvars), `my_ssh_user = "new-user"`) {
+		t.Fatalf("expected my_ssh_user in tfvars, got:\n%s", tfvars)
 	}
 }
 
