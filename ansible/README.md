@@ -236,6 +236,28 @@ Then open `http://127.0.0.1:29999` (change the local port with the Terraform var
 
 When TLS is enabled, `cert_setup.yml` also copies the CA and client certificates to the plgm host. Enter `/etc/ssl/test-ca.pem` as the TLS CA file and `/etc/ssl/client.pem` as the TLS certificate key file in plgm.
 
+When PMM is enabled, the plgm host is also registered with PMM for OS metrics (see [PMM Monitoring of Service Hosts](#pmm-monitoring-of-service-hosts)), so you can check that the load generator is not the bottleneck.
+
+## PMM Monitoring of Service Hosts
+
+When PMM is enabled and the inventory has a `[pmm]` host, `pmm_client_install.yml` also installs a PMM Client on the hosts that do not run MongoDB and registers them with the PMM server as generic nodes. You get OS metrics (CPU, memory, disk, network) for them in the PMM dashboards. No MongoDB or external services are added.
+
+The groups are set by `pmm_service_host_groups` in `group_vars/all.yml`:
+
+```
+pmm_service_host_groups:
+  - plgm
+  - seaweedfs
+  - ldap
+  - vault
+  - ca
+  - nfs
+```
+
+Remove a group from the list to leave its hosts unmonitored, for example `vault` if you want to keep `pmm-agent` off the key server. A host that is also in `pmm`, `pmm_bare_client`, `cfg`, `shards`, `replsets`, `mongos` or `pcsm` is skipped because those plays already monitor it. This covers a CA placed on the PMM server.
+
+Service hosts usually appear in the inventory of every cluster and replica set, and the UI runs those inventories in parallel. Registration takes a lock on the host and is skipped when `pmm-agent` is already connected to the same PMM server, so a host is registered once. These plays only use the `install` and `monitoring` tags. Docker deployments are not covered.
+
 ## TLS-enabled Setup
 
 The extra playbook `cert_setup.yml` generates a test CA on the first host in the inventory's `ca` group, creates a server certificate for each MongoDB host, and copies the certificates to `CAFile` and `certificateKeyFile`. It has no PMM dependency; the CA signer may be a dedicated host or may also belong to `pmm`.
@@ -293,7 +315,7 @@ controller paths, Docker/Libvirt workflows, and destruction semantics.
   - pmm_server
     - Deploys a PMM server using Docker
   - monitoring
-    - Deploys PMM client and registers with a PMM Server. Before registering, clients wait up to `pmm_server_wait_timeout` seconds (default 600) for the PMM server API to accept logins
+    - Deploys PMM client and registers with a PMM Server. Before registering, clients wait up to `pmm_server_wait_timeout` seconds (default 600) for the PMM server API to accept logins. Service hosts in `pmm_service_host_groups` (plgm, SeaweedFS, LDAP, Vault, CA, NFS) are registered for OS metrics
   - plgm
     - Installs plgm (Percona Load Generator for MongoDB)
 

@@ -214,6 +214,10 @@ func TestPMMRegistrationWaitsForPMMServer(t *testing.T) {
 	plays := strings.Split(string(data), "\n- name: ")
 	registering := 0
 	for _, play := range plays {
+		if strings.Contains(play, "include_tasks: tasks/register_bare_pmm_client.yml") {
+			registering++
+			continue
+		}
 		registerAt := strings.Index(play, "pmm-admin config")
 		if registerAt < 0 {
 			continue
@@ -225,8 +229,17 @@ func TestPMMRegistrationWaitsForPMMServer(t *testing.T) {
 			t.Errorf("play %q registers with PMM without waiting for the PMM server first", name)
 		}
 	}
-	if registering != 3 {
-		t.Errorf("found %d plays that register with PMM, want 3", registering)
+	if registering != 4 {
+		t.Errorf("found %d plays that register with PMM, want 4", registering)
+	}
+
+	shared, err := os.ReadFile(filepath.Join("..", "ansible", "tasks", "register_bare_pmm_client.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitAt := strings.Index(string(shared), "import_tasks: wait_for_pmm_server.yml")
+	if registerAt := strings.Index(string(shared), "pmm-admin config"); waitAt < 0 || registerAt < 0 || waitAt > registerAt {
+		t.Error("tasks/register_bare_pmm_client.yml registers with PMM without waiting for the PMM server first")
 	}
 
 	main, err := os.ReadFile(filepath.Join("..", "ansible", "main.yml"))
@@ -235,6 +248,40 @@ func TestPMMRegistrationWaitsForPMMServer(t *testing.T) {
 	}
 	if plgm, pmm := strings.Index(string(main), "plgm_install.yml"), strings.Index(string(main), "pmm_client_install.yml"); plgm < 0 || plgm > pmm {
 		t.Error("plgm_install.yml should be imported before pmm_client_install.yml so it does not wait for PMM")
+	}
+}
+
+// Service hosts (plgm, SeaweedFS, Vault, ...) appear in every inventory, but
+// most inventory runs skip the plgm, seaweedfs and vault tags. Their PMM plays
+// must not carry those tags or the hosts would only be registered by one run,
+// or by none at all for Vault.
+func TestPMMServiceHostPlaysAreNotSkipped(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "ansible", "pmm_client_install.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := 0
+	for _, play := range strings.Split(string(data), "\n- name: ") {
+		if !strings.Contains(play, "pmm_service_hosts") {
+			continue
+		}
+		found++
+		name, _, _ := strings.Cut(play, "\n")
+		for _, line := range strings.Split(play, "\n") {
+			tags, ok := strings.CutPrefix(line, "  tags: ")
+			if !ok {
+				continue
+			}
+			for _, tag := range strings.Split(tags, ",") {
+				switch strings.TrimSpace(tag) {
+				case "plgm", "seaweedfs", "vault":
+					t.Errorf("play %q is tagged %q, which the UI skips", name, tag)
+				}
+			}
+		}
+	}
+	if found != 3 {
+		t.Errorf("found %d service host PMM plays, want 3", found)
 	}
 }
 

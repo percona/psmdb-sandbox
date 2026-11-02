@@ -87,33 +87,8 @@
   environment:
     PERCONA_TELEMETRY_DISABLE: "{{ '1' if disable_telemetry else '0' }}"
   tasks:
-    - name: Install percona-release
-      ansible.builtin.apt:
-        deb: https://repo.percona.com/apt/percona-release_latest.generic_all.deb
-        state: present
-      when: ansible_facts['os_family'] == 'Debian'
-
-    - name: Install percona-release on Red Hat
-      ansible.builtin.dnf:
-        name: https://repo.percona.com/yum/percona-release-latest.noarch.rpm
-        state: present
-        disable_gpg_check: true
-      when: ansible_facts['os_family'] == 'RedHat'
-
-    - name: Enable PMM client repository
-      ansible.builtin.command: "/usr/bin/percona-release enable {{ pmm_client_repo | default('pmm3-client') }}"
-      changed_when: false
-
-    # PMM Extensions tasks run Python in a venv, which Debian ships separately
-    - name: Install python3-venv
-      ansible.builtin.apt:
-        name: python3-venv
-        state: present
-        update_cache: true
-      when: ansible_facts['os_family'] == 'Debian'
-
     - name: Install pmm-client
-      ansible.builtin.include_tasks: tasks/install_pmm_client.yml
+      ansible.builtin.include_tasks: tasks/install_bare_pmm_client.yml
 
 - name: Configure monitoring on hosts without MongoDB
   hosts: pmm_bare_client
@@ -121,25 +96,39 @@
   become: true
   tags: monitoring
   tasks:
-    - name: Wait for the PMM server
-      ansible.builtin.import_tasks: tasks/wait_for_pmm_server.yml
+    - name: Register with the PMM server
+      ansible.builtin.include_tasks: tasks/register_bare_pmm_client.yml
 
-    - name: Ensure pmm-agent is started
-      ansible.builtin.service:
-        name: pmm-agent
-        state: started
-        enabled: true
+# Service hosts (plgm, SeaweedFS, LDAP, Vault, CA, NFS) only report OS metrics.
+# These plays must not carry the plgm, seaweedfs or vault tags: the UI skips
+# those tags on most runs, but every run has to register its service hosts.
+- name: Select service hosts to monitor with PMM
+  hosts: all
+  gather_facts: false
+  tags: install,monitoring
+  tasks:
+    - name: Group service hosts without MongoDB
+      ansible.builtin.import_tasks: tasks/select_pmm_service_hosts.yml
 
-    - name: Point pmm-agent to the PMM server
-      ansible.builtin.shell: >-
-        pmm-admin config
-        --server-url=https://{{ pmm_server_user }}:{{ pmm_server_pwd }}@{{ hostvars[groups['pmm'][0]].ansible_facts['fqdn'] }}:{{ pmm_external_port }}
-        --server-insecure-tls --force
-      no_log: true
-      register: pmm_config_result
-      retries: 3
-      delay: 1
-      until: pmm_config_result.rc == 0
+- name: Install PMM client on service hosts
+  hosts: pmm_service_hosts
+  gather_facts: "{{ not (skip_repeated_facts | default(false) | bool) }}"
+  become: true
+  tags: install,monitoring
+  environment:
+    PERCONA_TELEMETRY_DISABLE: "{{ '1' if disable_telemetry else '0' }}"
+  tasks:
+    - name: Install pmm-client
+      ansible.builtin.include_tasks: tasks/install_bare_pmm_client.yml
+
+- name: Configure monitoring on service hosts
+  hosts: pmm_service_hosts
+  gather_facts: "{{ not (skip_repeated_facts | default(false) | bool) }}"
+  become: true
+  tags: monitoring
+  tasks:
+    - name: Register with the PMM server
+      ansible.builtin.include_tasks: tasks/register_bare_pmm_client.yml
 
 - name: Install PMM client on PCSM
   hosts: pcsm

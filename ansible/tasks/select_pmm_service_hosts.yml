@@ -1,0 +1,11 @@
+---
+# Adds service hosts without MongoDB (pmm_service_host_groups) to the
+# pmm_service_hosts group. Hosts with their own PMM plays are left out.
+- name: Group service hosts without MongoDB
+  ansible.builtin.group_by:
+    key: pmm_service_hosts
+  when:
+    - pmm_enabled | bool
+    - (groups['pmm'] | default([])) | length > 0
+    - group_names | intersect(pmm_service_host_groups) | length > 0
+    - group_names | intersect(['pmm', 'pmm_bare_client', 'cfg', 'shards', 'replsets', 'mongos', 'pcsm']) | length == 0

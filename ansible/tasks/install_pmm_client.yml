@@ -3,6 +3,12 @@
   package:
     name: "{{ pmm_client_package }}"
     state: present
+  # Service hosts can be shared by inventories that run in parallel; retry if
+  # another run holds the package manager lock.
+  register: pmm_client_pkg
+  until: pmm_client_pkg is succeeded
+  retries: 5
+  delay: 30
   when:
     - pmm_client_version is not defined or pmm_client_version == ''
 

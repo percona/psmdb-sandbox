@@ -278,6 +278,17 @@ pmm_server_wait_timeout: 600
 # Install and register PMM clients; defaults to whether the inventory has a [pmm] host.
 pmm_enabled: "{{ enable_pmm_agent | default(enable_pmm | default((groups['pmm'] | default([]) | length) > 0)) | bool }}"
 
+# Service hosts without MongoDB that get a PMM client for OS metrics when PMM is
+# enabled. Hosts that are also in pmm, cfg, shards, replsets, mongos or pcsm are
+# skipped because they are monitored by their own plays.
+pmm_service_host_groups:
+  - plgm
+  - seaweedfs
+  - ldap
+  - vault
+  - ca
+  - nfs
+
 # PMM agent parameters
 mongodb_pmm_user: pmm
 # Warning! This is just an example, replace with your own for prod use!
