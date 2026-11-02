@@ -1,0 +1,34 @@
+---
+# Installs pmm-client on a host that has no MongoDB packages (and therefore no
+# percona-release from percona_release.yml). Several inventories may share a
+# host and run this at the same time, so package steps wait for the apt lock
+# and percona-release runs under flock.
+- name: Install percona-release
+  ansible.builtin.apt:
+    deb: https://repo.percona.com/apt/percona-release_latest.generic_all.deb
+    state: present
+    lock_timeout: 300
+  when: ansible_facts['os_family'] == 'Debian'
+
+- name: Install percona-release on Red Hat
+  ansible.builtin.dnf:
+    name: https://repo.percona.com/yum/percona-release-latest.noarch.rpm
+    state: present
+    disable_gpg_check: true
+  when: ansible_facts['os_family'] == 'RedHat'
+
+- name: Enable PMM client repository
+  ansible.builtin.command: "flock -w 600 /var/lock/psb-percona-release.lock /usr/bin/percona-release enable {{ pmm_client_repo | default('pmm3-client') }}"
+  changed_when: false
+
+# PMM Extensions tasks run Python in a venv, which Debian ships separately
+- name: Install python3-venv
+  ansible.builtin.apt:
+    name: python3-venv
+    state: present
+    update_cache: true
+    lock_timeout: 300
+  when: ansible_facts['os_family'] == 'Debian'
+
+- name: Install pmm-client
+  ansible.builtin.include_tasks: install_pmm_client.yml

@@ -1,0 +1,44 @@
+---
+- name: Verify service hosts are not selected when PMM is disabled
+  hosts: all
+  gather_facts: false
+  vars_files:
+    - ../group_vars/all.yml
+  tasks:
+    - name: Select service hosts with PMM disabled
+      ansible.builtin.import_tasks: ../tasks/select_pmm_service_hosts.yml
+      vars:
+        enable_pmm_agent: false
+
+    - name: Verify no service host was selected
+      ansible.builtin.assert:
+        that:
+          - groups['pmm_service_hosts'] | default([]) | length == 0
+      run_once: true
+
+- name: Select service hosts with PMM enabled
+  hosts: all
+  gather_facts: false
+  vars_files:
+    - ../group_vars/all.yml
+  tasks:
+    - name: Select service hosts
+      ansible.builtin.import_tasks: ../tasks/select_pmm_service_hosts.yml
+
+- name: Verify the selected service hosts
+  hosts: localhost
+  gather_facts: false
+  vars:
+    client_plays: "{{ lookup('ansible.builtin.file', '../pmm_client_install.yml') | from_yaml }}"
+    service_plays: "{{ client_plays | selectattr('name', 'search', 'service hosts') | list }}"
+  tasks:
+    - name: Verify service hosts without their own PMM plays are selected
+      ansible.builtin.assert:
+        that:
+          - groups['pmm_service_hosts'] | sort == ['ca1', 'ldap1', 'nfs1', 'plgm1', 'sw1', 'vault1']
+
+    - name: Verify service host plays are not skipped by the UI's per-run tags
+      ansible.builtin.assert:
+        that:
+          - service_plays | length == 3
+          - service_plays | map(attribute='tags') | map('split', ',') | flatten | intersect(['plgm', 'seaweedfs', 'vault']) | length == 0

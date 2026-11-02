@@ -1,0 +1,38 @@
+---
+# Registers a host without MongoDB with the PMM server so it reports OS
+# metrics. The host may be shared by inventories that run in parallel, so
+# registration runs under flock and is skipped when pmm-agent is already
+# connected to this PMM server; a forced re-registration would also remove any
+# services added to the node since.
+- name: Wait for the PMM server
+  ansible.builtin.import_tasks: wait_for_pmm_server.yml
+
+- name: Ensure pmm-agent is started
+  ansible.builtin.service:
+    name: pmm-agent
+    state: started
+    enabled: true
+
+- name: Point pmm-agent to the PMM server
+  ansible.builtin.shell: |
+    set -o pipefail
+    exec 9>/var/lock/psb-pmm-admin-config.lock
+    flock -w 300 9
+    status="$(pmm-admin status 2>/dev/null || true)"
+    if grep -qF -- "$PMM_SERVER_ADDRESS" <<<"$status" && grep -Eq 'Connected[[:space:]]*:[[:space:]]*true' <<<"$status"; then
+      echo "already registered"
+      exit 0
+    fi
+    pmm-admin config --server-url="https://${PMM_SERVER_USER}:${PMM_SERVER_PWD}@${PMM_SERVER_ADDRESS}" --server-insecure-tls --force
+  args:
+    executable: /bin/bash
+  environment:
+    PMM_SERVER_ADDRESS: "{{ hostvars[groups['pmm'][0]].ansible_facts['fqdn'] }}:{{ pmm_external_port }}"
+    PMM_SERVER_USER: "{{ pmm_server_user }}"
+    PMM_SERVER_PWD: "{{ pmm_server_pwd }}"
+  no_log: true
+  register: pmm_config_result
+  changed_when: "'already registered' not in pmm_config_result.stdout"
+  retries: 3
+  delay: 1
+  until: pmm_config_result.rc == 0
