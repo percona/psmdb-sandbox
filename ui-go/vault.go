@@ -89,21 +89,17 @@ func vaultDockerBootstrapShell(envID string, cfg Config) string {
 }
 
 func vaultDockerConsumerIDs(prefix string, all bool) string {
-	command := "docker ps"
-	if all {
-		command += " -a"
-	}
 	format := fmt.Sprintf(`{{if ne .Names %q}}{{.ID}}{{end}}`, prefix+"-vault")
-	return command + " --filter " + shellQuote("name=^/"+regexp.QuoteMeta(prefix)+"-") + " --format " + shellQuote(format)
+	return dockerEnvironmentListShell(prefix, all, format)
 }
 
 func vaultDockerStopShell(prefix string) string {
-	return vaultDockerConsumerIDs(prefix, false) + " | xargs -r docker stop && docker stop " + shellQuote(prefix+"-vault")
+	return "set -o pipefail; " + vaultDockerConsumerIDs(prefix, false) + " | xargs -r docker stop && docker stop " + shellQuote(prefix+"-vault")
 }
 
 func vaultDockerRestartShell(envID string, cfg Config) string {
 	prefix := strDefault(cfg.Prefix, envID)
 	// Stop consumers before restarting Vault; unseal and refresh tokens first.
-	return vaultDockerConsumerIDs(prefix, false) + " | xargs -r docker stop && docker restart " + shellQuote(prefix+"-vault") +
+	return "set -o pipefail; " + vaultDockerConsumerIDs(prefix, false) + " | xargs -r docker stop && docker restart " + shellQuote(prefix+"-vault") +
 		" && " + vaultDockerBootstrapShell(envID, cfg) + " && " + vaultDockerConsumerIDs(prefix, true) + " | xargs -r docker restart"
 }

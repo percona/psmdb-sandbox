@@ -70,19 +70,11 @@ async function deleteEnvironment(envId, status, platform) {
   // Statuses that imply resources are already gone.
   const alreadyDestroyed = new Set(['deleted', 'destroy_success']);
   const isDestroyed = alreadyDestroyed.has(status);
-  const isDocker = platform === 'docker';
-
-  let msg;
-  if (isDestroyed) {
-    const what = isDocker ? 'Docker containers have' : 'Cloud resources have';
-    msg = `Remove the definition of environment "${envId}"? ${what} already been destroyed; you will no longer be able to redeploy it.`;
-  } else {
-    if (isDocker) {
-      msg = `⚠️ WARNING: Docker containers for environment "${envId}" may still be running (status: ${status}).\n\nThis will only remove the environment from this UI — it will NOT stop or remove the containers.\n\nAre you sure you want to proceed?`;
-    } else {
-      msg = `⚠️ WARNING: Cloud resources for environment "${envId}" may still be running (status: ${status}).\n\nThis will only remove the environment from this UI — it will NOT destroy the cloud resources.\n\nAre you sure you want to proceed?`;
-    }
+  if (!isDestroyed && status !== 'configured') {
+    alert('Destroy this environment successfully before removing its definition. Its Terraform state will be preserved.');
+    return;
   }
+  const msg = `Remove the definition of environment "${envId}"? ${isDestroyed ? 'Its resources have been destroyed.' : 'It has not been deployed.'} You will no longer be able to redeploy it.`;
   if (!confirm(msg)) return;
   try {
     await apiFetch(`/api/environment/${envId}`, 'DELETE');
@@ -91,4 +83,3 @@ async function deleteEnvironment(envId, status, platform) {
     alert('Error deleting: ' + err.message);
   }
 }
-

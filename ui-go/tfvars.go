@@ -730,7 +730,7 @@ func writeTfvars(envID, platform string, cfg Config) error {
 		}
 	}
 
-	if err := os.WriteFile(path, []byte(b.String()), 0644); err != nil {
+	if err := atomicWriteFile(path, []byte(b.String()), 0600); err != nil {
 		return err
 	}
 	slog.Info("wrote tfvars", "path", path)

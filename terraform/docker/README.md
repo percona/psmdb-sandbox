@@ -45,6 +45,18 @@ ldap_servers  = {}
 
 Apply it with `terraform apply -var-file=minimum.tfvars`.
 
+### Environment identification
+
+Every managed container receives the label `psmdb-sandbox.environment`, whose
+value is the root `prefix`. Use a unique, nonempty prefix for each environment.
+The web UI uses an exact label filter for discovery and stop/restart operations,
+with an anchored name fallback for older containers that do not have the label.
+
+Adding this label to existing containers may cause Terraform to replace them on
+the next apply. This can interrupt the whole environment even though MongoDB
+data volumes are separate resources. Back up valuable data and review the plan
+before upgrading an existing environment. No migration runs automatically.
+
 Additional clusters can be defined in a `.tfvars` file. Example:
 
 ```

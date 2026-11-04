@@ -22,6 +22,11 @@ resource "docker_volume" "rs_volume" {
 }
 
 resource "docker_container" "rs" {
+  labels {
+    label = "psmdb-sandbox.environment"
+    value = var.environment_id
+  }
+
   for_each   = local.replset_members
   name       = "${var.rs_name}-${var.replset_tag}${each.value.member_index}${var.domain_name != "" ? ".${var.domain_name}" : ""}"
   hostname   = "${var.rs_name}-${var.replset_tag}${each.value.member_index}"

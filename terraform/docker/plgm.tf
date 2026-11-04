@@ -98,6 +98,11 @@ resource "docker_image" "plgm" {
 
 # Create plgm container
 resource "docker_container" "plgm" {
+  labels {
+    label = "psmdb-sandbox.environment"
+    value = var.prefix
+  }
+
   count        = var.enable_plgm ? 1 : 0
   name         = "${local.name_prefix}${var.plgm_container_suffix}"
   hostname     = "${local.name_prefix}${var.plgm_container_suffix}"

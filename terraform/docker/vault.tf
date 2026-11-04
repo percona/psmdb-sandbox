@@ -45,6 +45,7 @@ resource "terraform_data" "vault_validation" {
 }
 
 module "vault" {
+  environment_id = var.prefix
   count          = local.vault_enabled ? 1 : 0
   source         = "./modules/vault_server"
   name           = "${local.name_prefix}vault"

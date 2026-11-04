@@ -122,6 +122,12 @@ func startJob(cmd []string, cwd string, extraEnv map[string]string, onComplete f
 }
 
 func runJob(jobID string, cmd []string, cwd string, extraEnv map[string]string, onComplete func(string)) {
+	finalStatus := "error"
+	defer func() {
+		if onComplete != nil {
+			onComplete(finalStatus)
+		}
+	}()
 	startTime := time.Now()
 	statusPath := jobStatusPath(jobID)
 	logPath := jobLogPath(jobID)
@@ -170,7 +176,7 @@ func runJob(jobID string, cmd []string, cwd string, extraEnv map[string]string, 
 	// Parallel playbook blocks write per-part logs next to the job log.
 	execCmd.env = append(execCmd.env, "PSMDB_JOB_ID="+jobID, "PSMDB_JOBS_DIR="+jobsDir)
 
-	finalStatus := runProcess(jobID, execCmd.name, execCmd.args, execCmd.env, cwd, logFile)
+	finalStatus = runProcess(jobID, execCmd.name, execCmd.args, execCmd.env, cwd, logFile)
 
 	// Append elapsed time to the log so it is visible in the terminal output.
 	elapsed := time.Since(startTime)
@@ -185,10 +191,6 @@ func runJob(jobID string, cmd []string, cwd string, extraEnv map[string]string, 
 		slog.Error("job status write failed", "job", jobID, "err", err)
 	}
 	slog.Info("job finished", "job", jobID, "status", finalStatus)
-
-	if onComplete != nil {
-		onComplete(finalStatus)
-	}
 }
 
 // runProcess executes the given command and pipes stdout+stderr to logFile.

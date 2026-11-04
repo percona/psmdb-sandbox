@@ -18,6 +18,11 @@ resource "local_file" "storage_config" {
 
 # PBM CLI container
 resource "docker_container" "pbm_cli" {
+  labels {
+    label = "psmdb-sandbox.environment"
+    value = var.environment_id
+  }
+
   name    = "${var.cluster_name}-${var.pbm_cli_container_suffix}"
   count   = var.enable_pbm ? 1 : 0
   image   = docker_image.pbm.image_id

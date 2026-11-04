@@ -2,7 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -18,6 +20,10 @@ var settingsMu sync.Mutex
 func loadState() (map[string]*Environment, error) {
 	stateMu.Lock()
 	defer stateMu.Unlock()
+	return loadStateLocked()
+}
+
+func loadStateLocked() (map[string]*Environment, error) {
 	data, err := os.ReadFile(stateFile)
 	if os.IsNotExist(err) {
 		return map[string]*Environment{}, nil
@@ -29,17 +35,63 @@ func loadState() (map[string]*Environment, error) {
 	if err := json.Unmarshal(data, &state); err != nil {
 		return nil, err
 	}
+	if state == nil {
+		return nil, fmt.Errorf("environment registry must be a JSON object")
+	}
 	return state, nil
 }
 
 func saveState(state map[string]*Environment) error {
 	stateMu.Lock()
 	defer stateMu.Unlock()
+	return saveStateLocked(state)
+}
+
+// updateState serializes the entire read-modify-write transaction. Callbacks
+// must not call loadState, saveState, or updateState themselves.
+func updateState(update func(map[string]*Environment) error) error {
+	stateMu.Lock()
+	defer stateMu.Unlock()
+	state, err := loadStateLocked()
+	if err != nil {
+		return err
+	}
+	if err := update(state); err != nil {
+		return err
+	}
+	return saveStateLocked(state)
+}
+
+func saveStateLocked(state map[string]*Environment) error {
 	b, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(stateFile, b, 0644)
+	return atomicWriteFile(stateFile, b, 0600)
+}
+
+// atomicWriteFile leaves the previous file intact if writing or syncing fails.
+// The temporary file must be on the same filesystem for rename to be atomic.
+func atomicWriteFile(path string, data []byte, mode os.FileMode) error {
+	f, err := os.CreateTemp(filepath.Dir(path), ".psmdb-write-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	defer f.Close()
+	if err := f.Chmod(mode); err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), path)
 }
 
 func loadAppSettings() (AppSettings, error) {
@@ -102,5 +154,5 @@ func saveAppSettings(settings AppSettings) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(settingsFile, b, 0644)
+	return atomicWriteFile(settingsFile, b, 0600)
 }

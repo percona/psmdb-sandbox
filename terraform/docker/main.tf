@@ -20,12 +20,13 @@ provider "docker" {}
 locals {
   # When var.prefix is non-empty prepend it plus a hyphen to every resource
   # name so that containers/volumes from different environments coexist on the
-  # same Docker host without collisions.  Matches the prefix the UI embeds in
-  # its docker --filter 'name=<prefix>-' stop/restart commands.
+  # same Docker host without collisions. The UI selects containers by their
+  # exact psmdb-sandbox.environment label, with an anchored legacy fallback.
   name_prefix = var.prefix != "" ? "${var.prefix}-" : ""
 }
 
 module "mongodb_clusters" {
+  environment_id        = var.prefix
   source                = "./modules/mongodb_cluster"
   for_each              = var.clusters
   cluster_name          = "${local.name_prefix}${each.key}"
@@ -76,6 +77,7 @@ module "mongodb_clusters" {
 }
 
 module "mongodb_replsets" {
+  environment_id         = var.prefix
   source                 = "./modules/mongodb_replset"
   for_each               = var.replsets
   rs_name                = "${local.name_prefix}${each.key}"
@@ -127,6 +129,7 @@ module "mongodb_replsets" {
 }
 
 module "pmm_server" {
+  environment_id    = var.prefix
   source            = "./modules/pmm_server"
   for_each          = var.pmm_servers
   pmm_host          = "${local.name_prefix}${each.key}"
@@ -149,6 +152,7 @@ module "pmm_server" {
 }
 
 module "pmm_bare_clients" {
+  environment_id     = var.prefix
   source             = "./modules/pmm_bare_client"
   for_each           = var.pmm_bare_clients
   client_name        = "${local.name_prefix}${each.key}"
@@ -167,6 +171,7 @@ module "pmm_bare_clients" {
 }
 
 module "seaweedfs_server" {
+  environment_id       = var.prefix
   source               = "./modules/seaweedfs_server"
   for_each             = var.seaweedfs_servers
   seaweedfs_server     = "${local.name_prefix}${each.key}"
@@ -181,6 +186,7 @@ module "seaweedfs_server" {
 }
 
 module "ldap_server" {
+  environment_id      = var.prefix
   source              = "./modules/ldap_server"
   for_each            = var.ldap_servers
   ldap_server         = "${local.name_prefix}${each.key}"

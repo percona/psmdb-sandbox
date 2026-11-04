@@ -16,6 +16,11 @@ resource "docker_image" "renderer" {
 }
 
 resource "docker_container" "renderer" {
+  labels {
+    label = "psmdb-sandbox.environment"
+    value = var.environment_id
+  }
+
   name         = "${var.pmm_host}-${var.renderer_tag}"
   hostname     = "${var.pmm_host}-${var.renderer_tag}"
   image        = docker_image.renderer.image_id
@@ -45,6 +50,11 @@ resource "docker_image" "watchtower" {
 
 # Create a Docker container for Watchtower
 resource "docker_container" "watchtower" {
+  labels {
+    label = "psmdb-sandbox.environment"
+    value = var.environment_id
+  }
+
   name     = "${var.pmm_host}-${var.watchtower_tag}"
   hostname = "${var.pmm_host}-${var.watchtower_tag}"
   image    = docker_image.watchtower.image_id
@@ -102,6 +112,11 @@ locals {
 
 # Create a Docker container for the PMM server
 resource "docker_container" "pmm" {
+  labels {
+    label = "psmdb-sandbox.environment"
+    value = var.environment_id
+  }
+
   name       = var.pmm_host
   hostname   = var.pmm_host
   domainname = var.domain_name

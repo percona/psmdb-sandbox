@@ -1,3 +1,9 @@
+variable "environment_id" {
+  description = "Exact environment identifier used for container selection."
+  type        = string
+  default     = ""
+}
+
 variable "seaweedfs_server" {
   type    = string
   default = "seaweedfs"

@@ -1,3 +1,9 @@
+variable "environment_id" {
+  description = "Exact environment identifier used for container selection."
+  type        = string
+  default     = ""
+}
+
 #############
 # PMM Server
 #############

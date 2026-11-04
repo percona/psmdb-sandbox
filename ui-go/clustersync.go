@@ -472,6 +472,17 @@ func clusterSyncStatusHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func clusterSyncActionHandler(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("env_id")
+	if !envIDRe.MatchString(id) {
+		jsonError(w, 400, "invalid environment ID")
+		return
+	}
+	release, acquired := tryEnvironmentOperation(id)
+	if !acquired {
+		operationConflict(w)
+		return
+	}
+	defer release()
 	envID, env, ok := loadClusterSyncEnvironment(w, r)
 	if !ok {
 		return

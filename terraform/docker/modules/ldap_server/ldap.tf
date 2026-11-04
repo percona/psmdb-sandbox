@@ -21,6 +21,11 @@ resource "docker_volume" "ldap_data" {
 
 # LDAP Server container
 resource "docker_container" "ldap_server" {
+  labels {
+    label = "psmdb-sandbox.environment"
+    value = var.environment_id
+  }
+
   name  = var.ldap_server
   image = docker_image.ldap.image_id
 
@@ -90,6 +95,11 @@ resource "docker_image" "ldap_admin" {
 
 # Admin interface
 resource "docker_container" "phpldapadmin" {
+  labels {
+    label = "psmdb-sandbox.environment"
+    value = var.environment_id
+  }
+
   name  = "${var.ldap_server}-${var.ldap_admin_server}"
   image = docker_image.ldap_admin.image_id
 

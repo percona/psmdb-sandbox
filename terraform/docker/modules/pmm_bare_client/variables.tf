@@ -1,3 +1,9 @@
+variable "environment_id" {
+  description = "Exact environment identifier used for container selection."
+  type        = string
+  default     = ""
+}
+
 variable "client_name" {
   description = "Name of the container, also used as its hostname and PMM node name"
   type        = string

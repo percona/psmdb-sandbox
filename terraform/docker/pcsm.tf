@@ -24,6 +24,11 @@ resource "docker_image" "pcsm_pmm_client" {
 }
 
 resource "docker_container" "pcsm" {
+  labels {
+    label = "psmdb-sandbox.environment"
+    value = var.prefix
+  }
+
   count = var.enable_pcsm ? 1 : 0
 
   name     = "${local.name_prefix}pcsm"
@@ -125,6 +130,11 @@ resource "docker_container" "pcsm" {
 }
 
 resource "docker_container" "pcsm_pmm_client" {
+  labels {
+    label = "psmdb-sandbox.environment"
+    value = var.prefix
+  }
+
   count    = var.enable_pcsm ? 1 : 0
   name     = "${local.name_prefix}pcsm-pmm-client"
   hostname = "${local.name_prefix}pcsm-pmm-client"

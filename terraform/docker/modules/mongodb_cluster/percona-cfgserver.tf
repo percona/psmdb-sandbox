@@ -4,6 +4,11 @@ resource "docker_volume" "cfg_volume" {
 }
 
 resource "docker_container" "cfg" {
+  labels {
+    label = "psmdb-sandbox.environment"
+    value = var.environment_id
+  }
+
   for_each   = local.cfg_members
   name       = "${var.cluster_name}-${var.configsvr_tag}0${each.value}"
   hostname   = "${var.cluster_name}-${var.configsvr_tag}0${each.value}"

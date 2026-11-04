@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -191,5 +193,87 @@ func TestConfigureDuplicatePrefillsNewEnvironment(t *testing.T) {
 	configureHandler(rec, req)
 	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/" {
 		t.Fatalf("expected redirect home for unknown source, got %d %q", rec.Code, rec.Header().Get("Location"))
+	}
+}
+
+func TestDeleteEnvironmentPreservesLiveOrUnknownState(t *testing.T) {
+	for _, test := range []struct {
+		name, status, state, backup string
+		want                        int
+	}{
+		{name: "running", status: "running", want: 409},
+		{name: "stopped", status: "stopped", want: 409},
+		{name: "deploy failed", status: "deploy_failed", want: 409},
+		{name: "destroy failed", status: "destroy_failed", want: 409},
+		{name: "busy", status: "destroy_in_progress", want: 409},
+		{name: "configured", status: "configured", want: 200},
+		{name: "destroyed", status: "deleted", want: 200},
+		{name: "empty state", status: "deleted", state: `{"version":4,"resources":[]}`, want: 200},
+		{name: "data only", status: "deleted", state: `{"version":4,"resources":[{"mode":"data","instances":[{}]}]}`, want: 200},
+		{name: "managed resources", status: "deleted", state: `{"version":4,"resources":[{"mode":"managed","instances":[{}]}]}`, want: 409},
+		{name: "backup resources", status: "deleted", backup: `{"version":4,"resources":[{"mode":"managed","instances":[{}]}]}`, want: 409},
+		{name: "malformed state", status: "deleted", state: "{", want: 409},
+		{name: "unsupported state", status: "deleted", state: `{"version":3}`, want: 409},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			useTempState(t)
+			if err := os.MkdirAll(filepath.Join(terraformDir, "docker"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := saveState(map[string]*Environment{"envone": {Platform: "docker", Status: test.status}}); err != nil {
+				t.Fatal(err)
+			}
+			files := map[string]string{tfvarsPath("envone", "docker"): "keep configuration"}
+			if test.state != "" {
+				files[tfstatePath("envone", "docker")] = test.state
+			}
+			if test.backup != "" {
+				files[tfstateBackupPath("envone", "docker")] = test.backup
+			}
+			for path, data := range files {
+				if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			rec := environmentRequest(deleteEnvironmentHandler, http.MethodDelete, "envone", "")
+			if rec.Code != test.want {
+				t.Fatalf("delete: %d %s", rec.Code, rec.Body.String())
+			}
+			state, err := loadState()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (state["envone"] == nil) != (test.want == 200) {
+				t.Fatal("unexpected registry deletion")
+			}
+			for path, before := range files {
+				after, err := os.ReadFile(path)
+				if test.want == 200 {
+					if !os.IsNotExist(err) {
+						t.Errorf("cleanup left %s", path)
+					}
+				} else if err != nil || string(after) != before {
+					t.Errorf("refused deletion changed %s: %v", path, err)
+				}
+			}
+		})
+	}
+}
+
+func TestDeleteUnknownEnvironmentLeavesArtifacts(t *testing.T) {
+	useTempState(t)
+	if err := os.MkdirAll(filepath.Join(terraformDir, "docker"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	path := tfstatePath("unknown", "docker")
+	if err := os.WriteFile(path, []byte("keep"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	rec := environmentRequest(deleteEnvironmentHandler, http.MethodDelete, "unknown", "")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if content, err := os.ReadFile(path); err != nil || string(content) != "keep" {
+		t.Fatal("unknown state was deleted")
 	}
 }
