@@ -47,7 +47,8 @@ resource "azurerm_public_ip" "shard" {
   name                = "${var.prefix}-${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}svr${each.value.replica_index}-nic-public-ip"
   location            = var.location
   resource_group_name = var.resource_group_name
-  allocation_method   = "Dynamic"
+  allocation_method   = "Static"
+  sku                 = "Standard"
 }
 
 # NSG for shard nodes

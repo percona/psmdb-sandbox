@@ -4,7 +4,8 @@ resource "azurerm_public_ip" "pmm" {
   name                = "${local.pmm_host}-public-ip"
   location            = var.location
   resource_group_name = local.resource_group_name
-  allocation_method   = "Dynamic"
+  allocation_method   = "Static"
+  sku                 = "Standard"
   depends_on          = [time_sleep.wait_after_rg]
 }
 
