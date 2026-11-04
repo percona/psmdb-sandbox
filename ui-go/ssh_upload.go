@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -82,9 +83,21 @@ func uploadSSHKey(w http.ResponseWriter, r *http.Request, kind string) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
-	// Fingerprinting checks the key structure without asking for a passphrase
-	// or echoing key material. Encrypted OpenSSH keys include a public section.
-	cmd := exec.CommandContext(ctx, keygen, "-l", "-f", stored.Name())
+	args := []string{"-l", "-f", stored.Name()}
+	if kind == "private" {
+		encrypted, err := openSSHKeyEncrypted(data)
+		if err != nil {
+			jsonError(w, http.StatusBadRequest, "invalid OpenSSH private-key payload")
+			return
+		}
+		// Unencrypted private keys must actually decode, not just contain a
+		// fingerprintable public section. Encrypted keys cannot be decrypted
+		// without a passphrase; validate their envelope and public section.
+		if !encrypted {
+			args = []string{"-y", "-P", "", "-f", stored.Name()}
+		}
+	}
+	cmd := exec.CommandContext(ctx, keygen, args...)
 	if err := cmd.Run(); err != nil {
 		jsonError(w, http.StatusBadRequest, "invalid or unsupported SSH key; use an OpenSSH public/private key or an unencrypted PEM private key")
 		return
@@ -98,6 +111,69 @@ func uploadSSHKey(w http.ResponseWriter, r *http.Request, kind string) {
 	writeJSON(w, http.StatusOK, map[string]string{
 		"path": path, "filename": managedUploadFilename(header.Filename, kind+ext),
 	})
+}
+
+// Inspect the OpenSSH container without prompting for or retaining a passphrase.
+// PEM private keys are validated by ssh-keygen -y instead.
+func openSSHKeyEncrypted(data []byte) (bool, error) {
+	block, _ := pem.Decode(bytes.TrimSpace(data))
+	if block == nil || block.Type != "OPENSSH PRIVATE KEY" {
+		return false, nil
+	}
+	invalid := fmt.Errorf("invalid OpenSSH private-key container")
+	const magic = "openssh-key-v1\x00"
+	if !bytes.HasPrefix(block.Bytes, []byte(magic)) {
+		return false, invalid
+	}
+	rest := block.Bytes[len(magic):]
+	readString := func() ([]byte, bool) {
+		if len(rest) < 4 {
+			return nil, false
+		}
+		n := binary.BigEndian.Uint32(rest)
+		rest = rest[4:]
+		if uint64(n) > uint64(len(rest)) {
+			return nil, false
+		}
+		value := rest[:n]
+		rest = rest[n:]
+		return value, true
+	}
+	cipher, ok := readString()
+	if !ok || len(cipher) == 0 {
+		return false, invalid
+	}
+	kdf, ok := readString()
+	if !ok {
+		return false, invalid
+	}
+	options, ok := readString()
+	if !ok || len(rest) < 4 || binary.BigEndian.Uint32(rest) != 1 {
+		return false, invalid
+	}
+	rest = rest[4:]
+	public, ok := readString()
+	if !ok || len(public) == 0 {
+		return false, invalid
+	}
+	private, ok := readString()
+	if !ok || len(rest) != 0 || len(private) < 8 || len(private)%8 != 0 {
+		return false, invalid
+	}
+	if string(cipher) == "none" {
+		if string(kdf) != "none" || len(options) != 0 {
+			return false, invalid
+		}
+		return false, nil
+	}
+	if string(kdf) != "bcrypt" || len(options) < 8 {
+		return false, invalid
+	}
+	saltSize := uint64(binary.BigEndian.Uint32(options))
+	if saltSize == 0 || saltSize+8 != uint64(len(options)) || binary.BigEndian.Uint32(options[len(options)-4:]) == 0 {
+		return false, invalid
+	}
+	return true, nil
 }
 
 func validateSSHKeyEnvelope(data []byte, kind string) error {

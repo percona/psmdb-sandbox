@@ -184,6 +184,8 @@ the plgm load generator Web UI when enabled).
   destruction. If a state file or backup still contains managed resources, or
   cannot be verified, removal is refused. Destroy failed or partially deployed
   environments with **Destroy** before removing them; do not delete their state files.
+- Permanently removing a definition also deletes its per-environment Terraform
+  provider/module cache. Destroyed definitions kept for redeployment retain it.
 
 Run only one UI process against a given repository/data directory. The registry
 transactions and operation locks coordinate requests within that process, not
@@ -205,6 +207,12 @@ SSH access still requires an appropriately configured SSH agent. Every upload
 gets a unique, mode-0600 file under `UI_DATA_DIR/secrets/ssh/`; the original
 filename is only a display label. The APIs return an absolute managed path and
 never write uploads into Terraform source directories or overwrite earlier keys.
+
+Unencrypted private-key payloads are decoded before acceptance. Encrypted OpenSSH
+uploads have their container and public section checked; validating the encrypted
+private payload requires the passphrase and is deferred to SSH/your agent.
+Ansible readiness probes use the deployment's `ansible/ansible.cfg` and validate
+the collection versions resolved by Ansible, including search-path precedence.
 
 Open **Settings** from the environments page and configure credentials for the cloud provider you want to use:
 

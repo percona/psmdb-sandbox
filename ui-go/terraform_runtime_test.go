@@ -11,6 +11,30 @@ import (
 	"testing"
 )
 
+func TestTerraformCacheRetainedUntilDefinitionRemoval(t *testing.T) {
+	useTempState(t)
+	env := &Environment{Platform: "aws"}
+	cache, err := prepareTerraformDataDir("first", env.Platform)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := prepareTerraformDataDir("second", env.Platform)
+	if err != nil {
+		t.Fatal(err)
+	}
+	markEnvironmentDestroyed(env)
+	if _, err := os.Stat(cache); err != nil {
+		t.Fatalf("destroy removed redeployment cache: %v", err)
+	}
+	removeEnvironmentArtifacts("first", env)
+	if _, err := os.Stat(cache); !os.IsNotExist(err) {
+		t.Fatalf("permanent removal left cache: %v", err)
+	}
+	if _, err := os.Stat(other); err != nil {
+		t.Fatalf("another environment's cache changed: %v", err)
+	}
+}
+
 // This fixture uses only Terraform's built-in terraform_data resource. It never
 // contacts Docker, a cloud provider, or the repository's live state directories.
 func TestTerraformBackendIsolationWithRealCLI(t *testing.T) {

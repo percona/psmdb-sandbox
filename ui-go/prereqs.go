@@ -255,6 +255,9 @@ func prerequisiteOutput(name string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
+	if strings.HasPrefix(name, "ansible") {
+		cmd.Env = append(os.Environ(), "ANSIBLE_CONFIG="+filepath.Join(ansibleDir, "ansible.cfg"))
+	}
 	cmd.WaitDelay = time.Second
 	return cmd.Output()
 }
@@ -323,25 +326,35 @@ var requiredAnsibleCollections = map[string]string{
 }
 
 func checkAnsibleCollections() (bool, string) {
-	output, err := prerequisiteOutput("ansible-galaxy", "collection", "list", "--format", "json")
+	// Ask Ansible's loader which installation wins, rather than accepting a
+	// newer collection hidden behind an older copy in a higher-priority path.
+	output, err := prerequisiteOutput("ansible-doc", "--json", "--playbook-dir", ansibleDir, "ansible.posix.mount", "community.general.ini_file")
 	if err != nil {
-		return false, "cannot list collections; install ansible-core and ansible/requirements.yml"
+		return false, "cannot resolve collections; install ansible-core and ansible/requirements.yml"
 	}
-	var installed map[string]map[string]struct {
-		Version string `json:"version"`
+	var resolved map[string]struct {
+		Doc struct {
+			Collection string `json:"collection"`
+			Filename   string `json:"filename"`
+		} `json:"doc"`
 	}
-	if json.Unmarshal(output, &installed) != nil {
-		return false, "cannot parse ansible-galaxy collection list"
+	if json.Unmarshal(output, &resolved) != nil {
+		return false, "cannot parse resolved Ansible collections"
 	}
-	for name, minimum := range requiredAnsibleCollections {
-		found := false
-		for _, collections := range installed {
-			version := collections[name].Version
-			if prerequisiteVersionRe.MatchString(version) && versionAtLeast(version, minimum) {
-				found = true
-			}
+	for _, plugin := range []string{"ansible.posix.mount", "community.general.ini_file"} {
+		name := plugin[:strings.LastIndex(plugin, ".")]
+		minimum := requiredAnsibleCollections[name]
+		doc := resolved[plugin].Doc
+		var manifest struct {
+			Info struct {
+				Version string `json:"version"`
+			} `json:"collection_info"`
 		}
-		if !found {
+		// Both probe modules live directly under plugins/modules/.
+		root := filepath.Dir(filepath.Dir(filepath.Dir(doc.Filename)))
+		data, err := os.ReadFile(filepath.Join(root, "MANIFEST.json"))
+		if doc.Collection != name || !filepath.IsAbs(doc.Filename) || err != nil || json.Unmarshal(data, &manifest) != nil ||
+			!prerequisiteVersionRe.MatchString(manifest.Info.Version) || !versionAtLeast(manifest.Info.Version, minimum) {
 			return false, "requires " + name + " " + minimum + "+; install ansible/requirements.yml"
 		}
 	}

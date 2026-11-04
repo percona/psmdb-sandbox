@@ -78,6 +78,9 @@ func removeEnvironmentArtifacts(envID string, env *Environment) {
 	os.Remove(tfvarsPath(envID, env.Platform))
 	os.Remove(tfstatePath(envID, env.Platform))
 	os.Remove(tfstateBackupPath(envID, env.Platform))
+	if path, err := terraformDataDir(envID, env.Platform); err == nil {
+		os.RemoveAll(path)
+	}
 	if env.Platform == "docker" {
 		cleanupDockerModuleArtifacts(env.Config)
 	}

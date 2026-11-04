@@ -262,6 +262,11 @@ func TestDeleteEnvironmentPreservesLiveOrUnknownState(t *testing.T) {
 				t.Fatal(err)
 			}
 			files := map[string]string{tfvarsPath("envone", "docker"): "keep configuration"}
+			cache, err := prepareTerraformDataDir("envone", "docker")
+			if err != nil {
+				t.Fatal(err)
+			}
+			files[filepath.Join(cache, "provider-cache")] = "cached provider"
 			if test.state != "" {
 				files[tfstatePath("envone", "docker")] = test.state
 			}

@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
+	"encoding/pem"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -152,6 +154,66 @@ func TestSSHUploadAcceptsEncryptedOpenSSHKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	req := multipartUploadRequest(t, "ssh_key_file", "encrypted", string(data))
+	req.SetPathValue("kind", "private")
+	rec := httptest.NewRecorder()
+	apiUploadSettingsSSHKeyHandler(rec, req)
+	uploadResponse(t, rec)
+}
+
+func TestSSHUploadRejectsUnusablePrivatePayload(t *testing.T) {
+	oldData := dataDir
+	dataDir = t.TempDir()
+	t.Cleanup(func() { dataDir = oldData })
+	_, private := testSSHKeyPair(t)
+	block, _ := pem.Decode([]byte(private))
+	// Skip cipher, KDF, KDF options, key count, and the public key. Leave
+	// the valid public section intact, exactly as a fingerprint-only check sees it.
+	offset := len("openssh-key-v1\x00")
+	for i := 0; i < 3; i++ {
+		offset += 4 + int(binary.BigEndian.Uint32(block.Bytes[offset:]))
+	}
+	offset += 4
+	offset += 4 + int(binary.BigEndian.Uint32(block.Bytes[offset:]))
+	for _, empty := range []bool{true, false} {
+		payload := append([]byte(nil), block.Bytes...)
+		if empty {
+			payload = payload[:offset+4]
+			binary.BigEndian.PutUint32(payload[offset:], 0)
+		} else {
+			// A correctly sized but invalid private section must also fail.
+			clear(payload[offset+4:])
+		}
+		bad := pem.EncodeToMemory(&pem.Block{Type: block.Type, Bytes: payload})
+		req := multipartUploadRequest(t, "ssh_key_file", "broken", string(bad))
+		req.SetPathValue("kind", "private")
+		rec := httptest.NewRecorder()
+		apiUploadSettingsSSHKeyHandler(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("invalid private payload accepted: %d", rec.Code)
+		}
+	}
+	entries, err := os.ReadDir(sshSecretsDir())
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("rejected payloads left files: %v (%d entries)", err, len(entries))
+	}
+}
+
+func TestSSHUploadAcceptsUnencryptedPEMKey(t *testing.T) {
+	if !toolInstalled("ssh-keygen") {
+		t.Skip("ssh-keygen is required")
+	}
+	oldData := dataDir
+	dataDir = t.TempDir()
+	t.Cleanup(func() { dataDir = oldData })
+	path := filepath.Join(t.TempDir(), "pem")
+	if out, err := exec.Command("ssh-keygen", "-q", "-t", "rsa", "-b", "2048", "-m", "PEM", "-N", "", "-f", path).CombinedOutput(); err != nil {
+		t.Fatalf("generate PEM key: %v %s", err, out)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := multipartUploadRequest(t, "ssh_key_file", "pem", string(data))
 	req.SetPathValue("kind", "private")
 	rec := httptest.NewRecorder()
 	apiUploadSettingsSSHKeyHandler(rec, req)
