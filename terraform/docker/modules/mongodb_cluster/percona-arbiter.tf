@@ -4,6 +4,11 @@ resource "docker_volume" "arb_volume" {
 }
 
 resource "docker_container" "arbiter" {
+  labels {
+    label = "psmdb-sandbox.environment"
+    value = var.environment_id
+  }
+
   for_each   = local.arbiter_members
   name       = "${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}arb${each.value.arbiter_index}"
   hostname   = "${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}arb${each.value.arbiter_index}"

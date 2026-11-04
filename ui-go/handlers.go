@@ -31,29 +31,10 @@ func sshSecretsDir() string {
 	return filepath.Join(dataDir, "secrets", "ssh")
 }
 
-func sshKeyUploadPath(filename string) string {
-	return filepath.Join(sshSecretsDir(), filename)
-}
-
 func managedUploadFilename(rawName, fallback string) string {
 	name := safeFilenameRe.ReplaceAllString(filepath.Base(rawName), "_")
 	if name == "" || name == "." || name == ".." {
 		return fallback
-	}
-	return name
-}
-
-func sshUploadFilename(kind, rawName string) string {
-	fallback := "settings_" + kind
-	name := managedUploadFilename(rawName, fallback)
-	if kind == "public" {
-		if strings.ToLower(filepath.Ext(name)) != ".pub" {
-			name += ".pub"
-		}
-		return name
-	}
-	if filepath.Ext(name) == "" || strings.EqualFold(filepath.Ext(name), ".pub") {
-		name += ".key"
 	}
 	return name
 }
@@ -117,11 +98,27 @@ func configuredChaosTokenPath(env *Environment) (string, error) {
 }
 
 func dropStoredChaosTokensInState(state map[string]*Environment) error {
+	// Only persist the migration against the latest registry, never the caller's
+	// potentially stale snapshot (which could overwrite a completed job).
+	changed, err := clearStoredChaosTokens(state)
+	if err != nil || !changed {
+		return err
+	}
+	return updateState(func(latest map[string]*Environment) error {
+		_, err := clearStoredChaosTokens(latest)
+		return err
+	})
+}
+
+func clearStoredChaosTokens(state map[string]*Environment) (bool, error) {
 	changed := false
-	settings, _ := loadAppSettings()
+	settings, err := loadAppSettings()
+	if err != nil {
+		return false, err
+	}
 	settingsPath := filepath.Clean(strings.TrimSpace(settings.ChaosApiTokenPath))
 	for _, env := range state {
-		if env == nil || env.Platform != "chaos" {
+		if env == nil || env.Platform != "chaos" || environmentInProgress(env) {
 			continue
 		}
 		if strings.TrimSpace(env.Config.LegacyChaosAPIToken) != "" {
@@ -136,10 +133,7 @@ func dropStoredChaosTokensInState(state map[string]*Environment) error {
 			changed = true
 		}
 	}
-	if changed {
-		return saveState(state)
-	}
-	return nil
+	return changed, nil
 }
 
 // cleanupDockerModuleArtifacts removes files and directories that Terraform
@@ -286,7 +280,11 @@ func configureHandler(w http.ResponseWriter, r *http.Request) {
 	dockerDefaultPmmExternalPort := 8443
 	dockerDefaultSeaweedFSPort := 8333
 	dockerDefaultSeaweedFSAdminPort := 9333
-	state, _ := loadState()
+	state, err := loadState()
+	if err != nil {
+		http.Error(w, "State error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 	if err := dropStoredChaosTokensInState(state); err != nil {
 		http.Error(w, "State error: "+err.Error(), 500)
 		return
@@ -373,7 +371,11 @@ func clusterSyncDeploymentReady(env *Environment) bool {
 // GET /environment/{env_id}
 func environmentHandler(w http.ResponseWriter, r *http.Request) {
 	envID := r.PathValue("env_id")
-	state, _ := loadState()
+	state, err := loadState()
+	if err != nil {
+		http.Error(w, "State error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 	if err := dropStoredChaosTokensInState(state); err != nil {
 		http.Error(w, "State error: "+err.Error(), 500)
 		return
@@ -391,6 +393,7 @@ func environmentHandler(w http.ResponseWriter, r *http.Request) {
 		ServiceURLs:          configServiceURLs(envID, env),
 		ClusterSync:          normalizedClusterSyncConfig(env.Config.ClusterSync),
 		ClusterSyncAvailable: clusterSyncDeploymentReady(env),
+		OperationInProgress:  environmentOperationActive(envID),
 	})
 }
 
@@ -517,43 +520,7 @@ func apiUploadSSHKeyHandler(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, 400, "invalid platform")
 		return
 	}
-	if err := r.ParseMultipartForm(1 << 20); err != nil {
-		jsonError(w, 400, "failed to parse upload: "+err.Error())
-		return
-	}
-	file, header, err := r.FormFile("ssh_key_file")
-	if err != nil {
-		jsonError(w, 400, "ssh_key_file field missing: "+err.Error())
-		return
-	}
-	defer file.Close()
-
-	name := safeFilenameRe.ReplaceAllString(filepath.Base(header.Filename), "_")
-	if name == "" {
-		name = "id_rsa.pub"
-	}
-
-	destDir := filepath.Clean(filepath.Join(terraformDir, platform))
-	if err := os.MkdirAll(destDir, 0755); err != nil {
-		jsonError(w, 500, "cannot create upload dir: "+err.Error())
-		return
-	}
-	destPath := filepath.Clean(filepath.Join(destDir, name))
-	if filepath.Dir(destPath) != destDir {
-		jsonError(w, 400, "invalid filename")
-		return
-	}
-
-	data, err := io.ReadAll(file)
-	if err != nil {
-		jsonError(w, 500, "read failed: "+err.Error())
-		return
-	}
-	if err := os.WriteFile(destPath, data, 0600); err != nil {
-		jsonError(w, 500, "write failed: "+err.Error())
-		return
-	}
-	writeJSON(w, 200, map[string]string{"path": name})
+	uploadSSHKey(w, r, "public")
 }
 
 // POST /api/upload-settings-ssh-key/{kind}
@@ -563,42 +530,7 @@ func apiUploadSettingsSSHKeyHandler(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, 400, "invalid SSH key kind")
 		return
 	}
-	if err := r.ParseMultipartForm(1 << 20); err != nil {
-		jsonError(w, 400, "failed to parse upload: "+err.Error())
-		return
-	}
-	file, header, err := r.FormFile("ssh_key_file")
-	if err != nil {
-		jsonError(w, 400, "ssh_key_file field missing: "+err.Error())
-		return
-	}
-	defer file.Close()
-
-	data, err := io.ReadAll(file)
-	if err != nil {
-		jsonError(w, 500, "read failed: "+err.Error())
-		return
-	}
-	if strings.TrimSpace(string(data)) == "" {
-		jsonError(w, 400, "uploaded SSH key file is empty")
-		return
-	}
-	if err := os.MkdirAll(sshSecretsDir(), 0700); err != nil {
-		jsonError(w, 500, "cannot create secrets dir: "+err.Error())
-		return
-	}
-	storedFilename := sshUploadFilename(kind, header.Filename)
-	storedPath := sshKeyUploadPath(storedFilename)
-	mode := os.FileMode(0600)
-	if err := os.WriteFile(storedPath, data, mode); err != nil {
-		jsonError(w, 500, "write failed: "+err.Error())
-		return
-	}
-
-	writeJSON(w, 200, map[string]string{
-		"path":     storedPath,
-		"filename": storedFilename,
-	})
+	uploadSSHKey(w, r, kind)
 }
 
 func apiSettingsHandler(w http.ResponseWriter, r *http.Request) {
@@ -1287,18 +1219,12 @@ func saveEnvironmentHandler(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, 400, "invalid GCP environment name: it must start with a lowercase letter and contain only lowercase letters and digits (max 14 chars)")
 		return
 	}
-	if payload.Platform == "gcp" {
-		settings, err := loadAppSettings()
-		if err != nil {
-			jsonError(w, 500, "settings load failed: "+err.Error())
-			return
-		}
-		if settings.GCPProjectID == "" {
-			jsonError(w, 400, "GCP project ID is required in Settings")
-			return
-		}
-		payload.Config.ProjectID = settings.GCPProjectID
+	release, acquired := tryEnvironmentOperation(payload.EnvID)
+	if !acquired {
+		operationConflict(w)
+		return
 	}
+	defer release()
 	// Resource names use the environment name as their prefix.
 	payload.Config.Prefix = payload.EnvID
 
@@ -1314,9 +1240,25 @@ func saveEnvironmentHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	existing := state[payload.EnvID]
+	if existing != nil && existing.Platform != payload.Platform {
+		jsonError(w, http.StatusConflict, "an existing environment's platform cannot be changed; create a new environment")
+		return
+	}
 	if existing != nil && payload.Create {
 		jsonError(w, 409, fmt.Sprintf("an environment named %q already exists; choose a different name", payload.EnvID))
 		return
+	}
+	if payload.Platform == "gcp" {
+		settings, err := loadAppSettings()
+		if err != nil {
+			jsonError(w, 500, "settings load failed: "+err.Error())
+			return
+		}
+		if settings.GCPProjectID == "" {
+			jsonError(w, 400, "GCP project ID is required in Settings")
+			return
+		}
+		payload.Config.ProjectID = settings.GCPProjectID
 	}
 	if existing != nil {
 		existing = withoutStaleAppliedConfig(existing)
@@ -1470,14 +1412,24 @@ func saveEnvironmentHandler(w http.ResponseWriter, r *http.Request) {
 		env.HostIPs = existing.HostIPs
 		env.History = existing.History
 	}
-	state[payload.EnvID] = env
-	if err := saveState(state); err != nil {
-		jsonError(w, 500, "state save failed: "+err.Error())
-		return
-	}
-
-	if err := writeTfvars(payload.EnvID, payload.Platform, payload.Config); err != nil {
-		jsonError(w, 500, "tfvars write failed: "+err.Error())
+	saveStatus := http.StatusInternalServerError
+	if err := updateState(func(latest map[string]*Environment) error {
+		if payload.Platform == "docker" {
+			if err := validateDockerPortConflicts(payload.EnvID, payload.Config, latest); err != nil {
+				saveStatus = http.StatusBadRequest
+				return err
+			}
+		}
+		if err := writeTfvars(payload.EnvID, payload.Platform, payload.Config); err != nil {
+			return fmt.Errorf("tfvars write failed: %w", err)
+		}
+		if current := latest[payload.EnvID]; current != nil {
+			env.HostIPs = current.HostIPs
+		}
+		latest[payload.EnvID] = env
+		return nil
+	}); err != nil {
+		jsonError(w, saveStatus, "state save failed: "+err.Error())
 		return
 	}
 
@@ -1491,10 +1443,30 @@ func deleteEnvironmentHandler(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, 400, "invalid environment ID")
 		return
 	}
-	state, _ := loadState()
-	env := state[envID]
-	delete(state, envID)
-	saveState(state)
+	release, acquired := tryEnvironmentOperation(envID)
+	if !acquired {
+		operationConflict(w)
+		return
+	}
+	defer release()
+	var env *Environment
+	status := http.StatusInternalServerError
+	if err := updateState(func(state map[string]*Environment) error {
+		env = state[envID]
+		if env == nil {
+			status = http.StatusNotFound
+			return fmt.Errorf("environment not found")
+		}
+		if err := environmentDeletionAllowed(envID, env); err != nil {
+			status = http.StatusConflict
+			return err
+		}
+		delete(state, envID)
+		return nil
+	}); err != nil {
+		jsonError(w, status, err.Error())
+		return
+	}
 	removeEnvironmentArtifacts(envID, env)
 	writeJSON(w, 200, map[string]string{"status": "deleted"})
 }
@@ -1506,7 +1478,11 @@ func getTfvarsHandler(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, 400, "invalid environment ID")
 		return
 	}
-	state, _ := loadState()
+	state, err := loadState()
+	if err != nil {
+		jsonError(w, 500, "state load failed: "+err.Error())
+		return
+	}
 	if err := dropStoredChaosTokensInState(state); err != nil {
 		jsonError(w, 500, "state error: "+err.Error())
 		return
@@ -1532,7 +1508,11 @@ func getInventoryHandler(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, 400, "invalid environment ID")
 		return
 	}
-	state, _ := loadState()
+	state, err := loadState()
+	if err != nil {
+		jsonError(w, 500, "state load failed: "+err.Error())
+		return
+	}
 	env, ok := state[envID]
 	if !ok {
 		jsonError(w, 404, "environment not found")
@@ -1586,7 +1566,11 @@ func getHostsHandler(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, 400, "invalid environment ID")
 		return
 	}
-	state, _ := loadState()
+	state, err := loadState()
+	if err != nil {
+		jsonError(w, 500, "state load failed: "+err.Error())
+		return
+	}
 	env, ok := state[envID]
 	if !ok {
 		jsonError(w, 404, "environment not found")
@@ -1615,8 +1599,22 @@ func getHostsHandler(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			if updated {
-				state[envID] = env
-				saveState(state) //nolint:errcheck
+				if err := updateState(func(latest map[string]*Environment) error {
+					current := latest[envID]
+					if current == nil || current.Status == "deleted" || current.LastJobID != env.LastJobID {
+						return nil
+					}
+					if current.HostIPs == nil {
+						current.HostIPs = make(map[string]string)
+					}
+					for name, ip := range env.HostIPs {
+						current.HostIPs[name] = ip
+					}
+					return nil
+				}); err != nil {
+					jsonError(w, 500, "host cache save failed: "+err.Error())
+					return
+				}
 			}
 		}
 	} else {
@@ -1639,7 +1637,22 @@ func environmentActionHandler(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, 400, "invalid environment ID")
 		return
 	}
-	state, _ := loadState()
+	release, acquired := tryEnvironmentOperation(envID)
+	if !acquired {
+		operationConflict(w)
+		return
+	}
+	dispatched := false
+	defer func() {
+		if !dispatched {
+			release()
+		}
+	}()
+	state, err := loadState()
+	if err != nil {
+		jsonError(w, 500, "state load failed: "+err.Error())
+		return
+	}
 	env, ok := state[envID]
 	if !ok {
 		jsonError(w, 404, "environment not found")
@@ -1725,13 +1738,6 @@ func environmentActionHandler(w http.ResponseWriter, r *http.Request) {
 				jsonError(w, http.StatusBadRequest, err.Error())
 				return
 			}
-		}
-	}
-
-	if _, err := os.Stat(varfile); os.IsNotExist(err) {
-		if wErr := writeTfvars(envID, platform, env.Config); wErr != nil {
-			jsonError(w, 500, "tfvars not found and could not be regenerated: "+wErr.Error())
-			return
 		}
 	}
 
@@ -1902,7 +1908,11 @@ func environmentActionHandler(w http.ResponseWriter, r *http.Request) {
 	// Per-environment Terraform state file: stored alongside the tfvars file in
 	// the platform directory so different environments do not share state and
 	// can be operated concurrently.
-	envStateFile := envID + ".tfstate" // relative to tfDir (the CWD for terraform)
+	envStateFile, err := filepath.Abs(tfstatePath(envID, platform))
+	if err != nil {
+		jsonError(w, 500, "resolve Terraform state path: "+err.Error())
+		return
+	}
 	backendPathArg := shellQuote("path=" + envStateFile)
 	terraformApplyFlags := "-auto-approve -input=false"
 	terraformParallelism := 0
@@ -2072,14 +2082,12 @@ func environmentActionHandler(w http.ResponseWriter, r *http.Request) {
 
 	case "stop":
 		if platform == "docker" {
-			prefix := sanitiseShellArg(strDefault(env.Config.Prefix, envID))
+			prefix := strDefault(env.Config.Prefix, envID)
 			if len(vaultTopologies(env.Config)) > 0 {
 				cmd = []string{"bash", "-c", vaultDockerStopShell(prefix)}
 				break
 			}
-			cmd = []string{"bash", "-c",
-				fmt.Sprintf("docker ps -q --filter 'name=%s-' | xargs -r docker stop", prefix),
-			}
+			cmd = []string{"bash", "-c", dockerEnvironmentActionShell(prefix, "stop")}
 		} else {
 			cmd = []string{"bash", "-c",
 				cloudAnsibleCmd(filepath.Join(ansibleDir, "stop.yml"), false),
@@ -2092,10 +2100,8 @@ func environmentActionHandler(w http.ResponseWriter, r *http.Request) {
 				cmd = []string{"bash", "-c", vaultDockerRestartShell(envID, env.Config)}
 				break
 			}
-			prefix := sanitiseShellArg(strDefault(env.Config.Prefix, envID))
-			cmd = []string{"bash", "-c",
-				fmt.Sprintf("docker ps -aq --filter 'name=%s-' | xargs -r docker restart", prefix),
-			}
+			prefix := strDefault(env.Config.Prefix, envID)
+			cmd = []string{"bash", "-c", dockerEnvironmentActionShell(prefix, "restart")}
 		} else {
 			cmd = []string{"bash", "-c",
 				cloudAnsibleCmd(filepath.Join(ansibleDir, "restart.yml"), false),
@@ -2112,76 +2118,89 @@ func environmentActionHandler(w http.ResponseWriter, r *http.Request) {
 
 	startedAtTime := time.Now()
 	startedAt := startedAtTime.UTC().Format(time.RFC3339)
+	jobID := secureID(8)
 
 	onComplete := func(status string) {
+		defer release()
 		durationSecs := int64(time.Since(startedAtTime).Seconds())
-		st, _ := loadState()
-		e, exists := st[envID]
-		if !exists {
-			return
-		}
-		// Record the event in the environment's history.
-		outcomeStatus := "success"
-		if status != "success" {
-			outcomeStatus = "failed"
-		}
-		e.History = append(e.History, HistoryEvent{
-			Action:       action,
-			StartedAt:    startedAt,
-			Status:       outcomeStatus,
-			DurationSecs: durationSecs,
-		})
-		if action == "destroy" {
-			if status == "success" {
-				markEnvironmentDestroyed(e)
-				os.Remove(varfile)
-				os.Remove(tfstatePath(envID, platform))
-				os.Remove(tfstateBackupPath(envID, platform))
-				if platform == "docker" {
-					cleanupDockerModuleArtifacts(e.Config)
+		destroyed := false
+		if err := updateState(func(st map[string]*Environment) error {
+			e, exists := st[envID]
+			if !exists || e.LastJobID != jobID {
+				return nil
+			}
+			// Record the event in the environment's history.
+			outcomeStatus := "success"
+			if status == "interrupted" {
+				outcomeStatus = "interrupted"
+			} else if status != "success" {
+				outcomeStatus = "failed"
+			}
+			e.History = append(e.History, HistoryEvent{
+				Action:       action,
+				StartedAt:    startedAt,
+				Status:       outcomeStatus,
+				DurationSecs: durationSecs,
+			})
+			if action == "destroy" {
+				if status == "success" {
+					markEnvironmentDestroyed(e)
+					destroyed = true
+					if removeDefinition {
+						delete(st, envID)
+						return nil
+					}
+				} else {
+					e.Status = "destroy_failed"
 				}
-				removeClusterSyncSecrets(envID)
-				os.RemoveAll(vaultControllerDir(envID))
-				if removeDefinition {
-					delete(st, envID)
-					saveState(st)
-					removeEnvironmentArtifacts(envID, e)
-					return
+				e.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+				st[envID] = e
+				return nil
+			}
+			if status == "success" {
+				switch action {
+				case "restart":
+					e.Status = "running"
+				case "stop":
+					e.Status = "stopped"
+				case "reset":
+					e.Status = "provisioned"
+				case "deploy", "configure":
+					e.Status = "running"
+					if action == "deploy" {
+						e.LastAppliedConfig = cloneConfig(*configAtStart)
+						if !e.Config.ClusterSync.Enabled {
+							removeClusterSyncSecrets(envID)
+						}
+					}
+				default:
+					e.Status = action + "_success"
 				}
 			} else {
-				e.Status = "destroy_failed"
+				e.Status = action + "_failed"
 			}
-			e.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+			now := time.Now().UTC().Format(time.RFC3339)
+			e.UpdatedAt = now
 			st[envID] = e
-			saveState(st)
+			return nil
+		}); err != nil {
+			slog.Error("job completion state save failed", "env", envID, "job", jobID, "err", err)
 			return
 		}
-		if status == "success" {
-			switch action {
-			case "restart":
-				e.Status = "running"
-			case "stop":
-				e.Status = "stopped"
-			case "reset":
-				e.Status = "provisioned"
-			case "deploy", "configure":
-				e.Status = "running"
-				if action == "deploy" {
-					e.LastAppliedConfig = cloneConfig(*configAtStart)
-					if !e.Config.ClusterSync.Enabled {
-						removeClusterSyncSecrets(envID)
-					}
-				}
-			default:
-				e.Status = action + "_success"
+		// Keep state and recovery files if persisting completion failed.
+		if destroyed {
+			os.Remove(varfile)
+			os.Remove(tfstatePath(envID, platform))
+			os.Remove(tfstateBackupPath(envID, platform))
+			if platform == "docker" {
+				cleanupDockerModuleArtifacts(*configAtStart)
 			}
-		} else {
-			e.Status = action + "_failed"
+			removeClusterSyncSecrets(envID)
+			os.RemoveAll(vaultControllerDir(envID))
+			if removeDefinition {
+				removeEnvironmentArtifacts(envID, env)
+			}
 		}
-		now := time.Now().UTC().Format(time.RFC3339)
-		e.UpdatedAt = now
-		st[envID] = e
-		saveState(st)
 	}
 
 	extraEnv := map[string]string{
@@ -2219,12 +2238,44 @@ func environmentActionHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	jobID := startJob(cmd, tfDir, extraEnv, onComplete)
-
+	// Regenerate from the locked job snapshot, including older definitions whose
+	// tfvars may predate current safety metadata. Never execute stale tfvars.
+	if err := writeTfvars(envID, platform, *configAtStart); err != nil {
+		jsonError(w, 500, "tfvars write failed: "+err.Error())
+		return
+	}
+	if action == "deploy" || action == "provision" || action == "destroy" {
+		tfData, err := prepareTerraformDataDir(envID, platform)
+		if err != nil {
+			jsonError(w, 500, "Terraform data directory: "+err.Error())
+			return
+		}
+		extraEnv["TF_DATA_DIR"] = tfData
+		// Do not inherit a CLI workspace selected outside this environment.
+		extraEnv["TF_WORKSPACE"] = "default"
+	}
 	env.Status = action + "_in_progress"
 	env.LastJobID = jobID
-	state[envID] = env
-	saveState(state)
+	if err := updateState(func(latest map[string]*Environment) error {
+		current := latest[envID]
+		if current == nil {
+			return fmt.Errorf("environment no longer exists")
+		}
+		current.Config = *cloneConfig(*configAtStart)
+		current.Status = env.Status
+		current.LastJobID = jobID
+		current.UpdatedAt = startedAt
+		return nil
+	}); err != nil {
+		jsonError(w, 500, "state save failed: "+err.Error())
+		return
+	}
+	dispatched = true
+	if !launchJob(jobID, cmd, tfDir, extraEnv, onComplete) {
+		onComplete("interrupted")
+		jsonError(w, http.StatusServiceUnavailable, "UI is shutting down; job was not started")
+		return
+	}
 
 	slog.Info("action dispatched", "action", action, "env", envID, "platform", platform, "job", jobID)
 	writeJSON(w, 200, map[string]string{"job_id": jobID, "status": env.Status})
@@ -2233,7 +2284,11 @@ func environmentActionHandler(w http.ResponseWriter, r *http.Request) {
 // GET /api/environment/{env_id}/chaos/reachability
 func chaosReachabilityHandler(w http.ResponseWriter, r *http.Request) {
 	envID := r.PathValue("env_id")
-	state, _ := loadState()
+	state, err := loadState()
+	if err != nil {
+		jsonError(w, 500, "state load failed: "+err.Error())
+		return
+	}
 	env, ok := state[envID]
 	if !ok {
 		jsonError(w, 404, "environment not found")
@@ -2256,7 +2311,11 @@ func chaosReachabilityHandler(w http.ResponseWriter, r *http.Request) {
 // GET /api/environment/{env_id}/history
 func envHistoryHandler(w http.ResponseWriter, r *http.Request) {
 	envID := r.PathValue("env_id")
-	state, _ := loadState()
+	state, err := loadState()
+	if err != nil {
+		jsonError(w, 500, "state load failed: "+err.Error())
+		return
+	}
 	env, ok := state[envID]
 	if !ok {
 		jsonError(w, 404, "environment not found")
@@ -2272,7 +2331,11 @@ func envHistoryHandler(w http.ResponseWriter, r *http.Request) {
 // GET /api/environment/{env_id}/status
 func envStatusHandler(w http.ResponseWriter, r *http.Request) {
 	envID := r.PathValue("env_id")
-	state, _ := loadState()
+	state, err := loadState()
+	if err != nil {
+		jsonError(w, 500, "state load failed: "+err.Error())
+		return
+	}
 	env, ok := state[envID]
 	if !ok {
 		jsonError(w, 404, "environment not found")
@@ -2282,6 +2345,7 @@ func envStatusHandler(w http.ResponseWriter, r *http.Request) {
 		"status":                 env.Status,
 		"updated_at":             env.UpdatedAt,
 		"cluster_sync_available": clusterSyncDeploymentReady(env),
+		"operation_in_progress":  environmentOperationActive(envID),
 	})
 }
 

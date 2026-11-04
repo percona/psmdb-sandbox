@@ -4,7 +4,8 @@ resource "azurerm_public_ip" "arbiter" {
   name                = "${var.prefix}-${var.rs_name}-${var.arbiter_tag}${each.value}-nic-public-ip"
   location            = var.location
   resource_group_name = var.resource_group_name
-  allocation_method   = "Dynamic"
+  allocation_method   = "Static"
+  sku                 = "Standard"
 }
 
 # NSG for arbiter nodes

@@ -1116,7 +1116,11 @@ function setStatus(status) {
     'deleted': 'Destroyed',
   };
   label.textContent = overrides[status] || status.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-  applyDestroyedButtonState();
+  setButtonsDisabled(currentOperationInProgress);
+  if (!currentOperationInProgress && !activeEventSource) {
+    hideProgressIndicator();
+    if (jobTabs.pollTimer !== null) finishJobTabs();
+  }
 }
 
 // Actions that need deployed infrastructure; unavailable once destroyed.
@@ -1132,7 +1136,7 @@ function applyDestroyedButtonState() {
 
 function getStatusBadgeClass(status) {
   if (status === 'success' || status.includes('success')) return 'badge-success';
-  if (status.startsWith('fail') || status === 'error' || status.includes('failed')) return 'badge-danger';
+  if (status.startsWith('fail') || status === 'error' || status === 'interrupted' || status.includes('failed')) return 'badge-danger';
   return 'badge-running';
 }
 
@@ -1150,6 +1154,7 @@ function allButtons() {
 }
 
 function setButtonsDisabled(disabled) {
+  disabled = disabled || currentOperationInProgress;
   // Exclude tfvars/inventory buttons so the user can still view them while a job runs.
   const viewOnlyIds = new Set(['btn-tfvars', 'btn-inventory']);
   allButtons().forEach(btn => {
@@ -1181,12 +1186,14 @@ function toggleAdvanced() {
 async function refreshEnvStatus() {
   try {
     const data = await apiFetch(`/api/environment/${ENV_ID}/status`);
+    currentOperationInProgress = !!data.operation_in_progress;
     if (data.status) setStatus(data.status);
   } catch (_) { /* ignore – status bar keeps the last known value */ }
 }
 
 // Current status tracked client-side so we can gate confirmations.
 let currentStatus = {{json .Env.Status}};
+let currentOperationInProgress = {{json .OperationInProgress}};
 let envStatusPollTimer = null;
 applyDestroyedButtonState();
 
@@ -1241,6 +1248,7 @@ async function executeAction(action, options = {}) {
     });
     const data = await resp.json();
     if (!resp.ok) { appendToTerminal(`Error: ${data.error || 'Unknown error'}`); setButtonsDisabled(false); hideProgressIndicator(); return; }
+    currentOperationInProgress = true;
     setStatus(data.status);
 
     const es = new EventSource(`/api/job/${data.job_id}/stream`);
@@ -1270,10 +1278,8 @@ async function executeAction(action, options = {}) {
 		refreshClusterSyncPanel();
     });
     es.onerror = () => {
-      appendToTerminal('\n⚠ Stream connection lost.');
-      es.close(); activeEventSource = null; setButtonsDisabled(false);
-      hideProgressIndicator();
-      finishJobTabs();
+      appendToTerminal('\n⚠ Stream connection lost. The job may still be running; checking server status.');
+      es.close(); activeEventSource = null;
       refreshEnvStatus();
     };
   } catch (err) {
@@ -1301,7 +1307,7 @@ async function cancelJob() {
   {{if .Env.LastJobID}}
   const jobId = {{json .Env.LastJobID}};
   const s = await (await fetch(`/api/job/${jobId}/status`)).json();
-  if (s.status === 'running') {
+  if (s.status === 'running' && currentOperationInProgress) {
     showTerminalSection('');
     setButtonsDisabled(true);
     loadHosts();
@@ -1321,7 +1327,7 @@ async function cancelJob() {
       loadHosts();
 		await refreshClusterSyncPanel();
     });
-    es.onerror = () => { es.close(); activeEventSource = null; setButtonsDisabled(false); hideProgressIndicator(); finishJobTabs(); refreshEnvStatus(); };
+    es.onerror = () => { es.close(); activeEventSource = null; refreshEnvStatus(); };
   } else {
     // Job already completed before page load – refresh status bar to reflect final state.
     refreshEnvStatus();

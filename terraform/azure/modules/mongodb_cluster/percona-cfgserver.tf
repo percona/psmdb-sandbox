@@ -4,7 +4,8 @@ resource "azurerm_public_ip" "cfg" {
   name                = "${var.prefix}-${var.cluster_name}-${var.configsvr_tag}0${each.value}-nic-public-ip"
   location            = var.location
   resource_group_name = var.resource_group_name
-  allocation_method   = "Dynamic"
+  allocation_method   = "Static"
+  sku                 = "Standard"
 }
 
 # Create managed data disks for config servers

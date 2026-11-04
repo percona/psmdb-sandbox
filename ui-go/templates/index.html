@@ -51,7 +51,7 @@
         <td class="env-actions-cell" onclick="event.stopPropagation()">
           <a href="/environment/{{.ID}}" class="btn btn-secondary btn-sm">Manage</a>
           <a href="/configure/{{.Env.Platform}}?from={{.ID}}" class="btn btn-outline btn-sm" title="Create a new environment from this definition">Duplicate</a>
-          <button class="btn btn-outline btn-sm btn-danger-outline" title="Remove environment" aria-label="Remove environment {{.ID}}" onclick="deleteEnvironment('{{.ID}}', '{{.Env.Status}}', '{{.Env.Platform}}')">X</button>
+          <button class="btn btn-outline btn-sm btn-danger-outline" title="Remove an undeployed or destroyed environment; otherwise use Destroy first" aria-label="Remove environment {{.ID}}" {{if not (or (eq .Env.Status "configured") (eq .Env.Status "deleted") (eq .Env.Status "destroy_success"))}}disabled{{end}} onclick="deleteEnvironment('{{.ID}}', '{{.Env.Status}}', '{{.Env.Platform}}')">X</button>
         </td>
       </tr>
       {{end}}

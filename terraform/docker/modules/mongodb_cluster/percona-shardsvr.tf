@@ -47,6 +47,11 @@ resource "docker_volume" "shard_volume" {
 }
 
 resource "docker_container" "shard" {
+  labels {
+    label = "psmdb-sandbox.environment"
+    value = var.environment_id
+  }
+
   for_each   = local.shard_members
   name       = "${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}svr${each.value.replica_index}"
   hostname   = "${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}svr${each.value.replica_index}"

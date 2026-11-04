@@ -1,4 +1,9 @@
 resource "docker_container" "pmm_rs" {
+  labels {
+    label = "psmdb-sandbox.environment"
+    value = var.environment_id
+  }
+
   for_each     = var.enable_pmm ? local.replset_members : {}
   name         = "${var.rs_name}-${var.replset_tag}${each.value.member_index}-${var.pmm_client_container_suffix}"
   image        = docker_image.pmm_client.image_id

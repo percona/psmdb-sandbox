@@ -58,7 +58,8 @@ If the tools are not already installed:
 ```
 
 The installer supports macOS with an existing Homebrew installation, Debian-family
-Linux, and RHEL-family Linux. It installs common controller tools plus Docker and Go.
+Linux, and RHEL-family Linux. It installs common controller tools and required
+Ansible collections, plus Docker and Go.
 
 Start Docker Desktop on macOS. On Linux, ensure Docker is running and your user has
 permission to access it; group changes require a new login session.
@@ -91,7 +92,9 @@ environment states, and binary builds.
 ## Prerequisites
 
 Use **Terraform 1.9+** for all targets. VM-based MongoDB installation also requires
-Ansible and SSH access. Running the UI from source requires **Go 1.22+**.
+**Ansible core 2.14+**, controller-side **Python 3.9+**, the collections in
+`ansible/requirements.yml`, and SSH access. Running the UI from source requires
+**Go 1.22+**. Docker deployments require a reachable Docker Engine 20.10+.
 
 Install common controller tools from the repository root:
 
@@ -111,6 +114,12 @@ Select additional dependencies for your target:
 Add `--ui` to install Go for the web UI. Use `--all` to install every applicable
 target dependency, or `--dry-run` to preview installation commands. The installer
 requires `sudo` on Linux.
+
+Collections are installed as the invoking user, not root. Run the installer as
+the same user that runs the UI. It checks minimum controller tool versions and
+stops with guidance if an OS repository supplies an obsolete version; upgrade
+that tool and rerun. The UI prerequisite dialog also checks collection versions
+and Docker daemon access, rather than only checking whether executables exist.
 
 Additional setup:
 

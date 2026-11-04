@@ -1,4 +1,9 @@
 resource "docker_container" "pmm_arb" {
+  labels {
+    label = "psmdb-sandbox.environment"
+    value = var.environment_id
+  }
+
   for_each     = var.enable_pmm ? local.arbiter_members : {}
   name         = "${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}arb${each.value.arbiter_index}-${var.pmm_client_container_suffix}"
   image        = docker_image.pmm_client.image_id

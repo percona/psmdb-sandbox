@@ -1,3 +1,9 @@
+variable "environment_id" {
+  description = "Exact environment identifier used for container selection."
+  type        = string
+  default     = ""
+}
+
 variable "rs_name" {
   description = "Name of the MongoDB replicaset"
   default     = "rs01"

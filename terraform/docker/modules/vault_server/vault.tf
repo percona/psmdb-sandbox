@@ -23,6 +23,11 @@ resource "terraform_data" "prepare" {
 }
 
 resource "docker_container" "vault" {
+  labels {
+    label = "psmdb-sandbox.environment"
+    value = var.environment_id
+  }
+
   name       = var.name
   hostname   = var.name
   image      = docker_image.vault.image_id

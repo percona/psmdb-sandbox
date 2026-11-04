@@ -27,8 +27,8 @@ integration compatibility and examples. Default versions are retained.
 
 Optional, depending on the environment type you want to deploy:
 
-- Terraform 1.9+ and Ansible for AWS, GCP, Azure, and CHAOS (`./scripts/install-prerequisites.sh`)
-- Docker for Docker environments (`./scripts/install-prerequisites.sh --docker`)
+- Terraform 1.9+ for all platforms. AWS, GCP, Azure, and CHAOS also need Ansible core 2.14+, controller Python 3.9+, OpenSSH, and the collections in `ansible/requirements.yml` (`./scripts/install-prerequisites.sh`)
+- A reachable Docker Engine 20.10+ for Docker environments (`./scripts/install-prerequisites.sh --docker`)
 - The corresponding cloud CLI for AWS, GCP, or Azure (`--aws`, `--gcp`, or `--azure`); the UI uses these commands to configure and validate credentials
 
 The installer supports macOS with Homebrew already installed plus Debian- and
@@ -141,7 +141,8 @@ the plgm load generator Web UI when enabled).
    If an existing environment's topology changed, the UI compares the saved desired
    topology with the last successful deploy before running Terraform.
 5. **Stop / Restart** – for Docker environments, uses `docker stop` / `docker restart`
-   filtered by the environment prefix; for cloud environments, runs the Ansible
+   selected by the exact `psmdb-sandbox.environment` container label; unlabeled
+   legacy containers use an anchored environment-name match. For cloud environments, runs the Ansible
    `stop.yml` / `restart.yml` playbooks.
 6. **Destroy** – runs `terraform destroy`. On success, the environment is marked
    **Deleted** and its Terraform files are removed. Use **Cleanup Deleted** from the
@@ -151,9 +152,67 @@ the plgm load generator Web UI when enabled).
    (`ssh user@host` or `docker exec -it <name> bash`), MongoDB connection strings for
    every replica set and cluster, and clickable **Open** buttons for PMM and SeaweedFS
     Console URLs. All PMM-related containers (server, Grafana renderer, Watchtower,
-    and per-node PMM client sidecars) are grouped together under a single **PMM** section.
+     and per-node PMM client sidecars) are grouped together under a single **PMM** section.
+
+### State and operation safety
+
+- On SIGINT/SIGTERM, the UI stops admitting jobs, terminates running job process
+  groups, and waits up to 15 seconds for job status and environment history to be
+  saved. Jobs stopped during shutdown are recorded as `interrupted` in history;
+  their environment action is marked failed.
+- On startup, abandoned jobs and unfinished environment actions are marked
+  interrupted/failed. Recovery never assumes an apply or destroy succeeded,
+  deletes infrastructure state, or retries an operation automatically. Inspect
+  the logs and infrastructure before retrying. After a hard crash, external
+  processes may still be running; ensure they have stopped first. Run only one
+  UI instance per data directory.
+
+- Every environment uses its own Terraform backend metadata directory at
+  `UI_DATA_DIR/terraform/<platform>/<env_id>/` (`TF_DATA_DIR`). The existing state
+  paths, `terraform/<platform>/<env_id>.tfstate`, are unchanged and passed to
+  Terraform as absolute paths. UI jobs always use the default Terraform workspace.
+- Registry updates are serialized read–modify–write transactions. Registry,
+  settings, and generated tfvars files use synced temporary files and atomic
+  replacement, with owner-only permissions.
+- Only one modifying operation can run per environment, including configuration
+  edits, lifecycle jobs, and ClusterSync actions. Conflicting requests return
+  HTTP 409. Jobs use an independent configuration snapshot; changing an existing
+  environment's platform is not supported. Different environments may run in parallel.
+- Losing the browser's log stream does not unlock lifecycle actions. The page
+  continues polling the server for completion.
+- Removing a definition is allowed only before deployment or after successful
+  destruction. If a state file or backup still contains managed resources, or
+  cannot be verified, removal is refused. Destroy failed or partially deployed
+  environments with **Destroy** before removing them; do not delete their state files.
+- Permanently removing a definition also deletes its per-environment Terraform
+  provider/module cache. Destroyed definitions kept for redeployment retain it.
+
+Run only one UI process against a given repository/data directory. The registry
+transactions and operation locks coordinate requests within that process, not
+separate UI processes or manual Terraform/Ansible commands.
+
+**Docker upgrade note:** all managed containers now receive the environment label.
+The next **Deploy** of an existing Docker environment may replace containers to add
+it, causing downtime. Data volumes remain separate, but back up valuable data and
+inspect the Terraform plan before redeploying. Stop, Restart, and Hosts & Connections
+continue working with unlabeled containers before that deployment.
 
 ## Cloud Provider Credentials
+
+SSH-key uploads (including the platform upload API) are limited to a **1 MiB
+multipart request** and validated with `ssh-keygen`. Public uploads must contain
+one OpenSSH public key. Private uploads accept OpenSSH keys (including encrypted
+OpenSSH keys) and unencrypted PEM keys supported by `ssh-keygen`; passphrase-based
+SSH access still requires an appropriately configured SSH agent. Every upload
+gets a unique, mode-0600 file under `UI_DATA_DIR/secrets/ssh/`; the original
+filename is only a display label. The APIs return an absolute managed path and
+never write uploads into Terraform source directories or overwrite earlier keys.
+
+Unencrypted private-key payloads are decoded before acceptance. Encrypted OpenSSH
+uploads have their container and public section checked; validating the encrypted
+private payload requires the passphrase and is deferred to SSH/your agent.
+Ansible readiness probes use the deployment's `ansible/ansible.cfg` and validate
+the collection versions resolved by Ansible, including search-path precedence.
 
 Open **Settings** from the environments page and configure credentials for the cloud provider you want to use:
 

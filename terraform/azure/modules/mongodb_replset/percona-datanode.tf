@@ -11,7 +11,8 @@ resource "azurerm_public_ip" "replset" {
   name                = "${var.prefix}-${var.rs_name}-${var.replset_tag}${each.value}-nic-public-ip"
   location            = var.location
   resource_group_name = var.resource_group_name
-  allocation_method   = "Dynamic"
+  allocation_method   = "Static"
+  sku                 = "Standard"
 }
 
 # Network-security group for the replica-set

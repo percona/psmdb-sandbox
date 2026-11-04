@@ -47,6 +47,11 @@ resource "docker_volume" "mongot_volume" {
 }
 
 resource "docker_container" "mongot_rs" {
+  labels {
+    label = "psmdb-sandbox.environment"
+    value = var.environment_id
+  }
+
   for_each = var.enable_mongot ? local.replset_members : {}
   name     = "${var.rs_name}-${var.replset_tag}${each.value.member_index}-mongot"
   hostname = "${var.rs_name}-${var.replset_tag}${each.value.member_index}-mongot"

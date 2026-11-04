@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,6 +18,13 @@ import (
 
 // jobPIDs maps jobID → *os.Process for cancellation support.
 var jobPIDs sync.Map
+
+// Serialize admission and process startup with shutdown. The wait group covers
+// completion callbacks as well as subprocesses so state is saved before exit.
+var jobLifecycleMu sync.Mutex
+var jobsStopping bool
+var jobsWG sync.WaitGroup
+var jobIDRe = regexp.MustCompile(`^[a-f0-9]{16}$`)
 
 func jobLogPath(jobID string) string    { return filepath.Join(jobsDir, jobID+".log") }
 func jobStatusPath(jobID string) string { return filepath.Join(jobsDir, jobID+".status") }
@@ -117,17 +126,48 @@ func secureID(n int) string {
 // onComplete is called with the final status string when the job finishes.
 func startJob(cmd []string, cwd string, extraEnv map[string]string, onComplete func(string)) string {
 	jobID := secureID(8) // 16 hex chars of crypto random – not guessable
-	go runJob(jobID, cmd, cwd, extraEnv, onComplete)
+	if !launchJob(jobID, cmd, cwd, extraEnv, onComplete) {
+		return ""
+	}
 	return jobID
 }
 
+func launchJob(jobID string, cmd []string, cwd string, extraEnv map[string]string, onComplete func(string)) bool {
+	jobLifecycleMu.Lock()
+	defer jobLifecycleMu.Unlock()
+	if jobsStopping {
+		return false
+	}
+	jobsWG.Add(1)
+	go func() {
+		defer jobsWG.Done()
+		runJob(jobID, cmd, cwd, extraEnv, onComplete)
+	}()
+	return true
+}
+
 func runJob(jobID string, cmd []string, cwd string, extraEnv map[string]string, onComplete func(string)) {
-	startTime := time.Now()
+	finalStatus := "error"
 	statusPath := jobStatusPath(jobID)
+	defer func() {
+		if err := atomicWriteFile(statusPath, []byte(finalStatus), 0600); err != nil {
+			slog.Error("job status write failed", "job", jobID, "err", err)
+			finalStatus = "error"
+		}
+		if onComplete != nil {
+			onComplete(finalStatus)
+		}
+		slog.Info("job finished", "job", jobID, "status", finalStatus)
+	}()
+	startTime := time.Now()
 	logPath := jobLogPath(jobID)
 
-	if err := os.WriteFile(statusPath, []byte("running"), 0644); err != nil {
+	if err := atomicWriteFile(statusPath, []byte("running"), 0600); err != nil {
 		slog.Error("job status write failed", "job", jobID, "err", err)
+		return
+	}
+	if len(cmd) == 0 {
+		slog.Error("job command is empty", "job", jobID)
 		return
 	}
 
@@ -140,12 +180,12 @@ func runJob(jobID string, cmd []string, cwd string, extraEnv map[string]string, 
 	}
 	slog.Info("job started", "job", jobID, "cwd", cwd, "cmd", cmdDisplay)
 
-	logFile, err := os.Create(logPath)
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		slog.Error("job log create failed", "job", jobID, "err", err)
-		os.WriteFile(statusPath, []byte("error"), 0644)
 		return
 	}
+	defer logFile.Close()
 
 	// Write the command at the top so it's visible in the terminal output.
 	fmt.Fprintf(logFile, "$ %s\n# cwd: %s\n\n", cmdDisplay, cwd)
@@ -170,7 +210,7 @@ func runJob(jobID string, cmd []string, cwd string, extraEnv map[string]string, 
 	// Parallel playbook blocks write per-part logs next to the job log.
 	execCmd.env = append(execCmd.env, "PSMDB_JOB_ID="+jobID, "PSMDB_JOBS_DIR="+jobsDir)
 
-	finalStatus := runProcess(jobID, execCmd.name, execCmd.args, execCmd.env, cwd, logFile)
+	finalStatus = runProcess(jobID, execCmd.name, execCmd.args, execCmd.env, cwd, logFile)
 
 	// Append elapsed time to the log so it is visible in the terminal output.
 	elapsed := time.Since(startTime)
@@ -179,20 +219,10 @@ func runJob(jobID string, cmd []string, cwd string, extraEnv map[string]string, 
 	secs := totalSecs % 60
 	fmt.Fprintf(logFile, "\n# Elapsed: %dm %ds\n", mins, secs)
 	logFile.Sync()
-	logFile.Close()
-
-	if err := os.WriteFile(statusPath, []byte(finalStatus), 0644); err != nil {
-		slog.Error("job status write failed", "job", jobID, "err", err)
-	}
-	slog.Info("job finished", "job", jobID, "status", finalStatus)
-
-	if onComplete != nil {
-		onComplete(finalStatus)
-	}
 }
 
 // runProcess executes the given command and pipes stdout+stderr to logFile.
-// Returns "success", "failed:N", or "error".
+// Returns "success", "failed:N", "interrupted", or "error".
 func runProcess(jobID string, name string, args []string, envVars []string, cwd string, logFile *os.File) string {
 	proc := execCommand(name, args...)
 	proc.Dir = cwd
@@ -200,13 +230,26 @@ func runProcess(jobID string, name string, args []string, envVars []string, cwd 
 	proc.Stdout = logFile
 	proc.Stderr = logFile
 	configureJobProcess(proc)
+	jobLifecycleMu.Lock()
+	if jobsStopping {
+		jobLifecycleMu.Unlock()
+		return "interrupted"
+	}
 	if err := proc.Start(); err != nil {
+		jobLifecycleMu.Unlock()
 		fmt.Fprintf(logFile, "\nError starting process: %v\n", err)
 		return "error"
 	}
 	jobPIDs.Store(jobID, proc.Process)
+	jobLifecycleMu.Unlock()
 	defer jobPIDs.Delete(jobID)
 	if err := proc.Wait(); err != nil {
+		jobLifecycleMu.Lock()
+		stopping := jobsStopping
+		jobLifecycleMu.Unlock()
+		if stopping {
+			return "interrupted"
+		}
 		return fmt.Sprintf("failed:%d", proc.ProcessState.ExitCode())
 	}
 	return "success"
@@ -234,6 +277,75 @@ func killAllJobs() {
 			slog.Warn("shutdown job kill failed", "job", key, "err", err)
 		}
 		return true
+	})
+}
+
+// stopJobs prevents admission and catches jobs that have not started a process
+// yet. A timeout leaves on-disk recovery markers for the next startup.
+func stopJobs(ctx context.Context) error {
+	jobLifecycleMu.Lock()
+	jobsStopping = true
+	killAllJobs()
+	jobLifecycleMu.Unlock()
+	done := make(chan struct{})
+	go func() {
+		jobsWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// reconcileInterruptedJobs runs before accepting requests. A lost completion
+// callback is not proof of a successful apply/destroy: keep all recovery files
+// and applied snapshots, and require the user to inspect and retry explicitly.
+func reconcileInterruptedJobs() error {
+	entries, err := os.ReadDir(jobsDir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		id := strings.TrimSuffix(entry.Name(), ".status")
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".status") || !jobIDRe.MatchString(id) {
+			continue
+		}
+		status, err := os.ReadFile(jobStatusPath(id))
+		if err != nil {
+			return err
+		}
+		if !partStatusFinal(strings.TrimSpace(string(status))) {
+			if err := atomicWriteFile(jobStatusPath(id), []byte("interrupted"), 0600); err != nil {
+				return err
+			}
+		}
+	}
+	return updateState(func(state map[string]*Environment) error {
+		now := time.Now().UTC()
+		for _, env := range state {
+			if !environmentInProgress(env) {
+				continue
+			}
+			action := strings.TrimSuffix(env.Status, "_in_progress")
+			if jobIDRe.MatchString(env.LastJobID) {
+				if err := atomicWriteFile(jobStatusPath(env.LastJobID), []byte("interrupted"), 0600); err != nil {
+					return err
+				}
+			}
+			duration := int64(0)
+			if start, err := time.Parse(time.RFC3339, env.UpdatedAt); err == nil {
+				duration = max(int64(now.Sub(start).Seconds()), 0)
+			}
+			env.History = append(env.History, HistoryEvent{
+				Action: action, StartedAt: env.UpdatedAt, Status: "interrupted", DurationSecs: duration,
+			})
+			env.Status = action + "_failed"
+			env.UpdatedAt = now.Format(time.RFC3339)
+		}
+		return nil
 	})
 }
 

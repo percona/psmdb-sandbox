@@ -1,4 +1,9 @@
 resource "docker_container" "pbm_rs" {
+  labels {
+    label = "psmdb-sandbox.environment"
+    value = var.environment_id
+  }
+
   for_each = var.enable_pbm ? local.replset_members : {}
   name     = "${var.rs_name}-${var.replset_tag}${each.value.member_index}-${var.pbm_container_suffix}"
   image    = docker_image.pbm_mongod_rs.image_id

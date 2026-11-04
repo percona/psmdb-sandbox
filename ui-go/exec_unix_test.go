@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -11,6 +12,33 @@ import (
 	"testing"
 	"time"
 )
+
+func TestStopJobsKillsRunningProcessesAndFinalizes(t *testing.T) {
+	useTempJobs(t)
+	t.Cleanup(func() {
+		jobLifecycleMu.Lock()
+		jobsStopping = false
+		jobLifecycleMu.Unlock()
+	})
+	pidFile := filepath.Join(jobsDir, "started")
+	completed := false
+	id := startJob([]string{"bash", "-c", "echo ready > " + shellQuote(pidFile) + "; sleep 60"}, jobsDir, nil, func(status string) {
+		if status != "interrupted" {
+			t.Errorf("shutdown status = %q", status)
+		}
+		completed = true
+	})
+	waitForOperationTest(t, func() bool { _, err := os.Stat(pidFile); return err == nil })
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := stopJobs(ctx); err != nil {
+		t.Fatal(err)
+	}
+	status, err := os.ReadFile(jobStatusPath(id))
+	if !completed || err != nil || string(status) != "interrupted" {
+		t.Fatalf("shutdown did not finalize: completed=%v status=%q err=%v", completed, status, err)
+	}
+}
 
 func TestCancelJobKillsBackgroundChildren(t *testing.T) {
 	old := jobsDir

@@ -11,6 +11,12 @@ This Terraform module creates:
 - a Storage account, private backup container, and lifecycle policy
 - generated Ansible inventory and SSH configuration files
 
+All public IP addresses use the **Standard SKU** with **static allocation**, including
+MongoDB nodes and optional supporting services. Basic SKU public IPs are retired.
+Private IP addresses on network interfaces still use dynamic allocation. Inbound
+access is controlled by network security groups; restrict `source_ranges` to your
+trusted client networks.
+
 ## Prerequisites
 
 - Terraform 1.9 or newer
