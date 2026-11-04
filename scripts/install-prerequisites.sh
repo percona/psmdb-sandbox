@@ -10,13 +10,15 @@ want_azure=false
 want_libvirt=false
 want_ui=false
 all_targets=false
+repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 
 usage() {
   cat <<'EOF'
 Usage: scripts/install-prerequisites.sh [options]
 
-Installs common controller tools (Git, Terraform, Ansible, OpenSSH, curl,
-unzip, and Python) by default. Select deployment-specific prerequisites with:
+Installs common controller tools (Git, Terraform 1.9+, Ansible core 2.14+,
+OpenSSH, curl, unzip, Python 3.9+) and pinned Ansible collections by default.
+Select deployment-specific prerequisites with:
 
   --docker       Docker Desktop (macOS) or Docker Engine (Linux)
   --aws          AWS CLI v2
@@ -161,6 +163,28 @@ install_common() {
   esac
 }
 
+# Fail with useful guidance when an OS repository supplies an obsolete tool.
+# Dry runs do not execute or require any of the tools being installed.
+check_minimum_version() {
+  local name=$1 minimum=$2 output=$3
+  if ! python3 -c 'import re, sys
+match = re.search(r"(\d+)\.(\d+)(?:\.(\d+))?", sys.argv[3])
+version = tuple(int(x or 0) for x in match.groups()) if match else ()
+minimum = tuple(int(x) for x in sys.argv[2].split("."))
+sys.exit(0 if version and version >= minimum else 1)' "$name" "$minimum" "$output"; then
+    die "${name} ${minimum}+ is required; the installed version is missing or too old. Install a supported version and rerun this script."
+  fi
+}
+
+install_ansible_collections() {
+  if ! "$dry_run"; then
+    check_minimum_version Python 3.9 "$(python3 --version 2>&1)"
+    check_minimum_version Terraform 1.9 "$(terraform version 2>&1)"
+    check_minimum_version Ansible 2.14 "$(ansible --version 2>&1)"
+  fi
+  run ansible-galaxy collection install --requirements-file "${repo_root}/ansible/requirements.yml"
+}
+
 install_docker() {
   case "$platform" in
     macos) run brew install --cask docker ;;
@@ -170,6 +194,7 @@ install_docker() {
       run_shell 'printf "%s\\n" "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/'"${ID}"' $(. /etc/os-release && printf %s "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null'
       apt_update_done=false
       apt_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+      run sudo systemctl enable --now docker
       ;;
     rhel)
       need_sudo
@@ -247,9 +272,13 @@ install_ui() {
     debian) apt_install golang-go ;;
     rhel) dnf_install golang ;;
   esac
+  if ! "$dry_run"; then
+    check_minimum_version Go 1.22 "$(go version 2>&1)"
+  fi
 }
 
 install_common
+install_ansible_collections
 "$want_docker" && install_docker
 "$want_aws" && install_aws
 "$want_gcp" && install_gcp

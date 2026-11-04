@@ -31,29 +31,10 @@ func sshSecretsDir() string {
 	return filepath.Join(dataDir, "secrets", "ssh")
 }
 
-func sshKeyUploadPath(filename string) string {
-	return filepath.Join(sshSecretsDir(), filename)
-}
-
 func managedUploadFilename(rawName, fallback string) string {
 	name := safeFilenameRe.ReplaceAllString(filepath.Base(rawName), "_")
 	if name == "" || name == "." || name == ".." {
 		return fallback
-	}
-	return name
-}
-
-func sshUploadFilename(kind, rawName string) string {
-	fallback := "settings_" + kind
-	name := managedUploadFilename(rawName, fallback)
-	if kind == "public" {
-		if strings.ToLower(filepath.Ext(name)) != ".pub" {
-			name += ".pub"
-		}
-		return name
-	}
-	if filepath.Ext(name) == "" || strings.EqualFold(filepath.Ext(name), ".pub") {
-		name += ".key"
 	}
 	return name
 }
@@ -539,43 +520,7 @@ func apiUploadSSHKeyHandler(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, 400, "invalid platform")
 		return
 	}
-	if err := r.ParseMultipartForm(1 << 20); err != nil {
-		jsonError(w, 400, "failed to parse upload: "+err.Error())
-		return
-	}
-	file, header, err := r.FormFile("ssh_key_file")
-	if err != nil {
-		jsonError(w, 400, "ssh_key_file field missing: "+err.Error())
-		return
-	}
-	defer file.Close()
-
-	name := safeFilenameRe.ReplaceAllString(filepath.Base(header.Filename), "_")
-	if name == "" {
-		name = "id_rsa.pub"
-	}
-
-	destDir := filepath.Clean(filepath.Join(terraformDir, platform))
-	if err := os.MkdirAll(destDir, 0755); err != nil {
-		jsonError(w, 500, "cannot create upload dir: "+err.Error())
-		return
-	}
-	destPath := filepath.Clean(filepath.Join(destDir, name))
-	if filepath.Dir(destPath) != destDir {
-		jsonError(w, 400, "invalid filename")
-		return
-	}
-
-	data, err := io.ReadAll(file)
-	if err != nil {
-		jsonError(w, 500, "read failed: "+err.Error())
-		return
-	}
-	if err := os.WriteFile(destPath, data, 0600); err != nil {
-		jsonError(w, 500, "write failed: "+err.Error())
-		return
-	}
-	writeJSON(w, 200, map[string]string{"path": name})
+	uploadSSHKey(w, r, "public")
 }
 
 // POST /api/upload-settings-ssh-key/{kind}
@@ -585,42 +530,7 @@ func apiUploadSettingsSSHKeyHandler(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, 400, "invalid SSH key kind")
 		return
 	}
-	if err := r.ParseMultipartForm(1 << 20); err != nil {
-		jsonError(w, 400, "failed to parse upload: "+err.Error())
-		return
-	}
-	file, header, err := r.FormFile("ssh_key_file")
-	if err != nil {
-		jsonError(w, 400, "ssh_key_file field missing: "+err.Error())
-		return
-	}
-	defer file.Close()
-
-	data, err := io.ReadAll(file)
-	if err != nil {
-		jsonError(w, 500, "read failed: "+err.Error())
-		return
-	}
-	if strings.TrimSpace(string(data)) == "" {
-		jsonError(w, 400, "uploaded SSH key file is empty")
-		return
-	}
-	if err := os.MkdirAll(sshSecretsDir(), 0700); err != nil {
-		jsonError(w, 500, "cannot create secrets dir: "+err.Error())
-		return
-	}
-	storedFilename := sshUploadFilename(kind, header.Filename)
-	storedPath := sshKeyUploadPath(storedFilename)
-	mode := os.FileMode(0600)
-	if err := os.WriteFile(storedPath, data, mode); err != nil {
-		jsonError(w, 500, "write failed: "+err.Error())
-		return
-	}
-
-	writeJSON(w, 200, map[string]string{
-		"path":     storedPath,
-		"filename": storedFilename,
-	})
+	uploadSSHKey(w, r, kind)
 }
 
 func apiSettingsHandler(w http.ResponseWriter, r *http.Request) {
@@ -2221,7 +2131,9 @@ func environmentActionHandler(w http.ResponseWriter, r *http.Request) {
 			}
 			// Record the event in the environment's history.
 			outcomeStatus := "success"
-			if status != "success" {
+			if status == "interrupted" {
+				outcomeStatus = "interrupted"
+			} else if status != "success" {
 				outcomeStatus = "failed"
 			}
 			e.History = append(e.History, HistoryEvent{
@@ -2352,13 +2264,18 @@ func environmentActionHandler(w http.ResponseWriter, r *http.Request) {
 		current.Config = *cloneConfig(*configAtStart)
 		current.Status = env.Status
 		current.LastJobID = jobID
+		current.UpdatedAt = startedAt
 		return nil
 	}); err != nil {
 		jsonError(w, 500, "state save failed: "+err.Error())
 		return
 	}
 	dispatched = true
-	go runJob(jobID, cmd, tfDir, extraEnv, onComplete)
+	if !launchJob(jobID, cmd, tfDir, extraEnv, onComplete) {
+		onComplete("interrupted")
+		jsonError(w, http.StatusServiceUnavailable, "UI is shutting down; job was not started")
+		return
+	}
 
 	slog.Info("action dispatched", "action", action, "env", envID, "platform", platform, "job", jobID)
 	writeJSON(w, 200, map[string]string{"job_id": jobID, "status": env.Status})

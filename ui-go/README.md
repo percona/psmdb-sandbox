@@ -27,8 +27,8 @@ integration compatibility and examples. Default versions are retained.
 
 Optional, depending on the environment type you want to deploy:
 
-- Terraform 1.9+ and Ansible for AWS, GCP, Azure, and CHAOS (`./scripts/install-prerequisites.sh`)
-- Docker for Docker environments (`./scripts/install-prerequisites.sh --docker`)
+- Terraform 1.9+ for all platforms. AWS, GCP, Azure, and CHAOS also need Ansible core 2.14+, controller Python 3.9+, OpenSSH, and the collections in `ansible/requirements.yml` (`./scripts/install-prerequisites.sh`)
+- A reachable Docker Engine 20.10+ for Docker environments (`./scripts/install-prerequisites.sh --docker`)
 - The corresponding cloud CLI for AWS, GCP, or Azure (`--aws`, `--gcp`, or `--azure`); the UI uses these commands to configure and validate credentials
 
 The installer supports macOS with Homebrew already installed plus Debian- and
@@ -156,6 +156,17 @@ the plgm load generator Web UI when enabled).
 
 ### State and operation safety
 
+- On SIGINT/SIGTERM, the UI stops admitting jobs, terminates running job process
+  groups, and waits up to 15 seconds for job status and environment history to be
+  saved. Jobs stopped during shutdown are recorded as `interrupted` in history;
+  their environment action is marked failed.
+- On startup, abandoned jobs and unfinished environment actions are marked
+  interrupted/failed. Recovery never assumes an apply or destroy succeeded,
+  deletes infrastructure state, or retries an operation automatically. Inspect
+  the logs and infrastructure before retrying. After a hard crash, external
+  processes may still be running; ensure they have stopped first. Run only one
+  UI instance per data directory.
+
 - Every environment uses its own Terraform backend metadata directory at
   `UI_DATA_DIR/terraform/<platform>/<env_id>/` (`TF_DATA_DIR`). The existing state
   paths, `terraform/<platform>/<env_id>.tfstate`, are unchanged and passed to
@@ -185,6 +196,15 @@ inspect the Terraform plan before redeploying. Stop, Restart, and Hosts & Connec
 continue working with unlabeled containers before that deployment.
 
 ## Cloud Provider Credentials
+
+SSH-key uploads (including the platform upload API) are limited to a **1 MiB
+multipart request** and validated with `ssh-keygen`. Public uploads must contain
+one OpenSSH public key. Private uploads accept OpenSSH keys (including encrypted
+OpenSSH keys) and unencrypted PEM keys supported by `ssh-keygen`; passphrase-based
+SSH access still requires an appropriately configured SSH agent. Every upload
+gets a unique, mode-0600 file under `UI_DATA_DIR/secrets/ssh/`; the original
+filename is only a display label. The APIs return an absolute managed path and
+never write uploads into Terraform source directories or overwrite earlier keys.
 
 Open **Settings** from the environments page and configure credentials for the cloud provider you want to use:
 

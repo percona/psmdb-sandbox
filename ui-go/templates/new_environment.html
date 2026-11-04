@@ -226,7 +226,7 @@ function renderPrereqResult(data) {
     for (const t of present) {
       html += `<div class="prereq-tool"><span class="tool-status">✅</span>
         <span class="tool-name">${escHtml(t.name)}</span>
-        <span style="color:var(--color-muted);font-size:0.85rem">found</span></div>`;
+        <span style="color:var(--color-muted);font-size:0.85rem">${escHtml(t.detail || 'found')}</span></div>`;
     }
     html += '</div>';
   }
@@ -235,7 +235,7 @@ function renderPrereqResult(data) {
   for (const t of missing) {
     html += `<div class="prereq-tool"><span class="tool-status">❌</span>
       <span class="tool-name">${escHtml(t.name)}</span>
-      <span style="color:var(--color-warning,#f38ba8);font-size:0.85rem">not found</span>
+      <span style="color:var(--color-warning,#f38ba8);font-size:0.85rem">${escHtml(t.detail || 'not found')}</span>
       ${t.install_doc ? `<a href="${escHtml(t.install_doc)}" target="_blank" rel="noopener" style="font-size:0.8rem">docs ↗</a>` : ''}
     </div>`;
 

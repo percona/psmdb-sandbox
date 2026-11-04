@@ -1136,7 +1136,7 @@ function applyDestroyedButtonState() {
 
 function getStatusBadgeClass(status) {
   if (status === 'success' || status.includes('success')) return 'badge-success';
-  if (status.startsWith('fail') || status === 'error' || status.includes('failed')) return 'badge-danger';
+  if (status.startsWith('fail') || status === 'error' || status === 'interrupted' || status.includes('failed')) return 'badge-danger';
   return 'badge-running';
 }
 

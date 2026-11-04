@@ -585,8 +585,9 @@ type CloudImage struct {
 type PrereqTool struct {
 	Name        string   `json:"name"`
 	Installed   bool     `json:"installed"`
-	InstallDoc  string   `json:"install_doc"`  // short URL / reference
-	InstallCmds []string `json:"install_cmds"` // copy-pasteable shell commands
+	Detail      string   `json:"detail,omitempty"` // version or actionable readiness error
+	InstallDoc  string   `json:"install_doc"`      // short URL / reference
+	InstallCmds []string `json:"install_cmds"`     // copy-pasteable shell commands
 }
 
 // PrereqResult is the JSON response from GET /api/prerequisites/{platform}.

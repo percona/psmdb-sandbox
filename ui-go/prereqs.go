@@ -1,12 +1,19 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
 )
 
 const chaosProviderExampleVersion = "1.0.0"
@@ -122,6 +129,20 @@ func platformPrereqs(platform string) []PrereqTool {
 			"pip3 install --user ansible",
 		},
 	}
+	python := PrereqTool{
+		Name: "python3", InstallDoc: "https://www.python.org/downloads/",
+		InstallCmds: []string{"# From the repository root", "./scripts/install-prerequisites.sh"},
+	}
+	collections := PrereqTool{
+		Name: "ansible-collections", InstallDoc: "https://docs.ansible.com/ansible/latest/collections_guide/collections_installing.html",
+		InstallCmds: []string{"# From the repository root, as the UI user", "ansible-galaxy collection install -r ansible/requirements.yml"},
+	}
+	ssh := PrereqTool{
+		Name: "ssh", InstallDoc: "https://www.openssh.com/",
+		InstallCmds: []string{"# From the repository root", "./scripts/install-prerequisites.sh"},
+	}
+	keygen := ssh
+	keygen.Name = "ssh-keygen"
 	dockerCLI := PrereqTool{
 		Name:       "docker",
 		InstallDoc: "https://docs.docker.com/engine/install/",
@@ -184,25 +205,147 @@ func platformPrereqs(platform string) []PrereqTool {
 	case "docker":
 		tools = []PrereqTool{dockerCLI, terraform}
 	case "aws":
-		tools = []PrereqTool{terraform, ansible, awsCLI}
+		tools = []PrereqTool{terraform, ansible, python, collections, ssh, keygen, awsCLI}
 	case "gcp":
-		tools = []PrereqTool{terraform, ansible, gcloudCLI}
+		tools = []PrereqTool{terraform, ansible, python, collections, ssh, keygen, gcloudCLI}
 	case "azure":
-		tools = []PrereqTool{terraform, ansible, azureCLI}
+		tools = []PrereqTool{terraform, ansible, python, collections, ssh, keygen, azureCLI}
 	case "chaos":
-		tools = []PrereqTool{terraform, ansible, chaosProvider}
+		tools = []PrereqTool{terraform, ansible, python, collections, ssh, keygen, chaosProvider}
 	default:
-		tools = []PrereqTool{terraform, ansible}
+		tools = []PrereqTool{terraform, ansible, python, collections, ssh, keygen}
 	}
 
+	var wg sync.WaitGroup
 	for i := range tools {
-		if tools[i].Name == "terraform-provider-chaos" {
-			tools[i].Installed = chaosProviderInstalled()
-		} else {
-			tools[i].Installed = toolInstalled(tools[i].Name)
+		wg.Add(1)
+		go func(tool *PrereqTool) {
+			defer wg.Done()
+			tool.Installed, tool.Detail = checkPrerequisite(tool.Name)
+		}(&tools[i])
+	}
+	wg.Wait()
+	return tools
+}
+
+var prerequisiteVersionRe = regexp.MustCompile(`\b([0-9]+)\.([0-9]+)(?:\.([0-9]+))?`)
+
+func versionAtLeast(version, minimum string) bool {
+	parse := func(value string) [3]int {
+		var parts [3]int
+		for i, part := range strings.Split(value, ".") {
+			if i < len(parts) {
+				parts[i], _ = strconv.Atoi(part)
+			}
+		}
+		return parts
+	}
+	actual, required := parse(version), parse(minimum)
+	for i := range actual {
+		if actual[i] != required[i] {
+			return actual[i] > required[i]
 		}
 	}
-	return tools
+	return true
+}
+
+// Bound local probes: a broken CLI or unreachable Docker daemon must not hang
+// the platform picker. Do not expose raw CLI output (it may contain credentials).
+func prerequisiteOutput(name string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.WaitDelay = time.Second
+	return cmd.Output()
+}
+
+func checkPrerequisite(name string) (bool, string) {
+	if name == "terraform-provider-chaos" {
+		if !chaosProviderInstalled() {
+			return false, "CHAOS provider is not installed for " + chaosProviderTarget()
+		}
+		return true, "found"
+	}
+	if name == "ansible-collections" {
+		return checkAnsibleCollections()
+	}
+	if !toolInstalled(name) {
+		return false, "not found on PATH"
+	}
+	var args []string
+	var minimum string
+	switch name {
+	case "terraform":
+		args, minimum = []string{"version", "-json"}, "1.9"
+	case "ansible":
+		if !toolInstalled("ansible-playbook") {
+			return false, "ansible-playbook is not found on PATH"
+		}
+		args, minimum = []string{"--version"}, "2.14"
+	case "python3":
+		args, minimum = []string{"--version"}, "3.9"
+	case "aws":
+		args, minimum = []string{"--version"}, "2.0"
+	case "docker":
+		args, minimum = []string{"info", "--format", "{{.ServerVersion}}"}, "20.10"
+	default:
+		return true, "found"
+	}
+	output, err := prerequisiteOutput(name, args...)
+	if err != nil {
+		if name == "docker" {
+			return false, "Docker daemon is unavailable; start Docker and check socket permissions"
+		}
+		return false, "version check failed or timed out"
+	}
+	version := ""
+	if name == "terraform" {
+		var info struct {
+			Version string `json:"terraform_version"`
+		}
+		if json.Unmarshal(output, &info) == nil {
+			version = info.Version
+		}
+	} else {
+		// Only inspect the first line, not unrelated Python/plugin versions.
+		version = prerequisiteVersionRe.FindString(strings.SplitN(string(output), "\n", 2)[0])
+	}
+	if !prerequisiteVersionRe.MatchString(version) || !versionAtLeast(version, minimum) {
+		return false, "requires " + minimum + "+ (installed version is missing, unsupported, or too old)"
+	}
+	return true, version
+}
+
+// These minimums match the tested pins in ansible/requirements.yml. Newer
+// collections bundled with a full Ansible installation are accepted as well.
+var requiredAnsibleCollections = map[string]string{
+	"ansible.posix": "1.6.2", "community.general": "9.5.5",
+}
+
+func checkAnsibleCollections() (bool, string) {
+	output, err := prerequisiteOutput("ansible-galaxy", "collection", "list", "--format", "json")
+	if err != nil {
+		return false, "cannot list collections; install ansible-core and ansible/requirements.yml"
+	}
+	var installed map[string]map[string]struct {
+		Version string `json:"version"`
+	}
+	if json.Unmarshal(output, &installed) != nil {
+		return false, "cannot parse ansible-galaxy collection list"
+	}
+	for name, minimum := range requiredAnsibleCollections {
+		found := false
+		for _, collections := range installed {
+			version := collections[name].Version
+			if prerequisiteVersionRe.MatchString(version) && versionAtLeast(version, minimum) {
+				found = true
+			}
+		}
+		if !found {
+			return false, "requires " + name + " " + minimum + "+; install ansible/requirements.yml"
+		}
+	}
+	return true, "required collections found"
 }
 
 // GET /api/prerequisites/{platform}

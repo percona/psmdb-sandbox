@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -43,34 +45,158 @@ func uploadResponse(t *testing.T, recorder *httptest.ResponseRecorder) map[strin
 	return response
 }
 
-func TestSSHUploadUsesRoleSpecificFilename(t *testing.T) {
+func testSSHKeyPair(t *testing.T) (string, string) {
+	t.Helper()
+	if !toolInstalled("ssh-keygen") {
+		t.Skip("ssh-keygen is required")
+	}
+	path := filepath.Join(t.TempDir(), "key")
+	if output, err := exec.Command("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", path).CombinedOutput(); err != nil {
+		t.Fatalf("generate test key: %v %s", err, output)
+	}
+	private, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	public, err := os.ReadFile(path + ".pub")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(public), string(private)
+}
+
+func TestSSHUploadUsesUniqueManagedFiles(t *testing.T) {
 	previousDataDir := dataDir
 	t.Cleanup(func() { dataDir = previousDataDir })
 	dataDir = t.TempDir()
+	public, private := testSSHKeyPair(t)
 
-	publicRequest := multipartUploadRequest(t, "ssh_key_file", "workstation.pub", "ssh-ed25519 public")
+	publicRequest := multipartUploadRequest(t, "ssh_key_file", "workstation.pub", public)
 	publicRequest.SetPathValue("kind", "public")
 	publicRecorder := httptest.NewRecorder()
 	apiUploadSettingsSSHKeyHandler(publicRecorder, publicRequest)
 	publicResponse := uploadResponse(t, publicRecorder)
-	if filepath.Base(publicResponse["path"]) != "workstation.pub" {
-		t.Fatalf("expected public filename workstation.pub, got %q", publicResponse["path"])
+	if publicResponse["filename"] != "workstation.pub" {
+		t.Fatalf("display filename = %q", publicResponse["filename"])
 	}
 
-	privateRequest := multipartUploadRequest(t, "ssh_key_file", "workstation", "-----BEGIN OPENSSH PRIVATE KEY-----")
+	privateRequest := multipartUploadRequest(t, "ssh_key_file", "workstation", private)
 	privateRequest.SetPathValue("kind", "private")
 	privateRecorder := httptest.NewRecorder()
 	apiUploadSettingsSSHKeyHandler(privateRecorder, privateRequest)
 	privateResponse := uploadResponse(t, privateRecorder)
-	if filepath.Base(privateResponse["path"]) != "workstation.key" {
-		t.Fatalf("expected private filename workstation.key, got %q", privateResponse["path"])
+	if privateResponse["filename"] != "workstation" {
+		t.Fatalf("display filename = %q", privateResponse["filename"])
 	}
 
-	if _, err := os.Stat(filepath.Join(sshSecretsDir(), "workstation.pub")); err != nil {
+	for _, response := range []map[string]string{publicResponse, privateResponse} {
+		path := response["path"]
+		if !filepath.IsAbs(path) || filepath.Dir(path) != sshSecretsDir() || !strings.HasPrefix(filepath.Base(path), "upload-") {
+			t.Fatalf("not a managed path: %q", path)
+		}
+		info, err := os.Stat(path)
+		if err != nil || info.Mode().Perm() != 0600 {
+			t.Fatalf("key permissions: %v %v", info, err)
+		}
+	}
+	if filepath.Ext(publicResponse["path"]) != ".pub" || filepath.Ext(privateResponse["path"]) != ".key" {
+		t.Fatal("key role extensions are missing")
+	}
+}
+
+func TestPlatformSSHUploadCannotOverwriteTerraform(t *testing.T) {
+	oldData, oldTF := dataDir, terraformDir
+	dataDir, terraformDir = t.TempDir(), t.TempDir()
+	t.Cleanup(func() { dataDir, terraformDir = oldData, oldTF })
+	public, _ := testSSHKeyPair(t)
+	dir := filepath.Join(terraformDir, "aws")
+	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(sshSecretsDir(), "workstation.key")); err != nil {
+	main := filepath.Join(dir, "main.tf")
+	if err := os.WriteFile(main, []byte("keep"), 0644); err != nil {
 		t.Fatal(err)
+	}
+	paths := map[string]bool{}
+	for _, filename := range []string{"main.tf", "main.tf", "../../main.tf"} {
+		req := multipartUploadRequest(t, "ssh_key_file", filename, public)
+		req.SetPathValue("platform", "aws")
+		rec := httptest.NewRecorder()
+		apiUploadSSHKeyHandler(rec, req)
+		response := uploadResponse(t, rec)
+		path := response["path"]
+		if filepath.Dir(path) != sshSecretsDir() || paths[path] {
+			t.Fatalf("unsafe or reused path: %q", path)
+		}
+		paths[path] = true
+	}
+	content, err := os.ReadFile(main)
+	if err != nil || string(content) != "keep" {
+		t.Fatal("Terraform source was changed")
+	}
+}
+
+func TestSSHUploadAcceptsEncryptedOpenSSHKey(t *testing.T) {
+	oldData := dataDir
+	dataDir = t.TempDir()
+	t.Cleanup(func() { dataDir = oldData })
+	if !toolInstalled("ssh-keygen") {
+		t.Skip("ssh-keygen is required")
+	}
+	path := filepath.Join(t.TempDir(), "encrypted")
+	if output, err := exec.Command("ssh-keygen", "-q", "-t", "ed25519", "-N", "test-only-passphrase", "-f", path).CombinedOutput(); err != nil {
+		t.Fatalf("generate test key: %v %s", err, output)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := multipartUploadRequest(t, "ssh_key_file", "encrypted", string(data))
+	req.SetPathValue("kind", "private")
+	rec := httptest.NewRecorder()
+	apiUploadSettingsSSHKeyHandler(rec, req)
+	uploadResponse(t, rec)
+}
+
+func TestSSHUploadRejectsInvalidAndOversizedKeys(t *testing.T) {
+	oldData := dataDir
+	dataDir = t.TempDir()
+	t.Cleanup(func() { dataDir = oldData })
+	public, private := testSSHKeyPair(t)
+	for _, tc := range []struct {
+		kind, content string
+		status        int
+	}{
+		{"public", "", 400}, {"public", "resource terraform {}", 400},
+		{"public", "ssh-ed25519 invalid-base64", 400},
+		{"public", private, 400}, {"private", public, 400},
+		{"private", "-----BEGIN OPENSSH PRIVATE KEY-----\nYQ==\n-----END OPENSSH PRIVATE KEY-----", 400},
+		{"public", public + public, 400},
+		{"public", strings.Repeat("x", maxSSHUploadBytes), 413},
+		{"private", strings.Repeat("x", maxSSHUploadBytes), 413},
+	} {
+		req := multipartUploadRequest(t, "ssh_key_file", "main.tf", tc.content)
+		req.SetPathValue("kind", tc.kind)
+		rec := httptest.NewRecorder()
+		apiUploadSettingsSSHKeyHandler(rec, req)
+		if rec.Code != tc.status {
+			t.Errorf("%s upload: expected %d, got %d: %s", tc.kind, tc.status, rec.Code, rec.Body.String())
+		}
+	}
+	entries, err := os.ReadDir(sshSecretsDir())
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatal("invalid uploads left files behind")
+	}
+	// The platform endpoint must enforce the same whole-request limit.
+	req := multipartUploadRequest(t, "ssh_key_file", "main.tf", strings.Repeat("x", maxSSHUploadBytes))
+	req.SetPathValue("platform", "aws")
+	rec := httptest.NewRecorder()
+	apiUploadSSHKeyHandler(rec, req)
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("platform upload size limit: %d", rec.Code)
 	}
 }
 
@@ -104,14 +230,5 @@ func TestManagedUploadFilenamePreventsPathTraversal(t *testing.T) {
 	}
 	if got := managedUploadFilename("..", "fallback.token"); got != "fallback.token" {
 		t.Fatalf("expected dot-dot filename to use fallback, got %q", got)
-	}
-	if got := sshUploadFilename("public", "id_ed25519"); got != "id_ed25519.pub" {
-		t.Fatalf("expected public extension, got %q", got)
-	}
-	if got := sshUploadFilename("private", "id_ed25519.pub"); got != "id_ed25519.pub.key" {
-		t.Fatalf("expected private extension, got %q", got)
-	}
-	if got := sshUploadFilename("private", "id_ed25519.pem"); got != "id_ed25519.pem" {
-		t.Fatalf("expected existing private extension to be retained, got %q", got)
 	}
 }

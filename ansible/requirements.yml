@@ -1,0 +1,7 @@
+---
+# Controller-side collections; install as the same user that runs the UI.
+collections:
+  - name: ansible.posix
+    version: "1.6.2"
+  - name: community.general
+    version: "9.5.5"

@@ -3,8 +3,10 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"io/fs"
@@ -604,6 +606,9 @@ func main() {
 
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
 	slog.Info("starting PSMDB Sandbox", "repoDir", repoDir, "dataDir", filepath.Dir(stateFile))
+	if err := reconcileInterruptedJobs(); err != nil {
+		log.Fatal("recover interrupted jobs: ", err)
+	}
 
 	go prefetchVersions()
 	startImagePrefetch()
@@ -676,15 +681,30 @@ func main() {
 	// UI is interrupted, as the terminal would have done before.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
+	shutdownDone := make(chan struct{})
 	go func() {
 		sig := <-sigCh
 		slog.Info("shutting down, stopping running jobs", "signal", sig.String())
-		killAllJobs()
-		os.Exit(130)
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		// Drain HTTP requests alongside jobs: streams end as jobs finalize.
+		// stopJobs also guards admission from handlers already in flight.
+		httpDone := make(chan error, 1)
+		go func() { httpDone <- srv.Shutdown(ctx) }()
+		if err := stopJobs(ctx); err != nil {
+			slog.Error("timed out waiting for job finalization", "err", err)
+		}
+		if err := <-httpDone; err != nil {
+			slog.Warn("HTTP shutdown timed out; closing remaining connections", "err", err)
+			srv.Close()
+		}
+		close(shutdownDone)
 	}()
 
 	slog.Info("listening", "addr", "http://"+host+addr)
-	if err := srv.ListenAndServe(); err != nil {
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}
+	<-shutdownDone
 }
