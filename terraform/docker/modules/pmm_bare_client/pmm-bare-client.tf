@@ -19,6 +19,11 @@ resource "docker_image" "client" {
 }
 
 resource "docker_container" "client" {
+  labels {
+    label = "psmdb-sandbox.environment"
+    value = var.environment_id
+  }
+
   name     = var.client_name
   hostname = var.client_name
   image    = docker_image.client.image_id

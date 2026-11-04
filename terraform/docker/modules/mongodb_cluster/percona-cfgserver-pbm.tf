@@ -1,4 +1,9 @@
 resource "docker_container" "pbm_cfg" {
+  labels {
+    label = "psmdb-sandbox.environment"
+    value = var.environment_id
+  }
+
   for_each = var.enable_pbm ? local.cfg_members : {}
   name     = "${var.cluster_name}-${var.configsvr_tag}0${each.value}-${var.pbm_container_suffix}"
   image    = docker_image.pbm_mongod.image_id

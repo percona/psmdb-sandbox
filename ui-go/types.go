@@ -540,6 +540,7 @@ type EnvironmentData struct {
 	ServiceURLs          []ServiceURL
 	ClusterSync          ClusterSyncConfig
 	ClusterSyncAvailable bool
+	OperationInProgress  bool
 }
 
 // HostInfo describes a single running host or container.

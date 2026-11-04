@@ -98,8 +98,8 @@ func TestVaultTfvarsIsolationAndFlags(t *testing.T) {
 
 func TestVaultDockerRestartOrdering(t *testing.T) {
 	ids := vaultDockerConsumerIDs("envone", true)
-	if !strings.HasPrefix(ids, "docker ps -a --filter 'name=^/envone-' --format") {
-		t.Fatalf("consumer selection must use an anchored name filter and custom format without --quiet: %s", ids)
+	if !strings.Contains(ids, "'label=psmdb-sandbox.environment=envone'") || !strings.Contains(ids, "'name=^/envone-'") || strings.Contains(ids, "--quiet") {
+		t.Fatalf("consumer selection must use exact labels with an anchored legacy fallback and custom format: %s", ids)
 	}
 	command := vaultDockerRestartShell("envone", Config{Prefix: "envone", VaultEncryption: true, Replsets: map[string]ReplsetConfig{"rs01": {}}})
 	stop, restartVault, unseal, restartConsumers := strings.Index(command, "docker stop"), strings.Index(command, "docker restart 'envone-vault'"), strings.Index(command, " bootstrap"), strings.LastIndex(command, "docker restart")

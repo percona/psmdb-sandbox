@@ -1,4 +1,9 @@
 resource "docker_container" "pbm_shard" {
+  labels {
+    label = "psmdb-sandbox.environment"
+    value = var.environment_id
+  }
+
   for_each = var.enable_pbm ? local.shard_members : {}
   name     = "${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}svr${each.value.replica_index}-${var.pbm_container_suffix}"
   image    = docker_image.pbm_mongod.image_id

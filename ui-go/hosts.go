@@ -27,16 +27,13 @@ func execOutput(name string, args ...string) (string, error) {
 // Docker-based environment.
 func collectDockerHosts(envID string, env *Environment) ([]HostInfo, []ServiceURL, []MongoConnInfo, string) {
 	prefix := strDefault(env.Config.Prefix, envID)
-	out, err := execOutput("docker", "ps", "-a",
-		"--filter", "name="+prefix+"-",
-		"--format", "{{.Names}}")
-	if err != nil || strings.TrimSpace(out) == "" {
+	names, err := dockerEnvironmentContainerNames(prefix)
+	if err != nil || len(names) == 0 {
 		return nil, nil, nil, "No containers found. Run Deploy first."
 	}
 
 	var hosts []HostInfo
 
-	names := strings.Split(strings.TrimSpace(out), "\n")
 	for _, rawName := range names {
 		name := strings.TrimPrefix(strings.TrimSpace(rawName), "/")
 		if name == "" {

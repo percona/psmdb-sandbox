@@ -44,6 +44,11 @@ resource "docker_image" "extensions" {
 }
 
 resource "docker_container" "extensions" {
+  labels {
+    label = "psmdb-sandbox.environment"
+    value = var.environment_id
+  }
+
   count    = var.enable_extensions ? 1 : 0
   name     = local.extensions_host
   hostname = local.extensions_host

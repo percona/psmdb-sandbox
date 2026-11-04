@@ -1,5 +1,10 @@
 # Create Docker containers for MongoDB mongos
 resource "docker_container" "mongos" {
+  labels {
+    label = "psmdb-sandbox.environment"
+    value = var.environment_id
+  }
+
   for_each   = local.mongos_members
   name       = "${var.cluster_name}-${var.mongos_tag}0${each.value}"
   hostname   = "${var.cluster_name}-${var.mongos_tag}0${each.value}"

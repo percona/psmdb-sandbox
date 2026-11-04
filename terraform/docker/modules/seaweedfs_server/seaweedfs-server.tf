@@ -17,6 +17,11 @@ resource "docker_volume" "seaweedfs_data" {
 }
 
 resource "docker_container" "seaweedfs" {
+  labels {
+    label = "psmdb-sandbox.environment"
+    value = var.environment_id
+  }
+
   name     = var.seaweedfs_server
   hostname = var.seaweedfs_server
   image    = docker_image.seaweedfs.image_id

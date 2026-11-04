@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 )
@@ -107,14 +108,15 @@ func analyseTopologyChange(previous, desired Config) (topologyScaleOut, []string
 }
 
 func cloneConfig(cfg Config) *Config {
-	copy := cfg
-	copy.Clusters = make(map[string]ClusterConfig, len(cfg.Clusters))
-	for k, v := range cfg.Clusters {
-		copy.Clusters[k] = v
+	// Config contains maps, slices and pointers in several nested structures.
+	// Copy all of them so a running job's snapshot cannot change underneath it.
+	b, err := json.Marshal(cfg)
+	if err != nil {
+		panic(err) // Config contains only JSON-serializable fields.
 	}
-	copy.Replsets = make(map[string]ReplsetConfig, len(cfg.Replsets))
-	for k, v := range cfg.Replsets {
-		copy.Replsets[k] = v
+	var copy Config
+	if err := json.Unmarshal(b, &copy); err != nil {
+		panic(err)
 	}
 	return &copy
 }

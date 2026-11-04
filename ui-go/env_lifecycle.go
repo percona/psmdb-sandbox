@@ -1,6 +1,45 @@
 package main
 
-import "os"
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+)
+
+func environmentDeletionAllowed(envID string, env *Environment) error {
+	switch env.Status {
+	case "configured", "deleted", "destroy_success":
+	default:
+		return fmt.Errorf("destroy the environment successfully before removing its definition; Terraform state has been preserved")
+	}
+	// Never trust the UI status alone. Refuse both nonempty and unreadable state
+	// files, including backups, rather than orphaning resources on disk.
+	for _, path := range []string{tfstatePath(envID, env.Platform), tfstateBackupPath(envID, env.Platform)} {
+		data, err := os.ReadFile(path)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("cannot verify Terraform state: %w", err)
+		}
+		var state struct {
+			Version   int `json:"version"`
+			Resources []struct {
+				Mode      string            `json:"mode"`
+				Instances []json.RawMessage `json:"instances"`
+			} `json:"resources"`
+		}
+		if err := json.Unmarshal(data, &state); err != nil || state.Version != 4 {
+			return fmt.Errorf("cannot verify Terraform state; preserve the files and destroy the environment first")
+		}
+		for _, resource := range state.Resources {
+			if resource.Mode != "data" && len(resource.Instances) > 0 {
+				return fmt.Errorf("Terraform state still contains managed resources; destroy the environment before removing its definition")
+			}
+		}
+	}
+	return nil
+}
 
 // markEnvironmentDestroyed turns a successfully destroyed environment into a
 // kept, redeployable definition. The applied-config snapshot and cached host
@@ -30,11 +69,6 @@ func withoutStaleAppliedConfig(env *Environment) *Environment {
 // env may be nil when the record was unknown.
 func removeEnvironmentArtifacts(envID string, env *Environment) {
 	if env == nil {
-		for _, pl := range platforms {
-			os.Remove(tfvarsPath(envID, pl))
-			os.Remove(tfstatePath(envID, pl))
-			os.Remove(tfstateBackupPath(envID, pl))
-		}
 		return
 	}
 	if env.Platform == "chaos" {

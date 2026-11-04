@@ -321,7 +321,7 @@ func TestTfstatePathHelpers(t *testing.T) {
 	}
 }
 
-func TestTfstateRemovedOnDeleteHandler(t *testing.T) {
+func TestTfstateRemovedAfterDestroyedEnvironmentDeletion(t *testing.T) {
 	dir := t.TempDir()
 	origTerraformDir := terraformDir
 	origStateFile := stateFile
@@ -343,7 +343,7 @@ func TestTfstateRemovedOnDeleteHandler(t *testing.T) {
 
 	// Pre-create the tfvars, tfstate and tfstate.backup files.
 	for _, name := range []string{"testenv.tfvars", "testenv.tfstate", "testenv.tfstate.backup"} {
-		if err := os.WriteFile(filepath.Join(platformDir, name), []byte("x"), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(platformDir, name), []byte(`{"version":4,"resources":[]}`), 0644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -351,23 +351,16 @@ func TestTfstateRemovedOnDeleteHandler(t *testing.T) {
 	// Save a matching environment entry.
 	env := &Environment{
 		Platform: platform,
-		Status:   "running",
+		Status:   "deleted",
 		Config:   Config{},
 	}
 	if err := saveState(map[string]*Environment{"testenv": env}); err != nil {
 		t.Fatalf("saveState: %v", err)
 	}
 
-	// Call deleteEnvironmentHandler via the path-value mechanism is tricky; call
-	// the underlying cleanup logic directly instead.
-	state, _ := loadState()
-	e := state["testenv"]
-	delete(state, "testenv")
-	saveState(state)
-	if e != nil {
-		os.Remove(tfvarsPath("testenv", e.Platform))
-		os.Remove(tfstatePath("testenv", e.Platform))
-		os.Remove(tfstateBackupPath("testenv", e.Platform))
+	rec := environmentRequest(deleteEnvironmentHandler, "DELETE", "testenv", "")
+	if rec.Code != 200 {
+		t.Fatalf("delete failed: %d %s", rec.Code, rec.Body.String())
 	}
 
 	// All three files should be gone.
