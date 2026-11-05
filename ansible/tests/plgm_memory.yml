@@ -8,33 +8,41 @@
   vars:
     plgm_service_user: test-user
     plgm_data_dir: /var/lib/plgm
-    plgm_unit: "{{ lookup('template', '../templates/plgm.service.j2') }}"
+    plgm_plays: "{{ lookup('file', '../plgm_install.yml') | from_yaml }}"
+    plgm_restart_handler: "{{ plgm_plays[0].handlers | selectattr('name', 'equalto', 'Restart plgm') | first }}"
   tasks:
+    - name: Verify the restart handler reloads systemd before restarting plgm
+      assert:
+        that:
+          - plgm_restart_handler.systemd.name == 'plgm'
+          - plgm_restart_handler.systemd.state == 'restarted'
+          - plgm_restart_handler.systemd.daemon_reload | bool
+
     - name: Verify the default cap reserves host memory and preserves automatic restart
       assert:
         that:
           - plgm_memory_max == '75%'
-          - "'MemoryMax=75%\n' in plgm_unit"
-          - "'Restart=always\n' in plgm_unit"
-          - "'RestartSec=2\n' in plgm_unit"
+          - "'MemoryMax=75%\n' in lookup('template', '../templates/plgm.service.j2')"
+          - "'Restart=always\n' in lookup('template', '../templates/plgm.service.j2')"
+          - "'RestartSec=2\n' in lookup('template', '../templates/plgm.service.j2')"
 
     - name: Verify absolute memory limits can be supplied
       assert:
         that:
-          - "'MemoryMax=6G\n' in plgm_unit"
+          - "'MemoryMax=6G\n' in lookup('template', '../templates/plgm.service.j2')"
       vars:
         plgm_memory_max: 6G
 
     - name: Verify percentage limits can be supplied
       assert:
         that:
-          - "'MemoryMax=50%\n' in plgm_unit"
+          - "'MemoryMax=50%\n' in lookup('template', '../templates/plgm.service.j2')"
       vars:
         plgm_memory_max: "50%"
 
     - name: Verify the cap can be explicitly disabled
       assert:
         that:
-          - "'MemoryMax=infinity\n' in plgm_unit"
+          - "'MemoryMax=infinity\n' in lookup('template', '../templates/plgm.service.j2')"
       vars:
         plgm_memory_max: infinity

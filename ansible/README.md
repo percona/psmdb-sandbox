@@ -248,7 +248,15 @@ When TLS is enabled, `cert_setup.yml` also copies the CA and client certificates
 
 When PMM is enabled, the plgm host is also registered with PMM for OS metrics (see [PMM Monitoring of Service Hosts](#pmm-monitoring-of-service-hosts)), so you can check that the load generator is not the bottleneck.
 
-The plgm service is capped at 75% of host RAM with systemd `MemoryMax`, leaving memory for the OS and monitoring agents. If a workload exceeds the cap and memory cannot be reclaimed, the kernel kills plgm and systemd restarts it; the active run is interrupted. Override `plgm_memory_max` in inventory or with Ansible extra vars to use a different percentage or an absolute limit such as `6G`. Setting it to `infinity` disables the cap. This limit applies to Ansible-managed hosts, not Docker workloads.
+The plgm service is capped at 75% of host RAM with systemd `MemoryMax`, leaving
+memory for the OS and monitoring agents. If a workload exceeds the cap and memory
+cannot be reclaimed, the kernel kills plgm and systemd restarts it; the active run
+is interrupted.
+
+- Override `plgm_memory_max` in inventory or with Ansible extra vars to use a
+  different percentage or an absolute limit such as `6G`.
+- Set it to `infinity` to disable the cap.
+- This limit applies to Ansible-managed hosts, not Docker workloads.
 
 ## PMM Monitoring of Service Hosts
 
