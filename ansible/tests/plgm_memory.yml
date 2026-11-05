@@ -1,0 +1,40 @@
+---
+- name: Verify plgm service memory limits
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - ../group_vars/all.yml
+  vars:
+    plgm_service_user: test-user
+    plgm_data_dir: /var/lib/plgm
+    plgm_unit: "{{ lookup('template', '../templates/plgm.service.j2') }}"
+  tasks:
+    - name: Verify the default cap reserves host memory and preserves automatic restart
+      assert:
+        that:
+          - plgm_memory_max == '75%'
+          - "'MemoryMax=75%\n' in plgm_unit"
+          - "'Restart=always\n' in plgm_unit"
+          - "'RestartSec=2\n' in plgm_unit"
+
+    - name: Verify absolute memory limits can be supplied
+      assert:
+        that:
+          - "'MemoryMax=6G\n' in plgm_unit"
+      vars:
+        plgm_memory_max: 6G
+
+    - name: Verify percentage limits can be supplied
+      assert:
+        that:
+          - "'MemoryMax=50%\n' in plgm_unit"
+      vars:
+        plgm_memory_max: "50%"
+
+    - name: Verify the cap can be explicitly disabled
+      assert:
+        that:
+          - "'MemoryMax=infinity\n' in plgm_unit"
+      vars:
+        plgm_memory_max: infinity

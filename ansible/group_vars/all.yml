@@ -136,6 +136,9 @@ pcsm_repo: release
 # SSH LocalForward in the generated ssh_config.
 # https://github.com/Percona-Lab/percona-load-generator-mongodb
 plgm_webui_port: 9999
+# Reserve RAM for the OS and monitoring agents, even on smaller hosts.
+# Accepts systemd MemoryMax values (for example, "75%", "6G", or "infinity").
+plgm_memory_max: "75%"
 
 ##########
 # MongoDB 
