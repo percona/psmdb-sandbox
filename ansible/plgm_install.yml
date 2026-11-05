@@ -84,30 +84,12 @@
         mode: "0750"
 
     - name: Install plgm systemd unit
-      copy:
+      template:
+        src: plgm.service.j2
         dest: /etc/systemd/system/plgm.service
         owner: root
         group: root
         mode: "0644"
-        content: |
-          [Unit]
-          Description=plgm - Percona Load Generator for MongoDB (Web UI)
-          After=network-online.target
-          Wants=network-online.target
-
-          [Service]
-          Type=simple
-          User={{ plgm_service_user }}
-          WorkingDirectory={{ plgm_data_dir }}
-          Environment=HOME={{ plgm_data_dir }}
-          Environment=PLGM_DEFINITIONS_STORE={{ plgm_data_dir }}/definitions.json
-          ExecStart=/usr/local/bin/plgm --webui --webui-port {{ plgm_webui_port }}
-          # The Web UI "Shut Down Backend" button exits the process; bring it back.
-          Restart=always
-          RestartSec=2
-
-          [Install]
-          WantedBy=multi-user.target
       notify: Restart plgm
 
     - name: Enable and start plgm
