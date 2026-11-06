@@ -97,7 +97,29 @@ resource "docker_image" "plgm" {
 }
 
 # Create plgm container
+module "plgm_tls_certificate" {
+  count           = var.enable_plgm && var.enable_ca ? 1 : 0
+  source          = "./modules/tls_certificate"
+  name            = "${local.name_prefix}plgm"
+  environment_id  = var.prefix
+  ca_volume       = module.certificate_authority[0].volume
+  image           = module.certificate_authority[0].image
+  uid             = 0
+  client_uid      = 0
+  generate_server = false
+  dns_names       = []
+}
+
 resource "docker_container" "plgm" {
+  dynamic "mounts" {
+    for_each = var.enable_ca ? [module.plgm_tls_certificate[0].client_volume] : []
+    content {
+      type      = "volume"
+      source    = mounts.value
+      target    = "/etc/mongodb-tls"
+      read_only = true
+    }
+  }
   labels {
     label = "psmdb-sandbox.environment"
     value = var.prefix

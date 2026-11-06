@@ -154,6 +154,10 @@ the plgm load generator Web UI when enabled).
     Console URLs. All PMM-related containers (server, Grafana renderer, Watchtower,
      and per-node PMM client sidecars) are grouped together under a single **PMM** section.
 
+PCSM logs in the environment page are displayed as plain text, with terminal color
+and formatting codes removed. This applies to Docker and cloud environments;
+stored ClusterSync passwords remain redacted.
+
 ### State and operation safety
 
 - On SIGINT/SIGTERM, the UI stops admitting jobs, terminates running job process

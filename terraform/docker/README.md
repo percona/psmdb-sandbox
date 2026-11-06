@@ -17,6 +17,7 @@ It can also create:
 - plgm container (Percona Load Generator for MongoDB, for generating workloads)
 - LDAP Server (optional for authentication)
 - Percona ClusterSync for MongoDB (PCSM), disabled by default
+- An offline certificate signer for optional TLS/X.509 deployments
 
 By default it deploys one sharded cluster with 2 shards. Each shard is a 3-node PSA replica set running the latest component versions.
 
@@ -44,6 +45,137 @@ ldap_servers  = {}
 ```
 
 Apply it with `terraform apply -var-file=minimum.tfvars`.
+
+### TLS and X.509 member authentication
+
+Docker uses the same **Provision certificate authority** and per-topology
+**Enable TLS/x.509** controls as cloud deployments. For standalone Terraform,
+extend the minimum example with:
+
+```hcl
+enable_ca    = true
+ca_placement = "dedicated"
+
+replsets = {
+  rs01 = {
+    use_tls    = true
+    enable_pmm = false
+    enable_pbm = false
+  }
+}
+```
+
+`clusters.<name>.use_tls` works the same way. TLS defaults to off, and TLS and
+plaintext topologies can share an environment. Enabling TLS requires the CA.
+Search/mongot and managed TLS cannot currently be enabled on the same topology.
+Changing TLS on an existing data volume is rejected; create a new environment
+instead. This does not migrate existing deployments.
+
+Like cloud deployments, TLS enables `clusterAuthMode=x509` and `preferTLS` on
+every MongoDB role, including arbiters and mongos. **`preferTLS` still accepts
+plaintext clients**; it is not a TLS-enforcement setting. Password/SCRAM
+authentication remains available, and application client certificates are
+optional. Health checks, provisioning, PMM MongoDB connections, PBM, and
+ClusterSync use TLS and validate the generated CA. PMM-server HTTPS configuration
+is independent of MongoDB TLS.
+
+Docker uses a dedicated, offline signing container rather than a VM or the PMM
+container. Its small Alpine/OpenSSL image is built on first use. Signing has no
+network access and exposes no port. Root/intermediate CA private keys and issued
+material persist in an environment-scoped Docker volume. Each MongoDB node gets
+its own read-only certificate volume, including a separate automation client
+identity. Private keys never become Terraform outputs, state values, or image
+build inputs. PMM gets a client-only volume owned by its agent UID (1002), not
+the member's private key. ClusterSync gets a public-only trust volume. The load
+generator gets its own automation client certificate and CA, not a member key.
+
+Normal applies, restarts, and added nodes reuse existing certificates. The root,
+intermediate, and leaf certificates last approximately five, two, and one year,
+respectively. Missing CA files, changed certificate identities, and expired or
+nearly expired leaves fail instead of silently rotating credentials. Certificate
+rotation and importing external CAs are not implemented. Back up the CA and node
+certificate volumes together if the environment must be recoverable. Terraform
+destroy removes the volumes; duplicated environments get independent CAs. Public
+CA files exported manually to your workstation are not removed automatically.
+
+#### Verified connections
+
+The UI connection dialog provides CA export and connection commands. For the
+example above (`prefix = "myenv"`):
+
+```bash
+docker exec myenv-rs01-svr0 cat /etc/mongodb-tls/test-ca.pem > myenv-rs01-test-ca.pem
+mongosh 'mongodb://localhost:27017/admin?directConnection=true&tls=true' \
+  --tlsCAFile ./myenv-rs01-test-ca.pem -u root -p
+```
+
+This host-side URI connects to one member, which might not be primary after an
+election. Replica-set discovery returns container DNS names, not host-side
+`localhost` ports. For full discovery, connect from the Docker network:
+
+```bash
+docker exec -it myenv-rs01-svr0 mongosh \
+  'mongodb://myenv-rs01-svr0:27017,myenv-rs01-svr1:27018/admin?replicaSet=myenv-rs01&tls=true' \
+  --tlsCAFile /etc/mongodb-tls/test-ca.pem -u root -p
+```
+
+Certificates cover container short/FQDN names and localhost/loopback access.
+Arbitrary remote hostnames or Docker bridge IPs are not covered. Use the Docker
+network or a supported localhost connection, not `tlsAllowInvalidCertificates`
+or hostname-verification bypasses. mongos connections use their published host
+ports and do not need `directConnection=true`.
+
+For plgm, use container DNS names in the workload URI and configure both client
+files (current plgm releases enable TLS when both are present):
+
+```yaml
+connection_params:
+  tls_ca_file: /etc/mongodb-tls/test-ca.pem
+  tlsCertificateKeyFile: /etc/mongodb-tls/client.pem
+```
+
+These paths exist **inside the load-generator container**, not on your
+workstation. If using the browser's TLS file pickers, export these two files
+from that container first, keep the client PEM private (`0600`), and upload them
+under **Expert → Connection → TLS Client Settings**. Do not rely on adding
+`tls=true` to the URI alone: plgm can override it when TLS client files are unset.
+PBM agents also mount the node's server certificate at the same path used by
+mongod, so physical restore can start mongod with its captured TLS configuration.
+
+#### Testing
+
+Unit and mocked Terraform tests do not deploy containers:
+
+```bash
+python3 -m unittest discover scripts/tests
+terraform -chdir=terraform/docker init -backend=false
+terraform -chdir=terraform/docker test
+```
+
+Run disposable live fixtures from the repository root (Docker, Terraform,
+Python, and OpenSSL required):
+
+```bash
+python3 scripts/test-docker-tls.py
+python3 scripts/test-docker-tls.py --cluster
+python3 scripts/test-docker-tls.py --pbm --pmm
+python3 scripts/test-docker-tls.py --scale
+python3 scripts/test-docker-tls.py --physical
+python3 scripts/test-docker-tls.py --pcsm
+python3 scripts/test-docker-tls.py --vault --physical
+```
+
+The runner copies source into a temporary directory, uses a unique prefix and
+independent Terraform state, and destroys only its own fixture. It checks every
+MongoDB role, mixed plaintext/TLS operation, certificate and hostname validation,
+restart, and repeated apply. Optional flags check logical PBM backup and PMM
+registration; `--scale` adds a member (or a shard with `--cluster`). `--physical`
+also restores a physical PBM backup and verifies the recovered document (replica
+sets only). `--pcsm` copies a document from the TLS source to a plaintext target,
+checking the per-endpoint TLS configuration. It enables PMM because the existing
+ClusterSync deployment requires it. These destructive restore/migration checks
+run only against the runner's disposable fixtures, never existing environments.
+`--vault` combines these checks with Vault-backed encryption at rest.
 
 ### Environment identification
 

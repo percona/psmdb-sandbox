@@ -407,6 +407,8 @@ func writeTfvars(envID, platform string, cfg Config) error {
 		}
 	} else {
 		// Docker-only
+		writeVar("enable_ca", boolDefault(cfg.EnableCA, false))
+		writeVar("ca_placement", strDefault(cfg.CAPlacement, "dedicated"))
 		writeOptStr("network_name", cfg.NetworkName)
 		writeVar("enable_plgm", cfg.EnablePlgm)
 		writeOptStr("plgm_image", cfg.PlgmImage)
@@ -445,8 +447,8 @@ func writeTfvars(envID, platform string, cfg Config) error {
 			if strings.TrimSpace(c.AuditFilter) != "" {
 				write(fmt.Sprintf("    audit_filter = %s", formatHCLVal(c.AuditFilter)))
 			}
+			write(fmt.Sprintf("    use_tls = %s", formatHCLVal(boolDefault(c.UseTLS, cfg.UseTLS))))
 			if platform != "docker" {
-				write(fmt.Sprintf("    use_tls = %s", formatHCLVal(boolDefault(c.UseTLS, cfg.UseTLS))))
 				write(fmt.Sprintf("    enable_pmm = %s", formatHCLVal(boolDefault(c.EnablePmm, false))))
 				write(fmt.Sprintf("    enable_pbm = %s", formatHCLVal(boolDefault(c.EnablePbm, false))))
 				write(fmt.Sprintf("    enable_mongot = %s", formatHCLVal(boolDefault(c.EnableMongot, false))))
@@ -533,8 +535,8 @@ func writeTfvars(envID, platform string, cfg Config) error {
 			if strings.TrimSpace(r.AuditFilter) != "" {
 				write(fmt.Sprintf("    audit_filter = %s", formatHCLVal(r.AuditFilter)))
 			}
+			write(fmt.Sprintf("    use_tls = %s", formatHCLVal(boolDefault(r.UseTLS, cfg.UseTLS))))
 			if platform != "docker" {
-				write(fmt.Sprintf("    use_tls = %s", formatHCLVal(boolDefault(r.UseTLS, cfg.UseTLS))))
 				write(fmt.Sprintf("    enable_pmm = %s", formatHCLVal(boolDefault(r.EnablePmm, false))))
 				write(fmt.Sprintf("    enable_pbm = %s", formatHCLVal(boolDefault(r.EnablePbm, false))))
 				write(fmt.Sprintf("    enable_mongot = %s", formatHCLVal(boolDefault(r.EnableMongot, false))))

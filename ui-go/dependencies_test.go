@@ -15,7 +15,7 @@ func TestConfigureDependencyProvidersExist(t *testing.T) {
 		Replsets: map[string]ReplsetConfig{"rs01": {}},
 	}
 	want := map[string][]string{
-		"docker": {`id="enable-pmm-docker"`, `id="enable-seaweedfs-docker"`, `id="bare-clients-container"`, `id="vault-psmdb-warning"`},
+		"docker": {`id="enable-pmm-docker"`, `id="enable-seaweedfs-docker"`, `id="enable_ca"`, `id="ca_placement"`, `id="bare-clients-container"`, `id="vault-psmdb-warning"`},
 		"chaos":  {`id="enable_pmm"`, `id="enable_backup"`, `id="enable_ca"`, `id="ca_placement"`, `id="bare-clients-container"`, `id="vault-psmdb-warning"`},
 		"aws":    {`id="enable_pmm"`, `id="enable_backup"`, `id="enable_ca"`, `id="ca_placement"`, `id="vault-psmdb-warning"`},
 		"gcp":    {`id="enable_pmm"`, `id="enable_backup"`, `id="enable_ca"`, `id="ca_placement"`, `id="vault-psmdb-warning"`},

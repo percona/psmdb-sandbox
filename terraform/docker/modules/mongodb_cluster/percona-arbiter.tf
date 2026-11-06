@@ -27,9 +27,9 @@ resource "docker_container" "arbiter" {
       "--replSet", "${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}",
       "--bind_ip_all",
       "--port", "${var.arbiter_port}",
-      "--shardsvr",
-      "--keyFile", "${var.keyfile_path}/${var.keyfile_name}"
+      "--shardsvr"
     ],
+    local.mongod_auth_flags,
     var.enable_audit ? [
       "--auditDestination", "file",
       "--auditFormat", "JSON",
@@ -43,6 +43,15 @@ resource "docker_container" "arbiter" {
     ip       = var.bind_to_localhost ? "127.0.0.1" : "0.0.0.0"
   }
   user = var.uid
+  dynamic "mounts" {
+    for_each = var.use_tls ? [module.tls_certificate[each.key].volume] : []
+    content {
+      source    = mounts.value
+      target    = "/etc/mongodb-tls"
+      type      = "volume"
+      read_only = true
+    }
+  }
   labels {
     label = "replsetName"
     value = "${var.cluster_name}-${var.shardsvr_tag}0${each.value.shard_index}"
@@ -61,7 +70,7 @@ resource "docker_container" "arbiter" {
     source = docker_volume.arb_volume[each.key].name
   }
   healthcheck {
-    test         = ["CMD-SHELL", "mongosh --port ${var.arbiter_port} --eval 'db.runCommand({ ping: 1 })'"]
+    test         = ["CMD-SHELL", "mongosh ${local.mongo_tls_flags} --port ${var.arbiter_port} --eval 'db.runCommand({ ping: 1 })'"]
     interval     = "10s"
     timeout      = "10s"
     retries      = 5
@@ -69,7 +78,7 @@ resource "docker_container" "arbiter" {
   }
   wait       = true
   restart    = "no"
-  depends_on = [null_resource.init_keyfile]
+  depends_on = [null_resource.init_keyfile, terraform_data.tls_data_mode]
 
   lifecycle {
     replace_triggered_by = [docker_image.psmdb]

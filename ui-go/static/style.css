@@ -1152,6 +1152,12 @@ tr:last-child td { border-bottom: none; }
   margin-top: 0.5rem;
 }
 
+.connection-method + .connection-method {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border);
+}
+
 /* Service URL list */
 .service-url-list { display: flex; flex-direction: column; gap: 0.5rem; }
 .service-url-item {

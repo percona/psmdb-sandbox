@@ -5,7 +5,7 @@ resource "null_resource" "initiate_cfg_replset" {
   # Run rs.initiate()
   provisioner "local-exec" {
     command = <<-EOT
-      docker exec -i ${docker_container.cfg[local.cfg_member_keys[0]].name} mongosh --port ${var.configsvr_port} --eval '
+      docker exec -i ${docker_container.cfg[local.cfg_member_keys[0]].name} mongosh ${local.mongo_tls_flags} --port ${var.configsvr_port} --eval '
         rs.initiate({
           "_id": "${lookup({ for label in docker_container.cfg[local.cfg_member_keys[0]].labels : label.label => label.value }, "replsetName", null)}",
           "configsvr": true,
@@ -25,7 +25,7 @@ resource "null_resource" "initiate_cfg_replset" {
       success=false
       while [ $retries -gt 0 ]; do
         # rs.status() shows PRIMARY before the node accepts writes, and the users are created on this member
-        primary=$(docker exec -i ${docker_container.cfg[local.cfg_member_keys[0]].name} mongosh --port ${var.configsvr_port} --quiet --eval "db.hello().isWritablePrimary")
+        primary=$(docker exec -i ${docker_container.cfg[local.cfg_member_keys[0]].name} mongosh ${local.mongo_tls_flags} --port ${var.configsvr_port} --quiet --eval "db.hello().isWritablePrimary")
         
         if test "$primary" = "true"; then
           echo "Primary has been elected in config server replica set"
@@ -48,7 +48,7 @@ resource "null_resource" "initiate_cfg_replset" {
   # Create root user on the config servers
   provisioner "local-exec" {
     command = <<-EOT
-      docker exec -i ${docker_container.cfg[local.cfg_member_keys[0]].name} mongosh admin --port ${var.configsvr_port} --eval '
+      docker exec -i ${docker_container.cfg[local.cfg_member_keys[0]].name} mongosh ${local.mongo_tls_flags} admin --port ${var.configsvr_port} --eval '
         db.createUser({
           "user": "${var.mongodb_root_user}",
           "pwd": "${var.mongodb_root_password}",
@@ -63,7 +63,7 @@ resource "null_resource" "initiate_cfg_replset" {
   # Create user for PBM on config servers
   provisioner "local-exec" {
     command = <<-EOT
-      docker exec -i ${docker_container.cfg[local.cfg_member_keys[0]].name} mongosh admin -u ${var.mongodb_root_user} -p ${var.mongodb_root_password} --port ${var.configsvr_port} --eval '
+      docker exec -i ${docker_container.cfg[local.cfg_member_keys[0]].name} mongosh ${local.mongo_tls_flags} admin -u ${var.mongodb_root_user} -p ${var.mongodb_root_password} --port ${var.configsvr_port} --eval '
         db.createRole({
           "role": "pbmAnyAction",
           "privileges": [
@@ -90,7 +90,7 @@ resource "null_resource" "initiate_cfg_replset" {
   provisioner "local-exec" {
     command = <<-EOT
       if test "${var.enable_mongot}" = "true"; then
-        docker exec -i ${docker_container.cfg[local.cfg_member_keys[0]].name} mongosh admin -u ${var.mongodb_root_user} -p ${var.mongodb_root_password} --port ${var.configsvr_port} --eval '
+        docker exec -i ${docker_container.cfg[local.cfg_member_keys[0]].name} mongosh ${local.mongo_tls_flags} admin -u ${var.mongodb_root_user} -p ${var.mongodb_root_password} --port ${var.configsvr_port} --eval '
           if (!db.getUser("${var.mongodb_mongot_user}")) {
             db.createUser({
               user: "${var.mongodb_mongot_user}",
@@ -106,7 +106,7 @@ resource "null_resource" "initiate_cfg_replset" {
   # Create user for PMM on config servers
   provisioner "local-exec" {
     command = <<-EOT
-      docker exec -i ${docker_container.cfg[local.cfg_member_keys[0]].name} mongosh admin -u ${var.mongodb_root_user} -p ${var.mongodb_root_password} --port ${var.configsvr_port} --eval '
+      docker exec -i ${docker_container.cfg[local.cfg_member_keys[0]].name} mongosh ${local.mongo_tls_flags} admin -u ${var.mongodb_root_user} -p ${var.mongodb_root_password} --port ${var.configsvr_port} --eval '
         db.createRole({
           role: "pmmMonitor",
           privileges: [{
@@ -149,7 +149,7 @@ resource "null_resource" "initiate_shard_replset" {
 
   provisioner "local-exec" {
     command = <<-EOT
-      docker exec -i ${docker_container.shard["shard${each.key}svr0"].name} mongosh --port ${var.shardsvr_port} --eval '
+      docker exec -i ${docker_container.shard["shard${each.key}svr0"].name} mongosh ${local.mongo_tls_flags} --port ${var.shardsvr_port} --eval '
         rs.initiate({
           _id: "${lookup({ for label in docker_container.shard["shard${each.key}svr0"].labels : label.label => label.value }, "replsetName", null)}",
           members: [
@@ -175,7 +175,7 @@ resource "null_resource" "check_primary" {
       success=false
       while [ $retries -gt 0 ]; do
         # rs.status() shows PRIMARY before the node accepts writes, and the users are created on this member
-        primary=$(docker exec -i ${docker_container.shard["shard${each.key}svr0"].name} mongosh --port ${var.shardsvr_port} --quiet --eval "db.hello().isWritablePrimary")
+        primary=$(docker exec -i ${docker_container.shard["shard${each.key}svr0"].name} mongosh ${local.mongo_tls_flags} --port ${var.shardsvr_port} --quiet --eval "db.hello().isWritablePrimary")
         
         if test "$primary" = "true"; then
           echo "Primary has been elected in shard ${each.key}"
@@ -205,7 +205,7 @@ resource "null_resource" "create_users" {
   # Create the root user on the shards
   provisioner "local-exec" {
     command = <<-EOT
-      docker exec -i ${docker_container.shard["shard${each.key}svr0"].name} mongosh admin --port ${var.shardsvr_port} --eval '
+      docker exec -i ${docker_container.shard["shard${each.key}svr0"].name} mongosh ${local.mongo_tls_flags} admin --port ${var.shardsvr_port} --eval '
         db.createUser({
           "user": "${var.mongodb_root_user}",
           "pwd": "${var.mongodb_root_password}",
@@ -220,7 +220,7 @@ resource "null_resource" "create_users" {
   # Create user for PBM on the shards
   provisioner "local-exec" {
     command = <<-EOT
-      docker exec -i ${docker_container.shard["shard${each.key}svr0"].name} mongosh admin -u ${var.mongodb_root_user} -p ${var.mongodb_root_password} --port ${var.shardsvr_port} --eval '
+      docker exec -i ${docker_container.shard["shard${each.key}svr0"].name} mongosh ${local.mongo_tls_flags} admin -u ${var.mongodb_root_user} -p ${var.mongodb_root_password} --port ${var.shardsvr_port} --eval '
         db.createRole({
           "role": "pbmAnyAction",
           "privileges": [
@@ -247,7 +247,7 @@ resource "null_resource" "create_users" {
   provisioner "local-exec" {
     command = <<-EOT
       if test "${var.enable_mongot}" = "true"; then
-        docker exec -i ${docker_container.shard["shard${each.key}svr0"].name} mongosh admin -u ${var.mongodb_root_user} -p ${var.mongodb_root_password} --port ${var.shardsvr_port} --eval '
+        docker exec -i ${docker_container.shard["shard${each.key}svr0"].name} mongosh ${local.mongo_tls_flags} admin -u ${var.mongodb_root_user} -p ${var.mongodb_root_password} --port ${var.shardsvr_port} --eval '
           if (!db.getUser("${var.mongodb_mongot_user}")) {
             db.createUser({
               user: "${var.mongodb_mongot_user}",
@@ -263,7 +263,7 @@ resource "null_resource" "create_users" {
   # Create user for PMM on the shards
   provisioner "local-exec" {
     command = <<-EOT
-      docker exec -i ${docker_container.shard["shard${each.key}svr0"].name} mongosh admin -u ${var.mongodb_root_user} -p ${var.mongodb_root_password} --port ${var.shardsvr_port} --eval '
+      docker exec -i ${docker_container.shard["shard${each.key}svr0"].name} mongosh ${local.mongo_tls_flags} admin -u ${var.mongodb_root_user} -p ${var.mongodb_root_password} --port ${var.shardsvr_port} --eval '
         db.createRole({
           "role": "pmmMonitor",
           "privileges": [{
@@ -308,7 +308,7 @@ resource "null_resource" "change_default_write_concern" {
   ]
   provisioner "local-exec" {
     command = <<-EOT
-      docker exec -i ${docker_container.mongos[local.mongos_member_keys[0]].name} mongosh admin -u ${var.mongodb_root_user} -p ${var.mongodb_root_password} --eval '
+      docker exec -i ${docker_container.mongos[local.mongos_member_keys[0]].name} mongosh ${local.mongo_tls_flags} admin -u ${var.mongodb_root_user} -p ${var.mongodb_root_password} --eval '
         db.adminCommand({
           "setDefaultRWConcern" : 1,
           "defaultWriteConcern" : { "w" : 1 },
@@ -339,7 +339,7 @@ resource "null_resource" "add_shard" {
   ]
   provisioner "local-exec" {
     command = <<-EOT
-      docker exec -i ${docker_container.mongos[local.mongos_member_keys[0]].name} mongosh admin -u ${var.mongodb_root_user} -p ${var.mongodb_root_password} --eval '
+      docker exec -i ${docker_container.mongos[local.mongos_member_keys[0]].name} mongosh ${local.mongo_tls_flags} admin -u ${var.mongodb_root_user} -p ${var.mongodb_root_password} --eval '
         const shardName = "${self.triggers.shard_name}";
         const shardConn = shardName + "/${self.triggers.shard_host}";
         if (!db.adminCommand({ listShards: 1 }).shards.some(s => s._id === shardName)) {

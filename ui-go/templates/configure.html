@@ -434,6 +434,9 @@
             <label><input type="checkbox" name="cluster_enable_mongot[]" value="1" {{if boolDefault .Config.EnableMongot false}}checked{{end}} onchange="onDockerMongotFeatureToggle(this)"> Enable mongot</label>
           </div>
           <div class="form-group form-group-checkbox">
+            <label><input type="checkbox" name="cluster_use_tls[]" value="1" {{if boolDefault .Config.UseTLS false}}checked{{end}}> Enable TLS/x.509 <span class="field-tip" data-tip="Uses x.509 for member authentication and preferTLS so TLS and non-TLS clients can coexist.">ⓘ</span></label>
+          </div>
+          <div class="form-group form-group-checkbox">
             <label><input type="checkbox" name="cluster_bind_to_localhost[]" value="1" {{if .Config.BindToLocalhost}}checked{{end}}> Bind ports to localhost only</label>
           </div>
         </div>
@@ -887,6 +890,7 @@
           <div class="form-group form-group-checkbox"><label><input type="checkbox" name="replset_enable_pmm[]" value="1" {{if boolDefault .Config.EnablePmm false}}checked{{end}} onchange="onDockerPmmFeatureToggle(this)"> Enable PMM monitoring</label></div>
           <div class="form-group form-group-checkbox"><label><input type="checkbox" name="replset_enable_pbm[]" value="1" {{if boolDefault .Config.EnablePbm false}}checked{{end}} onchange="onDockerPbmFeatureToggle(this)"> Enable PBM backups</label></div>
           <div class="form-group form-group-checkbox"><label><input type="checkbox" name="replset_enable_mongot[]" value="1" {{if boolDefault .Config.EnableMongot false}}checked{{end}} onchange="onDockerMongotFeatureToggle(this)"> Enable mongot</label></div>
+          <div class="form-group form-group-checkbox"><label><input type="checkbox" name="replset_use_tls[]" value="1" {{if boolDefault .Config.UseTLS false}}checked{{end}}> Enable TLS/x.509 <span class="field-tip" data-tip="Uses x.509 for member authentication and preferTLS so TLS and non-TLS clients can coexist.">ⓘ</span></label></div>
           <div class="form-group form-group-checkbox"><label><input type="checkbox" name="replset_bind_to_localhost[]" value="1" {{if .Config.BindToLocalhost}}checked{{end}}> Bind ports to localhost only</label></div>
         </div>
         {{end}}
@@ -1857,7 +1861,7 @@
   </section>
   {{end}}
 
-  {{if or (eq $p "aws") (eq $p "gcp") (eq $p "azure") (eq $p "chaos")}}
+  {{if or (eq $p "docker") (eq $p "aws") (eq $p "gcp") (eq $p "azure") (eq $p "chaos")}}
   <section class="form-section">
     <div class="section-header">
       <h2>Certificate Authority</h2>
@@ -1875,8 +1879,8 @@
       <div class="form-group" id="ca-placement-group">
         <label for="ca_placement">Certificate authority host</label>
         <select id="ca_placement" name="ca_placement" onchange="toggleCASettings()">
-          <option value="dedicated" {{if eq .Config.CAPlacement "dedicated"}}selected{{end}}>Dedicated CA server</option>
-          <option value="pmm" {{if eq .Config.CAPlacement "pmm"}}selected{{end}}>PMM server</option>
+          <option value="dedicated" {{if eq .Config.CAPlacement "dedicated"}}selected{{end}}>{{if eq $p "docker"}}Dedicated offline signing container{{else}}Dedicated CA server{{end}}</option>
+          {{if ne $p "docker"}}<option value="pmm" {{if eq .Config.CAPlacement "pmm"}}selected{{end}}>PMM server</option>{{end}}
         </select>
       </div>
     </div>
@@ -1915,7 +1919,7 @@
       </div>
     </div>
     {{end}}
-    <p class="field-hint">Used when TLS is enabled on at least one cluster or replica set. The generated CA is intended for test environments. Dedicated CA is recommended; PMM placement requires the PMM server.</p>
+    <p class="field-hint">The generated CA is intended for test environments. TLS uses preferTLS: plaintext clients remain allowed. {{if eq $p "docker"}}Signing runs offline with private material in Docker volumes; PMM placement is not supported.{{else}}Dedicated CA is recommended; PMM placement requires the PMM server.{{end}}</p>
     </div>
   </section>
   {{end}}
@@ -2413,7 +2417,7 @@ function caOnPmmDependent() {
 
 function dependencyRules() {
   const docker = PLATFORM === 'docker';
-  const managedTLS = ['aws', 'gcp', 'azure', 'chaos'].includes(PLATFORM);
+  const managedTLS = ['docker', 'aws', 'gcp', 'azure', 'chaos'].includes(PLATFORM);
   const rules = [
     {
       id: 'pmm',
@@ -3853,6 +3857,7 @@ function buildFeatureRows(type) {
       <div class="form-group form-group-checkbox"><label><input type="checkbox" name="${type}_enable_pmm[]" value="1" onchange="onDockerPmmFeatureToggle(this)"> Enable PMM monitoring</label></div>
       <div class="form-group form-group-checkbox"><label><input type="checkbox" name="${type}_enable_pbm[]" value="1" onchange="onDockerPbmFeatureToggle(this)"> Enable PBM backups</label></div>
       <div class="form-group form-group-checkbox"><label><input type="checkbox" name="${type}_enable_mongot[]" value="1" onchange="onDockerMongotFeatureToggle(this)"> Enable mongot</label></div>
+      <div class="form-group form-group-checkbox"><label><input type="checkbox" name="${type}_use_tls[]" value="1"> Enable TLS/x.509 <span class="field-tip" data-tip="Uses x.509 for member authentication and preferTLS so TLS and non-TLS clients can coexist.">ⓘ</span></label></div>
       <div class="form-group form-group-checkbox"><label><input type="checkbox" name="${type}_bind_to_localhost[]" value="1"> Bind ports to localhost only</label></div>
     </div>`;
   }
@@ -4854,7 +4859,7 @@ document.getElementById('config-form').addEventListener('submit', async (e) => {
 	    event_queue_size: pcsmTuningNumber(fd, 'pcsm_event_queue'), worker_queue_size: pcsmTuningNumber(fd, 'pcsm_worker_queue'), bulk_ops_size: pcsmTuningNumber(fd, 'pcsm_bulk_ops'),
 	  };
 	}
-  if (['aws', 'gcp', 'azure', 'chaos'].includes(PLATFORM)) {
+  if (['docker', 'aws', 'gcp', 'azure', 'chaos'].includes(PLATFORM)) {
     config.enable_ca = fd.has('enable_ca');
     config.ca_placement = fd.get('ca_placement') || 'dedicated';
   }
@@ -5006,11 +5011,11 @@ document.getElementById('config-form').addEventListener('submit', async (e) => {
     const auditFilter = getBlockFieldValue(block, 'cluster_audit_filter[]').trim();
     if (c.enable_audit && auditFilter && auditFilter !== DEFAULT_AUDIT_FILTER) c.audit_filter = auditFilter;
     copyPackageOverrides(block, c, 'cluster');
+    c.use_tls = getBlockChecked(block, 'cluster_use_tls[]');
     if (PLATFORM !== 'docker') {
       c.enable_pmm = getBlockChecked(block, 'cluster_enable_pmm[]');
       c.enable_pbm = getBlockChecked(block, 'cluster_enable_pbm[]');
       c.enable_mongot = getBlockChecked(block, 'cluster_enable_mongot[]');
-      c.use_tls = getBlockChecked(block, 'cluster_use_tls[]');
       const mongotVersion = getBlockFieldValue(block, 'cluster_mongot_version[]').trim();
       const mongotSource = getBlockFieldValue(block, 'cluster_mongot_source[]').trim();
       if (mongotSource) c.mongot_source = mongotSource;
@@ -5050,11 +5055,11 @@ document.getElementById('config-form').addEventListener('submit', async (e) => {
     const auditFilter = getBlockFieldValue(block, 'replset_audit_filter[]').trim();
     if (r.enable_audit && auditFilter && auditFilter !== DEFAULT_AUDIT_FILTER) r.audit_filter = auditFilter;
     copyPackageOverrides(block, r, 'replset');
+    r.use_tls = getBlockChecked(block, 'replset_use_tls[]');
     if (PLATFORM !== 'docker') {
       r.enable_pmm = getBlockChecked(block, 'replset_enable_pmm[]');
       r.enable_pbm = getBlockChecked(block, 'replset_enable_pbm[]');
       r.enable_mongot = getBlockChecked(block, 'replset_enable_mongot[]');
-      r.use_tls = getBlockChecked(block, 'replset_use_tls[]');
       const mongotVersion = getBlockFieldValue(block, 'replset_mongot_version[]').trim();
       const mongotSource = getBlockFieldValue(block, 'replset_mongot_source[]').trim();
       if (mongotSource) r.mongot_source = mongotSource;
@@ -5082,7 +5087,7 @@ document.getElementById('config-form').addEventListener('submit', async (e) => {
     config.replsets[name] = r;
   });
 
-  if (['aws', 'gcp', 'azure', 'chaos'].includes(PLATFORM)) {
+  if (['docker', 'aws', 'gcp', 'azure', 'chaos'].includes(PLATFORM)) {
     config.use_tls = [...Object.values(config.clusters), ...Object.values(config.replsets)].some(item => item.use_tls);
     if (config.use_tls && !config.enable_ca) {
       alert('Provision a certificate authority before enabling TLS on a cluster or replica set.');

@@ -393,10 +393,11 @@ variable "ldap_user_search_base" {
 }
 
 ############
-# TLS (reserved)
+# Managed sandbox TLS
 ############
 
 variable "use_tls" {
-  type    = bool
-  default = true
+  type        = bool
+  default     = false
+  description = "Use managed sandbox certificates, preferTLS, and X.509 member authentication. Plaintext clients remain allowed."
 }

@@ -48,10 +48,7 @@ variable "clusters" {
     ldap_bind_dn          = optional(string, "cn=admin,dc=example,dc=org")
     ldap_bind_pw          = optional(string, "admin")
     ldap_user_search_base = optional(string, "dc=example,dc=org")
-    #    use_tls                 = optional(bool, false)
-    #    tls_cert_file           = optional(string,"./certs/mongo.crt")
-    #    tls_key_file            = optional(string,"./certs/mongo.key")
-    #    tls_ca_file             = optional(string,"./certs/ca.crt")
+    use_tls               = optional(bool, false)
   }))
 
   default = {
@@ -111,10 +108,7 @@ variable "replsets" {
     ldap_bind_dn          = optional(string, "cn=admin,dc=example,dc=org")
     ldap_bind_pw          = optional(string, "admin")
     ldap_user_search_base = optional(string, "dc=example,dc=org")
-    #    use_tls                   = optional(bool, false)
-    #    tls_cert_file             = optional(string,"./certs/mongo.crt")
-    #    tls_key_file              = optional(string,"./certs/mongo.key")
-    #    tls_ca_file               = optional(string,"./certs/ca.crt")    
+    use_tls               = optional(bool, false)
   }))
 
   default = {

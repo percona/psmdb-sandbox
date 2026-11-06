@@ -313,12 +313,18 @@ func writeDockerClusterSyncBootstrap(envID string, cfg Config, secrets clusterSy
 	js := `const admin=db.getSiblingDB("admin"); if(!admin.auth(process.env.MONGO_ADMIN_USER,process.env.MONGO_ADMIN_PASSWORD)) throw new Error("admin authentication failed"); const roles=process.env.PCSM_ROLES.split(",").map(role=>({role,db:"admin"})); if(admin.getUser(process.env.PCSM_USERNAME)){admin.updateUser(process.env.PCSM_USERNAME,{pwd:process.env.PCSM_PASSWORD,roles});}else{admin.createUser({user:process.env.PCSM_USERNAME,pwd:process.env.PCSM_PASSWORD,roles});}`
 	var script strings.Builder
 	script.WriteString("#!/bin/sh\nset -eu\nset -a\n. " + shellEnvQuote(envPath) + "\nset +a\n")
-	writeUser := func(container string, port int, user, passwordVar, roles string) {
-		script.WriteString("PCSM_USERNAME=" + shellEnvQuote(user) + " PCSM_PASSWORD=\"$" + passwordVar + "\" PCSM_ROLES=" + shellEnvQuote(roles) + " \\\n")
-		script.WriteString("docker exec -e MONGO_ADMIN_USER -e MONGO_ADMIN_PASSWORD -e PCSM_USERNAME -e PCSM_PASSWORD -e PCSM_ROLES " + shellEnvQuote(container) + " mongosh --quiet --host localhost --port " + strconv.Itoa(port) + " --eval " + shellEnvQuote(js) + "\n")
+	tlsFlags := func(name string) string {
+		if topologyUsesTLS(cfg, name) {
+			return " --tls --tlsCAFile /etc/mongodb-tls/test-ca.pem --tlsCertificateKeyFile /etc/mongodb-tls/client.pem"
+		}
+		return ""
 	}
-	writeUser(source, topologyControlPort(cfg, cs.SourceKind, cs.SourceName), pcsmSourceUser, "PCSM_SOURCE_PASSWORD", "backup,clusterMonitor,readAnyDatabase")
-	writeUser(target, topologyControlPort(cfg, cs.TargetKind, cs.TargetName), pcsmTargetUser, "PCSM_TARGET_PASSWORD", "restore,clusterMonitor,clusterManager,readWriteAnyDatabase")
+	writeUser := func(container string, port int, user, passwordVar, roles, topology string) {
+		script.WriteString("PCSM_USERNAME=" + shellEnvQuote(user) + " PCSM_PASSWORD=\"$" + passwordVar + "\" PCSM_ROLES=" + shellEnvQuote(roles) + " \\\n")
+		script.WriteString("docker exec -e MONGO_ADMIN_USER -e MONGO_ADMIN_PASSWORD -e PCSM_USERNAME -e PCSM_PASSWORD -e PCSM_ROLES " + shellEnvQuote(container) + " mongosh --quiet --host localhost --port " + strconv.Itoa(port) + tlsFlags(topology) + " --eval " + shellEnvQuote(js) + "\n")
+	}
+	writeUser(source, topologyControlPort(cfg, cs.SourceKind, cs.SourceName), pcsmSourceUser, "PCSM_SOURCE_PASSWORD", "backup,clusterMonitor,readAnyDatabase", cs.SourceName)
+	writeUser(target, topologyControlPort(cfg, cs.TargetKind, cs.TargetName), pcsmTargetUser, "PCSM_TARGET_PASSWORD", "restore,clusterMonitor,clusterManager,readWriteAnyDatabase", cs.TargetName)
 	script.WriteString("docker restart " + shellEnvQuote(strDefault(cfg.Prefix, envID)+"-pcsm") + " >/dev/null\n")
 	script.WriteString("_ready=false\nfor _n in 1 2 3 4 5 6; do docker exec " + shellEnvQuote(strDefault(cfg.Prefix, envID)+"-pcsm") + " pcsm status >/dev/null 2>&1 && { _ready=true; break; }; sleep 5; done\n$_ready || { echo 'PCSM did not become ready' >&2; exit 1; }\n")
 	if err := os.WriteFile(clusterSyncBootstrapPath(envID), []byte(script.String()), 0700); err != nil {
@@ -327,11 +333,11 @@ func writeDockerClusterSyncBootstrap(envID string, cfg Config, secrets clusterSy
 	dropJS := `const admin=db.getSiblingDB("admin"); if(!admin.auth(process.env.MONGO_ADMIN_USER,process.env.MONGO_ADMIN_PASSWORD)) throw new Error("admin authentication failed"); if(admin.getUser(process.env.PCSM_USERNAME)) admin.dropUser(process.env.PCSM_USERNAME);`
 	var cleanup strings.Builder
 	cleanup.WriteString("#!/bin/sh\nset -eu\nset -a\n. " + shellEnvQuote(envPath) + "\nset +a\n")
-	writeDrop := func(container string, port int, user string) {
-		cleanup.WriteString("PCSM_USERNAME=" + shellEnvQuote(user) + " docker exec -e MONGO_ADMIN_USER -e MONGO_ADMIN_PASSWORD -e PCSM_USERNAME " + shellEnvQuote(container) + " mongosh --quiet --host localhost --port " + strconv.Itoa(port) + " --eval " + shellEnvQuote(dropJS) + "\n")
+	writeDrop := func(container string, port int, user, topology string) {
+		cleanup.WriteString("PCSM_USERNAME=" + shellEnvQuote(user) + " docker exec -e MONGO_ADMIN_USER -e MONGO_ADMIN_PASSWORD -e PCSM_USERNAME " + shellEnvQuote(container) + " mongosh --quiet --host localhost --port " + strconv.Itoa(port) + tlsFlags(topology) + " --eval " + shellEnvQuote(dropJS) + "\n")
 	}
-	writeDrop(source, topologyControlPort(cfg, cs.SourceKind, cs.SourceName), pcsmSourceUser)
-	writeDrop(target, topologyControlPort(cfg, cs.TargetKind, cs.TargetName), pcsmTargetUser)
+	writeDrop(source, topologyControlPort(cfg, cs.SourceKind, cs.SourceName), pcsmSourceUser, cs.SourceName)
+	writeDrop(target, topologyControlPort(cfg, cs.TargetKind, cs.TargetName), pcsmTargetUser, cs.TargetName)
 	return os.WriteFile(clusterSyncCleanupPath(envID), []byte(cleanup.String()), 0700)
 }
 
@@ -392,9 +398,13 @@ func clusterSyncURI(envID, platform string, cfg Config, kind, name, user, passwo
 	if replicaSet != "" {
 		query.Set("replicaSet", replicaSet)
 	}
-	if platform != "docker" && topologyUsesTLS(cfg, name) {
+	if topologyUsesTLS(cfg, name) {
 		query.Set("tls", "true")
-		query.Set("tlsCAFile", "/etc/ssl/test-ca.pem")
+		if platform == "docker" {
+			query.Set("tlsCAFile", "/etc/mongodb-tls/test-ca.pem")
+		} else {
+			query.Set("tlsCAFile", "/etc/ssl/test-ca.pem")
+		}
 	}
 	return "mongodb://" + url.QueryEscape(user) + ":" + url.QueryEscape(password) + "@" + strings.Join(members, ",") + "/?" + query.Encode()
 }
@@ -664,9 +674,10 @@ func clusterSyncLogHandler(w http.ResponseWriter, r *http.Request) {
 		sshConfig := filepath.Join(terraformDir, env.Platform, strDefault(env.Config.Prefix, envID)+"_ssh_config_"+env.Config.ClusterSync.SourceName)
 		out, err = exec.Command("ssh", "-F", sshConfig, strDefault(env.Config.Prefix, envID)+"-pcsm", "sudo", "journalctl", "-u", "pcsm", "-n", "300", "--no-pager").CombinedOutput()
 	}
+	output := redactClusterSyncOutput(envID, stripAnsi(string(out)))
 	if err != nil {
-		jsonError(w, 502, strings.TrimSpace(redactClusterSyncOutput(envID, string(out))))
+		jsonError(w, 502, strings.TrimSpace(output))
 		return
 	}
-	writeJSON(w, 200, map[string]string{"log": redactClusterSyncOutput(envID, string(out))})
+	writeJSON(w, 200, map[string]string{"log": output})
 }

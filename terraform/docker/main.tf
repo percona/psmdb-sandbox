@@ -61,13 +61,12 @@ module "mongodb_clusters" {
   vault_server          = "${local.name_prefix}vault"
   vault_topology        = "cluster-${each.key}"
   vault_credentials     = var.vault_encryption ? module.vault[0].credentials["cluster-${each.key}"] : ""
-  #  use_tls                 = each.value.use_tls
-  #  tls_cert_file           = each.value.tls_cert_file
-  #  tls_key_file            = each.value.tls_key_file
-  #  tls_ca_file             = each.value.tls_ca_file
-  bind_to_localhost = each.value.bind_to_localhost
-  enable_pmm        = each.value.enable_pmm
-  enable_pbm        = each.value.enable_pbm
+  use_tls               = each.value.use_tls
+  tls_ca_volume         = var.enable_ca ? module.certificate_authority[0].volume : ""
+  tls_signer_image      = var.enable_ca ? module.certificate_authority[0].image : ""
+  bind_to_localhost     = each.value.bind_to_localhost
+  enable_pmm            = each.value.enable_pmm
+  enable_pbm            = each.value.enable_pbm
 
   depends_on = [
     module.pmm_server,
@@ -113,13 +112,12 @@ module "mongodb_replsets" {
   vault_server           = "${local.name_prefix}vault"
   vault_topology         = "replset-${each.key}"
   vault_credentials      = var.vault_encryption ? module.vault[0].credentials["replset-${each.key}"] : ""
-  #  use_tls                 = each.value.use_tls
-  #  tls_cert_file           = each.value.tls_cert_file
-  #  tls_key_file            = each.value.tls_key_file
-  #  tls_ca_file             = each.value.tls_ca_file  
-  bind_to_localhost = each.value.bind_to_localhost
-  enable_pmm        = each.value.enable_pmm
-  enable_pbm        = each.value.enable_pbm
+  use_tls                = each.value.use_tls
+  tls_ca_volume          = var.enable_ca ? module.certificate_authority[0].volume : ""
+  tls_signer_image       = var.enable_ca ? module.certificate_authority[0].image : ""
+  bind_to_localhost      = each.value.bind_to_localhost
+  enable_pmm             = each.value.enable_pmm
+  enable_pbm             = each.value.enable_pbm
 
   depends_on = [
     module.pmm_server,

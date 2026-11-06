@@ -8,6 +8,15 @@ resource "docker_container" "pbm_rs" {
   name     = "${var.rs_name}-${var.replset_tag}${each.value.member_index}-${var.pbm_container_suffix}"
   image    = docker_image.pbm_mongod_rs.image_id
   user     = var.uid
+  dynamic "mounts" {
+    for_each = var.use_tls ? [module.tls_certificate[each.key].volume] : []
+    content {
+      type      = "volume"
+      source    = mounts.value
+      target    = "/etc/mongodb-tls"
+      read_only = true
+    }
+  }
   # Physical restore starts mongod in the agent container using the node's
   # captured configuration, so the same key-service files must be available.
   dynamic "mounts" {
@@ -31,7 +40,7 @@ resource "docker_container" "pbm_rs" {
   command = [
     "pbm-agent"
   ]
-  env = concat(local.mongod_env, ["PBM_MONGODB_URI=${var.mongodb_pbm_user}:${var.mongodb_pbm_password}@${docker_container.rs[each.key].name}:${var.replset_port + each.value.member_index}"])
+  env = concat(local.mongod_env, ["PBM_MONGODB_URI=mongodb://${var.mongodb_pbm_user}:${var.mongodb_pbm_password}@${docker_container.rs[each.key].name}:${var.replset_port + each.value.member_index}${local.pbm_tls_query}"])
   mounts {
     type   = "volume"
     target = "/data/db"
