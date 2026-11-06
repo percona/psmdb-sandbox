@@ -497,6 +497,7 @@ type ConfigureData struct {
 	Platform                     string
 	EnvID                        string
 	DuplicateOf                  string // source env ID when pre-filling a new env from an existing one
+	StartingPoint                string
 	Config                       Config
 	Regions                      []string
 	DefaultAuditFilter           string

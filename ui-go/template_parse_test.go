@@ -184,12 +184,10 @@ func TestClusterSyncCustomizeSectionsFollowOptions(t *testing.T) {
 		t.Fatalf("read configure template: %v", err)
 	}
 	template := string(content)
-	start := strings.Index(template, `<section class="form-section">`)
-	clusterSync := strings.Index(template[start:], `<h2>Percona ClusterSync</h2>`)
-	if clusterSync < 0 {
+	clusterSyncStart := strings.Index(template, `<h2>Percona ClusterSync</h2>`)
+	if clusterSyncStart < 0 {
 		t.Fatal("ClusterSync section is missing")
 	}
-	clusterSyncStart := start + clusterSync
 	end := strings.Index(template[clusterSyncStart:], `</section>`)
 	if end < 0 {
 		t.Fatal("ClusterSync section is not closed")
