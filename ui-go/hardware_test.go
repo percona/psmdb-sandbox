@@ -292,7 +292,7 @@ func TestAPIHardwareValidate(t *testing.T) {
 	}
 }
 
-func TestHardwareDetailsCollapsedUnlessCustomized(t *testing.T) {
+func TestHardwareDetailsCollapsedByDefault(t *testing.T) {
 	isOpen := func(page string) bool {
 		i := strings.Index(page, `id="hardware-details"`)
 		if i < 0 {
@@ -311,8 +311,8 @@ func TestHardwareDetailsCollapsedUnlessCustomized(t *testing.T) {
 		t.Error("preset-based settings should start collapsed")
 	}
 	page = renderConfigure(t, ConfigureData{Platform: "gcp", Config: Config{ShardsvrType: "n2-standard-8"}})
-	if !isOpen(page) {
-		t.Error("hand-edited settings should start expanded")
+	if isOpen(page) {
+		t.Error("hand-edited settings should also start collapsed")
 	}
 	// The preset selector and validation errors stay outside the panel.
 	i, j := strings.Index(page, `id="hardware_preset"`), strings.Index(page, `id="hardware-details"`)
@@ -349,16 +349,16 @@ func TestCloudNetworkAndPlgmPanelsCollapsedByDefault(t *testing.T) {
 		}
 	}
 	for _, cfg := range []Config{{DefaultVpcName: "bench"}, {SubnetCIDR: "10.1.0.0/20"}, {UseSpotInstances: true}, {SubnetCount: 1}} {
-		if page := renderConfigure(t, ConfigureData{Platform: "aws", Config: cfg}); !panelOpen(t, page, "cloud-network-details") {
-			t.Errorf("non-default network settings %+v should start expanded", cfg)
+		if page := renderConfigure(t, ConfigureData{Platform: "aws", Config: cfg}); panelOpen(t, page, "cloud-network-details") {
+			t.Errorf("non-default network settings %+v should start collapsed", cfg)
 		}
 	}
 	if page := renderConfigure(t, ConfigureData{Platform: "gcp", Config: Config{DefaultVpcName: "mongo", SubnetCIDR: "10.128.0.0/20"}}); panelOpen(t, page, "cloud-network-details") {
 		t.Error("default network values should keep the panel collapsed")
 	}
 	page := renderConfigure(t, ConfigureData{Platform: "gcp", Config: Config{EnablePlgm: true, PlgmType: "n2-highcpu-8"}})
-	if !panelOpen(t, page, "plgm-client-details") || strings.Contains(page, `id="plgm-client-wrap" style="display:none"`) {
-		t.Error("a hand-picked plgm machine type should be visible")
+	if panelOpen(t, page, "plgm-client-details") || strings.Contains(page, `id="plgm-client-wrap" style="display:none"`) {
+		t.Error("an enabled plgm should show its section with machine details collapsed")
 	}
 	page = renderConfigure(t, ConfigureData{Platform: "gcp", Config: Config{EnablePlgm: true, PlgmType: "n2-highcpu-8", HardwarePreset: "atlas-m50"}})
 	if panelOpen(t, page, "plgm-client-details") {

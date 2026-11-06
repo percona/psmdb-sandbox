@@ -291,6 +291,7 @@ func configureHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	images := defaultImages
 	duplicateOf := ""
+	startingPoint := ""
 	if envID != "" {
 		if env, ok := state[envID]; ok {
 			cfg = env.Config
@@ -309,10 +310,25 @@ func configureHandler(w http.ResponseWriter, r *http.Request) {
 		cfg = duplicateConfig(src.Config, platform, state)
 		images = builtinDefaultImages
 		duplicateOf = from
+	} else if id := r.URL.Query().Get("profile"); id != "" {
+		profile, err := environmentProfile(id, platform)
+		if err != nil {
+			http.Error(w, "Environment profile not found", http.StatusNotFound)
+			return
+		}
+		cfg = duplicateConfig(profile.Config, platform, state)
+		startingPoint = profile.Name
+	} else if kind := r.URL.Query().Get("template"); kind != "" {
+		cfg, err = starterEnvironment(kind, platform)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		startingPoint = kind
 	}
 	normalizeTopologyUseTLS(&cfg)
 	normalizeCAProvisioning(&cfg)
-	if platform == "chaos" && envID == "" && duplicateOf == "" {
+	if platform == "chaos" && envID == "" && duplicateOf == "" && startingPoint == "" {
 		cfg.DeleteAfterDays = 7
 	}
 	if cfg.EnableBackup == nil && envID == "" {
@@ -325,6 +341,12 @@ func configureHandler(w http.ResponseWriter, r *http.Request) {
 		cfg.CAPlacement = "dedicated"
 	}
 	if platform == "docker" {
+		if startingPoint != "" {
+			if err := startingPointDockerPorts(&cfg, state); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
 		occupied := dockerOccupiedServicePorts(state, envID)
 		dockerDefaultPmmExternalPort = nextFreeDockerPort(8443, occupied)
 		dockerDefaultSeaweedFSPort, dockerDefaultSeaweedFSAdminPort = nextFreeSeaweedFSPorts(8333, occupied)
@@ -336,6 +358,7 @@ func configureHandler(w http.ResponseWriter, r *http.Request) {
 		Platform:                        platform,
 		EnvID:                           envID,
 		DuplicateOf:                     duplicateOf,
+		StartingPoint:                   startingPoint,
 		Config:                          cfg,
 		Regions:                         defaultRegions(platform),
 		PreloadedImages:                 preloadedImages(platform),

@@ -75,6 +75,7 @@
     <form id="platform-settings-form" class="settings-form">
       <div class="settings-tabs" role="tablist" aria-label="Advanced settings sections">
         <button type="button" class="settings-tab active" data-tab="global" onclick="switchSettingsTab('global')">Global Settings</button>
+        <button type="button" class="settings-tab" data-tab="profiles" onclick="switchSettingsTab('profiles')">Profiles</button>
         <button type="button" class="settings-tab" data-tab="docker" onclick="switchSettingsTab('docker')">Docker</button>
         <button type="button" class="settings-tab" data-tab="gcp" onclick="switchSettingsTab('gcp')">GCP</button>
         <button type="button" class="settings-tab" data-tab="aws" onclick="switchSettingsTab('aws')">AWS</button>
@@ -111,6 +112,18 @@
           </div>
           <small id="settings_ssh_private_key_upload_status" class="text-muted"></small>
         </div>
+      </div>
+
+      <div class="settings-tab-panel" data-panel="profiles">
+        <p class="field-hint">Manage saved environment profiles across all platforms. Deletion is immediate, does not change existing environments, and is not undone by Cancel. Save new profiles from the configuration editor.</p>
+        <div class="form-group form-group-full">
+          <label for="environment-profile-to-delete">Saved profile</label>
+          <select id="environment-profile-to-delete" disabled onchange="updateSettingsProfileControls()">
+            <option value="">No saved profiles</option>
+          </select>
+        </div>
+        <button type="button" class="btn btn-danger" id="delete-environment-profile" disabled onclick="deleteSettingsProfile()">Delete profile</button>
+        <p id="settings-profile-status" role="status" class="field-hint"></p>
       </div>
 
       <div class="settings-tab-panel" data-panel="docker">
@@ -262,6 +275,8 @@
 </div>
 
 <script>
+let settingsProfilesBusy = false;
+
 function openPlatformSettings() {
   initializeUploadedFileDisplays();
   const settings = getPlatformSettings();
@@ -275,7 +290,7 @@ function openPlatformSettings() {
 
 function openRequestedSettings() {
   const platform = new URLSearchParams(window.location.search).get('settings');
-  if (!['aws', 'gcp', 'azure', 'chaos', 'docker'].includes(platform)) return;
+  if (!['aws', 'gcp', 'azure', 'chaos', 'docker', 'profiles'].includes(platform)) return;
   openPlatformSettings();
   switchSettingsTab(platform);
   window.history.replaceState({}, '', window.location.pathname);
@@ -294,6 +309,61 @@ function switchSettingsTab(tab) {
   document.querySelectorAll('.settings-tab-panel').forEach(panel => {
     panel.classList.toggle('active', panel.dataset.panel === tab);
   });
+  if (tab === 'profiles') loadSettingsProfiles();
+}
+
+function updateSettingsProfileControls() {
+  const select = document.getElementById('environment-profile-to-delete');
+  select.disabled = settingsProfilesBusy || select.options.length <= 1;
+  document.getElementById('delete-environment-profile').disabled = settingsProfilesBusy || !select.value;
+}
+
+async function loadSettingsProfiles() {
+  if (settingsProfilesBusy) return;
+  const select = document.getElementById('environment-profile-to-delete');
+  const status = document.getElementById('settings-profile-status');
+  settingsProfilesBusy = true;
+  updateSettingsProfileControls();
+  status.textContent = 'Loading profiles…';
+  try {
+    const data = await apiFetch('/api/environment-profiles');
+    const previous = select.value;
+    const profiles = data.profiles || [];
+    select.replaceChildren(new Option(profiles.length ? 'Choose a profile to delete' : 'No saved profiles', ''),
+      ...profiles.map(profile => new Option(`${profile.name} (${profile.platform.toUpperCase()})`, profile.id)));
+    select.value = previous;
+    if (select.selectedIndex < 0) select.value = '';
+    status.textContent = profiles.length ? '' : 'No saved profiles.';
+  } catch (error) {
+    select.replaceChildren(new Option('Profiles unavailable', ''));
+    status.textContent = `Could not load profiles: ${error.message}`;
+  } finally {
+    settingsProfilesBusy = false;
+    updateSettingsProfileControls();
+  }
+}
+
+async function deleteSettingsProfile() {
+  const select = document.getElementById('environment-profile-to-delete');
+  const id = select.value;
+  if (!id || settingsProfilesBusy) return;
+  const label = select.selectedOptions[0].textContent;
+  if (!confirm(`Delete saved profile “${label}”? Existing environments will not be changed.`)) return;
+  settingsProfilesBusy = true;
+  updateSettingsProfileControls();
+  const status = document.getElementById('settings-profile-status');
+  try {
+    await apiFetch(`/api/environment-profiles/${encodeURIComponent(id)}`, 'DELETE');
+    select.selectedOptions[0].remove();
+    select.value = '';
+    if (select.options.length === 1) select.options[0].textContent = 'No saved profiles';
+    status.textContent = 'Profile deleted.';
+  } catch (error) {
+    status.textContent = error.message;
+  } finally {
+    settingsProfilesBusy = false;
+    updateSettingsProfileControls();
+  }
 }
 
 function uploadedFileBasename(path) {

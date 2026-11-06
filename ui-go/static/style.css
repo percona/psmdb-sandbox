@@ -20,6 +20,46 @@
   --mono: "SF Mono", "Fira Code", "Cascadia Code", Menlo, monospace;
 }
 
+/* Section-based configuration editor; the unenhanced form stays usable. */
+[hidden] { display: none !important; }
+.container:has(.config-editor) { max-width: 1350px; }
+.config-form.config-editor { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 1.5rem; align-items: start; }
+#config-editor-panels { display: flex; flex-direction: column; gap: 1.5rem; min-width: 0; scroll-margin-top: 76px; }
+.editor-panel { display: flex; flex-direction: column; gap: 1.5rem; }
+#config-editor-navigation { position: sticky; top: 76px; max-height: calc(100vh - 96px); overflow-y: auto; }
+#config-editor-nav { display: flex; flex-direction: column; gap: 0.4rem; }
+.editor-nav-button { justify-content: flex-start; }
+.editor-nav-button[aria-current] { background: var(--color-surface2); border-color: var(--color-primary); }
+.editor-summary { margin-top: 1.5rem; font-size: 0.82rem; color: var(--color-muted); overflow-wrap: anywhere; }
+.editor-summary h2 { font-size: 0.9rem; color: var(--color-text); margin-bottom: 0.6rem; }
+.editor-summary p { margin-bottom: 0.6rem; }
+.editor-warning { display: block; width: 100%; text-align: left; font: inherit; color: var(--color-warning); background: none; border: 0; margin-top: 0.7rem; cursor: pointer; }
+.editor-warning:hover { text-decoration: underline; }
+.config-editor .editor-actions { grid-column: 1 / -1; position: sticky; bottom: 0; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius); padding: 0.8rem 1rem; margin: 0; z-index: 20; flex-wrap: wrap; }
+#editor-save-status { flex: 1; font-size: 0.8rem; }
+#editor-errors { margin-bottom: 1rem; white-space: pre-line; }
+#editor-errors button { margin-top: 0.5rem; }
+.editor-topology-summary { color: var(--color-muted); font-size: 0.85rem; margin-top: 0.6rem; overflow-wrap: anywhere; }
+.editor-topology-summary p:first-child { color: var(--color-text); font-weight: 500; }
+.editor-topology-editing .editor-topology-summary { display: none; }
+.editor-topology-essentials { padding-bottom: 0.6rem; border-bottom: 1px solid var(--color-border); }
+.editor-topology-header { flex-wrap: wrap; gap: 0.6rem; }
+.editor-topology-header .block-name-input { width: 110px; min-width: 0; }
+.editor-topology-fields { border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.7rem; margin: 0.7rem 0; min-width: 0; }
+.editor-topology-fields legend { padding: 0 0.4rem; font-weight: 600; }
+.config-editor .form-row:empty { display: none; }
+#environment-starting-points .form-row { align-items: end; }
+#chaos-shared-hardware .form-group { flex-basis: 30%; }
+.editor-service-chooser select { width: 100%; margin: 0.5rem 0; }
+.editor-service-help { margin-bottom: 0.8rem; }
+@media (max-width: 800px) {
+  .config-form.config-editor { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+  #config-editor-navigation { position: static; max-height: none; }
+  #config-editor-nav { flex-direction: row; flex-wrap: wrap; }
+  .editor-summary { margin-top: 0.8rem; }
+  #editor-save-status { flex-basis: 100%; }
+}
+
 body {
   background: var(--color-bg);
   color: var(--color-text);
@@ -1257,6 +1297,7 @@ tr:last-child td { border-bottom: none; }
   opacity: 0.85;
 }
 .field-tip::after {
+  display: none;
   content: attr(data-tip);
   position: absolute;
   bottom: calc(100% + 6px);
@@ -1277,9 +1318,14 @@ tr:last-child td { border-bottom: none; }
   opacity: 0;
   transition: opacity 0.15s ease;
 }
-.field-tip:hover::after {
+.field-tip:hover::after,
+.field-tip:focus::after {
+  display: block;
   opacity: 1;
 }
+.profiles-title, .editor-service-chooser label { position: relative; }
+#environment-profiles-tip, #editor-service-tip { background: none; border: 1px solid var(--color-border); padding: 0; position: static; }
+#environment-profiles-tip::after, #editor-service-tip::after { left: 0; bottom: auto; top: calc(100% + 6px); transform: none; width: min(420px, calc(100vw - 100px)); max-width: none; font-weight: 400; }
 
 /* ── Number stepper widget ── */
 .number-stepper {
