@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -157,6 +158,60 @@ func TestRedactClusterSyncOutput(t *testing.T) {
 	got := redactClusterSyncOutput("test", "failed mongodb://user:"+secrets.SourcePassword+"@host")
 	if strings.Contains(got, secrets.SourcePassword) || !strings.Contains(got, "[REDACTED]") {
 		t.Fatalf("secret was not redacted: %s", got)
+	}
+}
+
+func TestClusterSyncLogHandlerStripsANSI(t *testing.T) {
+	useTempState(t)
+	oldSecretsDir := pcsmSecretsDir
+	pcsmSecretsDir = t.TempDir()
+	t.Cleanup(func() { pcsmSecretsDir = oldSecretsDir })
+	cfg := clusterSyncTestConfig()
+	if err := ensureClusterSyncSecrets("test", "docker", &cfg); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(clusterSyncSecretPath("test"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var secrets clusterSyncSecrets
+	if err := json.Unmarshal(data, &secrets); err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	stub := "#!/bin/sh\nprintf '%s' \"$PCSM_TEST_LOG\"\nexit \"$PCSM_TEST_EXIT\"\n"
+	for _, command := range []string{"docker", "ssh"} {
+		if err := os.WriteFile(filepath.Join(bin, command), []byte(stub), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("PCSM_TEST_LOG", "\x1b[90m2026-11-06 12:24:17.583\x1b[0m \x1b[32mINF\x1b[0m \x1b[1mGET /status\x1b[0m \x1b[36ms=\x1b[0mhttp\r\nmessage=✓ <ready> [value] password="+secrets.SourcePassword+"\n")
+	want := "2026-11-06 12:24:17.583 INF GET /status s=http\nmessage=✓ <ready> [value] password=[REDACTED]\n"
+	for _, platform := range []string{"docker", "aws"} {
+		for _, exitCode := range []string{"0", "1"} {
+			t.Run(platform+"/exit="+exitCode, func(t *testing.T) {
+				t.Setenv("PCSM_TEST_EXIT", exitCode)
+				if err := saveState(map[string]*Environment{"test": {Platform: platform, Config: cfg}}); err != nil {
+					t.Fatal(err)
+				}
+				rec := environmentRequest(clusterSyncLogHandler, http.MethodGet, "test", "")
+				status, key, expected := http.StatusOK, "log", want
+				if exitCode != "0" {
+					status, key, expected = http.StatusBadGateway, "error", strings.TrimSpace(want)
+				}
+				if rec.Code != status {
+					t.Fatalf("status = %d, want %d", rec.Code, status)
+				}
+				var response map[string]string
+				if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+					t.Fatal(err)
+				}
+				if got := response[key]; got != expected {
+					t.Fatalf("%s = %q, want %q", key, got, expected)
+				}
+			})
+		}
 	}
 }
 

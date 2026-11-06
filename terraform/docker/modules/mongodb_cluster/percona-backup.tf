@@ -27,7 +27,16 @@ resource "docker_container" "pbm_cli" {
   count   = var.enable_pbm ? 1 : 0
   image   = docker_image.pbm.image_id
   command = ["/bin/sh", "-c", "while true; do sleep 86400; done;"]
-  env     = ["PBM_MONGODB_URI=${var.mongodb_pbm_user}:${var.mongodb_pbm_password}@${docker_container.cfg[local.cfg_member_keys[0]].name}:${var.configsvr_port}"]
+  env     = ["PBM_MONGODB_URI=mongodb://${var.mongodb_pbm_user}:${var.mongodb_pbm_password}@${docker_container.cfg[local.cfg_member_keys[0]].name}:${var.configsvr_port}${local.pbm_tls_query}"]
+  dynamic "mounts" {
+    for_each = var.use_tls ? [module.tls_certificate[local.cfg_member_keys[0]].volume] : []
+    content {
+      type      = "volume"
+      source    = mounts.value
+      target    = "/etc/mongodb-tls"
+      read_only = true
+    }
+  }
   mounts {
     source = abspath(local_file.storage_config.filename)
     target = "/etc/pbm-storage.conf"

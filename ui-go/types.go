@@ -567,11 +567,20 @@ type ServiceURL struct {
 
 // MongoConnInfo describes a MongoDB connection string for a cluster or replica set.
 type MongoConnInfo struct {
-	Name       string `json:"name"`
-	Type       string `json:"type"`
-	ConnString string `json:"conn_string"`
-	ConnUser   string `json:"conn_user"`
-	ConnPass   string `json:"conn_pass"`
+	Name         string          `json:"name"`
+	Type         string          `json:"type"`
+	ConnString   string          `json:"conn_string"`
+	ConnUser     string          `json:"conn_user"`
+	ConnPass     string          `json:"conn_pass"`
+	Instructions string          `json:"connection_instructions,omitempty"`
+	Steps        []MongoConnStep `json:"connection_steps,omitempty"`
+}
+
+// MongoConnStep pairs connection guidance with a separately copyable command.
+type MongoConnStep struct {
+	Scope   string `json:"scope"`
+	Label   string `json:"label"`
+	Command string `json:"command"`
 }
 
 // CloudImage represents a single machine image available for a region.

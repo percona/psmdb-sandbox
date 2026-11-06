@@ -343,12 +343,23 @@
     <div class="modal-header">
       <h2 id="connection-string-modal-title">Connect</h2>
     </div>
-    <div class="connect-command-panel">
+    <section class="connect-command-panel connection-method">
+      <h3>{{if eq .Env.Platform "docker"}}Connect from the Docker host{{else}}Connect from your client machine{{end}}</h3>
+      <p>{{if eq .Env.Platform "docker"}}For mongosh or applications on the Docker host (localhost).{{else}}For mongosh or applications on your client machine.{{end}}</p>
+      <p id="connection-string-host-tls-help" style="display:none">Export the CA before using this TLS URI. Run both commands below from the same directory.</p>
+      <h4>Connection URI</h4>
       <div class="copy-cmd-row copy-cmd-row-wrap">
         <code class="copy-cmd-text copy-cmd-text-wrap" id="connection-string-text">Loading…</code>
         <button class="btn btn-outline btn-xs copy-btn" id="connection-string-copy" title="Copy to clipboard">Copy to clipboard</button>
       </div>
-    </div>
+      <div id="connection-string-steps"></div>
+      <p id="connection-string-instructions" style="display:none;white-space:pre-wrap;overflow-wrap:anywhere"></p>
+    </section>
+    <section class="connect-command-panel connection-method" id="connection-string-docker-section" style="display:none">
+      <h3>Connect inside Docker (alternative)</h3>
+      <p>Runs mongosh inside the container using its CA file. No CA export is needed.</p>
+      <div id="connection-string-docker-steps"></div>
+    </section>
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeConnectionStringModal()">Close</button>
     </div>
@@ -1382,6 +1393,8 @@ function updateMongoConnectionButtons(mongoConns) {
 
   buttons.forEach(btn => {
     delete btn.dataset.connectionString;
+    delete btn.dataset.connectionInstructions;
+    delete btn.dataset.connectionSteps;
     btn.disabled = true;
     btn.title = 'Connection string not available yet';
   });
@@ -1392,6 +1405,8 @@ function updateMongoConnectionButtons(mongoConns) {
     );
     if (!btn) return;
     btn.dataset.connectionString = conn.conn_string || '';
+    btn.dataset.connectionInstructions = conn.connection_instructions || '';
+    btn.dataset.connectionSteps = JSON.stringify(conn.connection_steps || []);
     btn.disabled = !conn.conn_string;
     btn.title = conn.conn_string ? 'Open connection string' : 'Connection string not available yet';
   });
@@ -1414,17 +1429,47 @@ function closeConnectModal(event) {
   document.getElementById('connect-modal').style.display = 'none';
 }
 
-function openConnectionStringModal(name, connectionString) {
+function openConnectionStringModal(name, connectionString, instructions = '', steps = []) {
   const quotedString = `'${connectionString}'`;
   document.getElementById('connection-string-modal-title').textContent = `Connect: ${name}`;
   document.getElementById('connection-string-text').textContent = quotedString;
+  const stepsPanel = document.getElementById('connection-string-steps');
+  const dockerStepsPanel = document.getElementById('connection-string-docker-steps');
+  stepsPanel.replaceChildren();
+  dockerStepsPanel.replaceChildren();
+  document.getElementById('connection-string-host-tls-help').style.display = steps.some(step => step.scope === 'host') ? '' : 'none';
+  document.getElementById('connection-string-docker-section').style.display = steps.some(step => step.scope === 'docker') ? '' : 'none';
+  steps.forEach(step => {
+    const section = document.createElement('div');
+    section.className = 'connect-command-panel';
+    const label = document.createElement('p');
+    label.textContent = step.label;
+    const row = document.createElement('div');
+    row.className = 'copy-cmd-row copy-cmd-row-wrap';
+    const command = document.createElement('code');
+    command.className = 'copy-cmd-text copy-cmd-text-wrap';
+    command.textContent = step.command;
+    const copy = document.createElement('button');
+    copy.type = 'button';
+    copy.className = 'btn btn-outline btn-xs copy-btn';
+    copy.textContent = 'Copy to clipboard';
+    copy.title = 'Copy to clipboard';
+    copy.setAttribute('aria-label', `Copy command: ${step.label}`);
+    copy.onclick = () => copyText(step.command, copy);
+    row.append(command, copy);
+    section.append(label, row);
+    (step.scope === 'docker' ? dockerStepsPanel : stepsPanel).append(section);
+  });
+  const help = document.getElementById('connection-string-instructions');
+  help.textContent = instructions;
+  help.style.display = instructions ? '' : 'none';
   const copyBtn = document.getElementById('connection-string-copy');
   copyBtn.onclick = () => copyText(quotedString, copyBtn);
   document.getElementById('connection-string-modal').style.display = 'flex';
 }
 
 function openConnectionStringModalFromButton(btn) {
-  openConnectionStringModal(btn.dataset.mongoName || btn.dataset.name || 'Connect', btn.dataset.connectionString || '');
+  openConnectionStringModal(btn.dataset.mongoName || btn.dataset.name || 'Connect', btn.dataset.connectionString || '', btn.dataset.connectionInstructions || '', JSON.parse(btn.dataset.connectionSteps || '[]'));
 }
 
 function closeConnectionStringModal(event) {
@@ -1539,7 +1584,7 @@ function sortHostsTable(th) {
 }
 
 function copyText(text, btn) {
-  navigator.clipboard.writeText(text).then(() => {
+  Promise.resolve().then(() => navigator.clipboard.writeText(text)).then(() => {
     const orig = btn.textContent;
     btn.textContent = '✔';
     btn.classList.add('copy-btn-success');

@@ -40,6 +40,10 @@ Docker deployments use Percona MongoDB images. AWS, GCP, Azure, and CHAOS suppor
 PSMDB, MongoDB Community, and MongoDB Enterprise package selections, subject to
 package availability.
 
+Docker also supports the cloud-style TLS/x.509 controls, with an offline signing
+container and verified client connections. See [Docker TLS](terraform/docker/README.md#tls-and-x509-member-authentication)
+for setup and the `preferTLS` plaintext-client limitation.
+
 ## Quick start: local Docker with the web UI
 
 ### 1. Clone the repository
@@ -80,6 +84,11 @@ Open **http://127.0.0.1:5001**.
 3. Save the configuration and choose **Deploy**.
 4. Follow deployment output in the browser.
 5. Use **Hosts & Connections** to find connection commands and service URLs.
+   For Docker TLS connections, **Connect** separates host connections (export the
+   CA first, then use the displayed URI or host mongosh command) from in-container
+   connections (use the container's existing CA; no export needed). Commands appear
+   in dark code boxes, each with a **Copy to clipboard** button.
+   Both host and in-container connection commands include the test credentials.
 6. Choose **Destroy** when finished to remove the environment's resources.
 
 The UI also supports cloud deployments, stop/restart operations, reset operations,

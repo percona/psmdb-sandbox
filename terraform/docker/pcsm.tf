@@ -78,6 +78,16 @@ resource "docker_container" "pcsm" {
     read_only = true
   }
 
+  dynamic "mounts" {
+    for_each = var.enable_ca ? [module.certificate_authority[0].trust_volume] : []
+    content {
+      type      = "volume"
+      source    = mounts.value
+      target    = "/etc/mongodb-tls"
+      read_only = true
+    }
+  }
+
   healthcheck {
     test         = ["CMD-SHELL", "set -a; . /run/secrets/pcsm.env; set +a; pcsm status >/dev/null"]
     interval     = "10s"

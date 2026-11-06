@@ -186,6 +186,11 @@ func buildDockerMongoConns(envID string, env *Environment) []MongoConnInfo {
 		}
 		connStr := fmt.Sprintf("mongodb://%s:%s@%s/?replicaSet=%s&authSource=admin",
 			url.QueryEscape(user), encodedPass, strings.Join(members, ","), containerPrefix)
+		if topologyUsesTLS(env.Config, name) {
+			// Host-side drivers cannot discover Docker-only advertised names.
+			connStr = fmt.Sprintf("mongodb://%s:%s@localhost:%d/?replicaSet=%s&authSource=admin&directConnection=true&tls=true",
+				url.QueryEscape(user), encodedPass, basePort, containerPrefix)
+		}
 		conns = append(conns, MongoConnInfo{
 			Name:       name,
 			Type:       "replset",
@@ -219,6 +224,9 @@ func buildDockerMongoConns(envID string, env *Environment) []MongoConnInfo {
 		}
 		connStr := fmt.Sprintf("mongodb://%s:%s@%s/?authSource=admin",
 			url.QueryEscape(user), encodedPass, strings.Join(mongosHosts, ","))
+		if topologyUsesTLS(env.Config, name) {
+			connStr += "&tls=true"
+		}
 		conns = append(conns, MongoConnInfo{
 			Name:       name,
 			Type:       "cluster",
@@ -226,6 +234,41 @@ func buildDockerMongoConns(envID string, env *Environment) []MongoConnInfo {
 			ConnUser:   user,
 			ConnPass:   pass,
 		})
+	}
+	for i := range conns {
+		if !topologyUsesTLS(env.Config, conns[i].Name) {
+			continue
+		}
+		name := conns[i].Name
+		container := topologyControlContainer(envID, env.Config, conns[i].Type, name)
+		caFile := prefix + "-" + name + "-test-ca.pem"
+		conns[i].ConnString += "&tlsCAFile=" + url.QueryEscape(caFile)
+		port := topologyControlPort(env.Config, conns[i].Type, name)
+		insideURI := fmt.Sprintf("mongodb://%s:%d/admin?tls=true", container, port)
+		if conns[i].Type == "replset" {
+			insideURI += "&replicaSet=" + url.QueryEscape(prefix+"-"+name)
+		}
+		conns[i].Steps = []MongoConnStep{
+			{
+				Scope:   "host",
+				Label:   "1. Export the CA to the current directory:",
+				Command: "docker exec " + shellQuote(container) + " cat /etc/mongodb-tls/test-ca.pem > " + shellQuote(caFile),
+			},
+			{
+				Scope:   "host",
+				Label:   "2. Run mongosh from the same directory:",
+				Command: "mongosh " + shellQuote(conns[i].ConnString),
+			},
+			{
+				Scope: "docker",
+				Label: "Run on the Docker host:",
+				Command: "docker exec -it " + shellQuote(container) +
+					" mongosh " + shellQuote(insideURI) + " --tlsCAFile /etc/mongodb-tls/test-ca.pem -u " + shellQuote(user) + " -p " + shellQuote(pass),
+			},
+		}
+		if conns[i].Type == "replset" {
+			conns[i].Instructions = "The host URI targets the first member, which may not be primary. Full replica-set discovery requires access to all Docker member names."
+		}
 	}
 	return conns
 }

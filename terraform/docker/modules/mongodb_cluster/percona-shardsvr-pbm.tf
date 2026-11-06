@@ -9,6 +9,15 @@ resource "docker_container" "pbm_shard" {
   image    = docker_image.pbm_mongod.image_id
   user     = var.uid
   dynamic "mounts" {
+    for_each = var.use_tls ? [module.tls_certificate[each.key].volume] : []
+    content {
+      type      = "volume"
+      source    = mounts.value
+      target    = "/etc/mongodb-tls"
+      read_only = true
+    }
+  }
+  dynamic "mounts" {
     for_each = var.vault_encryption ? [var.vault_credentials] : []
     content {
       type      = "volume"
@@ -29,7 +38,7 @@ resource "docker_container" "pbm_shard" {
   command = [
     "pbm-agent"
   ]
-  env = concat(local.mongod_env, ["PBM_MONGODB_URI=${var.mongodb_pbm_user}:${var.mongodb_pbm_password}@${docker_container.shard[each.key].name}:${var.shardsvr_port}"])
+  env = concat(local.mongod_env, ["PBM_MONGODB_URI=mongodb://${var.mongodb_pbm_user}:${var.mongodb_pbm_password}@${docker_container.shard[each.key].name}:${var.shardsvr_port}${local.pbm_tls_query}"])
   mounts {
     type   = "volume"
     target = "/data/db"

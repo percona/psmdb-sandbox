@@ -1067,8 +1067,11 @@ func normalizeAndValidateUseTLSConfig(platform string, cfg *Config) error {
 		}
 		return nil
 	}
-	if platform != "aws" && platform != "gcp" && platform != "azure" && platform != "chaos" {
-		return fmt.Errorf("managed TLS is supported only for AWS, GCP, Azure, and CHAOS environments")
+	if platform != "aws" && platform != "gcp" && platform != "azure" && platform != "chaos" && platform != "docker" {
+		return fmt.Errorf("managed TLS is supported only for Docker, AWS, GCP, Azure, and CHAOS environments")
+	}
+	if platform == "docker" && cfg.CAPlacement != "dedicated" {
+		return fmt.Errorf("Docker requires a dedicated certificate authority; PMM placement is not supported")
 	}
 	if cfg.CAPlacement == "pmm" && !boolDefault(cfg.EnablePmm, false) {
 		return fmt.Errorf("the PMM server must be enabled when CA placement is pmm")

@@ -5,7 +5,7 @@ resource "null_resource" "initiate_replset" {
   # Run rs.initiate()
   provisioner "local-exec" {
     command = <<-EOT
-      docker exec -i ${docker_container.rs[local.replset_member_keys[0]].name} mongosh --port ${docker_container.rs[local.replset_member_keys[0]].ports[0].internal} --eval '
+      docker exec -i ${docker_container.rs[local.replset_member_keys[0]].name} mongosh ${local.mongo_tls_flags} --port ${docker_container.rs[local.replset_member_keys[0]].ports[0].internal} --eval '
         rs.initiate({
           "_id": "${lookup({ for label in docker_container.rs[local.replset_member_keys[0]].labels : label.label => label.value }, "replsetName", null)}",
           "members": [
@@ -25,7 +25,7 @@ resource "null_resource" "initiate_replset" {
       success=false
       while [ $retries -gt 0 ]; do
         # rs.status() shows PRIMARY before the node accepts writes, and the users are created on this member
-        primary=$(docker exec -i ${docker_container.rs[local.replset_member_keys[0]].name} mongosh --port ${docker_container.rs[local.replset_member_keys[0]].ports[0].internal} --quiet --eval "db.hello().isWritablePrimary")
+        primary=$(docker exec -i ${docker_container.rs[local.replset_member_keys[0]].name} mongosh ${local.mongo_tls_flags} --port ${docker_container.rs[local.replset_member_keys[0]].ports[0].internal} --quiet --eval "db.hello().isWritablePrimary")
         
         if test "$primary" = "true"; then
           echo "Primary has been elected in replica set"
@@ -48,7 +48,7 @@ resource "null_resource" "initiate_replset" {
   # Create root user on the rs servers
   provisioner "local-exec" {
     command = <<-EOT
-      docker exec -i ${docker_container.rs[local.replset_member_keys[0]].name} mongosh admin --port ${docker_container.rs[local.replset_member_keys[0]].ports[0].internal} --eval '
+      docker exec -i ${docker_container.rs[local.replset_member_keys[0]].name} mongosh ${local.mongo_tls_flags} admin --port ${docker_container.rs[local.replset_member_keys[0]].ports[0].internal} --eval '
         db.createUser({
           "user": "${var.mongodb_root_user}",
           "pwd": "${var.mongodb_root_password}",
@@ -63,7 +63,7 @@ resource "null_resource" "initiate_replset" {
   # Create user for PBM on rs servers
   provisioner "local-exec" {
     command = <<-EOT
-      docker exec -i ${docker_container.rs[local.replset_member_keys[0]].name} mongosh admin -u ${var.mongodb_root_user} -p ${var.mongodb_root_password} --port ${docker_container.rs[local.replset_member_keys[0]].ports[0].internal} --eval '
+      docker exec -i ${docker_container.rs[local.replset_member_keys[0]].name} mongosh ${local.mongo_tls_flags} admin -u ${var.mongodb_root_user} -p ${var.mongodb_root_password} --port ${docker_container.rs[local.replset_member_keys[0]].ports[0].internal} --eval '
         db.createRole({
           "role": "pbmAnyAction",
           "privileges": [
@@ -90,7 +90,7 @@ resource "null_resource" "initiate_replset" {
   provisioner "local-exec" {
     command = <<-EOT
       if test "${var.enable_mongot}" = "true"; then
-        docker exec -i ${docker_container.rs[local.replset_member_keys[0]].name} mongosh admin -u ${var.mongodb_root_user} -p ${var.mongodb_root_password} --port ${docker_container.rs[local.replset_member_keys[0]].ports[0].internal} --eval '
+        docker exec -i ${docker_container.rs[local.replset_member_keys[0]].name} mongosh ${local.mongo_tls_flags} admin -u ${var.mongodb_root_user} -p ${var.mongodb_root_password} --port ${docker_container.rs[local.replset_member_keys[0]].ports[0].internal} --eval '
           if (!db.getUser("${var.mongodb_mongot_user}")) {
             db.createUser({
               user: "${var.mongodb_mongot_user}",
@@ -106,7 +106,7 @@ resource "null_resource" "initiate_replset" {
   # Create user for PMM on rs servers
   provisioner "local-exec" {
     command = <<-EOT
-      docker exec -i ${docker_container.rs[local.replset_member_keys[0]].name} mongosh admin -u ${var.mongodb_root_user} -p ${var.mongodb_root_password} --port ${docker_container.rs[local.replset_member_keys[0]].ports[0].internal} --eval '
+      docker exec -i ${docker_container.rs[local.replset_member_keys[0]].name} mongosh ${local.mongo_tls_flags} admin -u ${var.mongodb_root_user} -p ${var.mongodb_root_password} --port ${docker_container.rs[local.replset_member_keys[0]].ports[0].internal} --eval '
         db.createRole({
           role: "pmmMonitor",
           privileges: [{
@@ -149,7 +149,7 @@ resource "null_resource" "change_default_write_concern" {
   ]
   provisioner "local-exec" {
     command = <<-EOT
-      docker exec -i ${docker_container.rs[local.replset_member_keys[0]].name} mongosh admin -u ${var.mongodb_root_user} -p ${var.mongodb_root_password} --port ${docker_container.rs[local.replset_member_keys[0]].ports[0].internal} --eval '
+      docker exec -i ${docker_container.rs[local.replset_member_keys[0]].name} mongosh ${local.mongo_tls_flags} admin -u ${var.mongodb_root_user} -p ${var.mongodb_root_password} --port ${docker_container.rs[local.replset_member_keys[0]].ports[0].internal} --eval '
         db.adminCommand({
           "setDefaultRWConcern" : 1,
           "defaultWriteConcern" : { "w" : 1 },
@@ -178,8 +178,8 @@ resource "null_resource" "add_new_replset_members" {
     command = <<-EOT
       primary=""
       for attempt in $(seq 1 30); do
-        primary=$(docker exec -i ${docker_container.rs[local.replset_member_keys[0]].name} mongosh admin -u ${var.mongodb_root_user} -p ${var.mongodb_root_password} --port ${docker_container.rs[local.replset_member_keys[0]].ports[0].internal} --quiet --eval 'db.hello().primary')
-        if [ -n "$primary" ] && [ "$(docker exec -i ${docker_container.rs[local.replset_member_keys[0]].name} mongosh admin -u ${var.mongodb_root_user} -p ${var.mongodb_root_password} --host "$primary" --quiet --eval 'db.hello().isWritablePrimary')" = "true" ]; then
+        primary=$(docker exec -i ${docker_container.rs[local.replset_member_keys[0]].name} mongosh ${local.mongo_tls_flags} admin -u ${var.mongodb_root_user} -p ${var.mongodb_root_password} --port ${docker_container.rs[local.replset_member_keys[0]].ports[0].internal} --quiet --eval 'db.hello().primary')
+        if [ -n "$primary" ] && [ "$(docker exec -i ${docker_container.rs[local.replset_member_keys[0]].name} mongosh ${local.mongo_tls_flags} admin -u ${var.mongodb_root_user} -p ${var.mongodb_root_password} --host "$primary" --quiet --eval 'db.hello().isWritablePrimary')" = "true" ]; then
           break
         fi
         primary=""
@@ -190,7 +190,7 @@ resource "null_resource" "add_new_replset_members" {
         echo "No writable primary; cannot add replica set members."
         exit 1
       fi
-      docker exec -i ${docker_container.rs[local.replset_member_keys[0]].name} mongosh admin -u ${var.mongodb_root_user} -p ${var.mongodb_root_password} --host "$primary" --eval '
+      docker exec -i ${docker_container.rs[local.replset_member_keys[0]].name} mongosh ${local.mongo_tls_flags} admin -u ${var.mongodb_root_user} -p ${var.mongodb_root_password} --host "$primary" --eval '
         const existing = rs.status().members.map(m => m.name);
         const desired = [${join(",", [for key in local.replset_member_keys : "\"${docker_container.rs[key].name}:${docker_container.rs[key].ports[0].internal}\""])}];
         desired.forEach(member => {

@@ -16,11 +16,11 @@ resource "docker_container" "mongos" {
     "--configdb", "${lookup({ for label in docker_container.cfg[local.cfg_member_keys[0]].labels : label.label => label.value }, "replsetName", null)}/${join(",", [for key in local.cfg_member_keys : "${docker_container.cfg[key].name}:${var.configsvr_port}"])}",
     "--bind_ip_all",
     "--port", "${var.mongos_port}",
-    "--keyFile", "${var.keyfile_path}/${var.keyfile_name}",
     "--slowms", "200",
     "--rateLimit", "100",
     "--setParameter", "diagnosticDataCollectionDirectoryPath=/var/log/mongo/mongos.diagnostic.data/"
     ],
+    local.mongo_auth_flags,
     var.enable_audit ? [
       "--auditDestination", "file",
       "--auditFormat", "JSON",
@@ -49,6 +49,15 @@ resource "docker_container" "mongos" {
     ip       = var.bind_to_localhost ? "127.0.0.1" : "0.0.0.0"
   }
   user = var.uid
+  dynamic "mounts" {
+    for_each = var.use_tls ? [module.tls_certificate[each.key].volume] : []
+    content {
+      source    = mounts.value
+      target    = "/etc/mongodb-tls"
+      type      = "volume"
+      read_only = true
+    }
+  }
   mounts {
     source    = docker_volume.keyfile_volume.name
     target    = var.keyfile_path
@@ -64,7 +73,7 @@ resource "docker_container" "mongos" {
     name = var.network_name
   }
   healthcheck {
-    test         = ["CMD-SHELL", "mongosh --port ${var.mongos_port} --eval 'db.runCommand({ ping: 1 })'"]
+    test         = ["CMD-SHELL", "mongosh ${local.mongo_tls_flags} --port ${var.mongos_port} --eval 'db.runCommand({ ping: 1 })'"]
     interval     = "10s"
     timeout      = "10s"
     retries      = 5

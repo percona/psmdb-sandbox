@@ -47,11 +47,11 @@ resource "docker_container" "rs" {
       "--port", "${var.replset_port + each.value.member_index}",
       "--oplogSize", "200",
       "--wiredTigerCacheSizeGB", "0.25",
-      "--keyFile", "${var.keyfile_path}/${var.keyfile_name}",
       "--profile", "2",
       "--slowms", "200",
       "--rateLimit", "100"
     ],
+    local.mongo_auth_flags,
     var.vault_encryption ? [
       "--enableEncryption", "--vaultServerName", var.vault_server,
       "--vaultPort", "8200", "--vaultTokenFile", "/etc/mongodb-vault/token",
@@ -82,6 +82,15 @@ resource "docker_container" "rs" {
     ] : []
   )
   user = var.uid
+  dynamic "mounts" {
+    for_each = var.use_tls ? [module.tls_certificate[each.key].volume] : []
+    content {
+      source    = mounts.value
+      target    = "/etc/mongodb-tls"
+      type      = "volume"
+      read_only = true
+    }
+  }
   dynamic "mounts" {
     for_each = var.vault_encryption ? [var.vault_credentials] : []
     content {
@@ -114,7 +123,7 @@ resource "docker_container" "rs" {
     source = docker_volume.rs_volume[each.key].name
   }
   healthcheck {
-    test         = ["CMD-SHELL", "mongosh --port ${var.replset_port + each.value.member_index} --eval 'db.runCommand({ ping: 1 })'"]
+    test         = ["CMD-SHELL", "mongosh ${local.mongo_tls_flags} --port ${var.replset_port + each.value.member_index} --eval 'db.runCommand({ ping: 1 })'"]
     interval     = "10s"
     timeout      = "10s"
     retries      = 5
@@ -122,7 +131,7 @@ resource "docker_container" "rs" {
   }
   wait       = true
   restart    = "no"
-  depends_on = [null_resource.init_keyfile, terraform_data.vault_data_mode]
+  depends_on = [null_resource.init_keyfile, terraform_data.vault_data_mode, terraform_data.tls_data_mode]
 
   lifecycle {
     replace_triggered_by = [docker_image.psmdb]
