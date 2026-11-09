@@ -163,6 +163,7 @@ type ClusterSyncConfig struct {
 type Config struct {
 	// General
 	Prefix              string            `json:"prefix"`
+	DockerPlatform      string            `json:"docker_platform,omitempty"` // Empty uses the Docker daemon's native architecture.
 	MongoRelease        string            `json:"mongo_release,omitempty"`
 	MongoDBDistribution string            `json:"mongodb_distribution,omitempty"`
 	MongoVersion        string            `json:"mongo_version,omitempty"`

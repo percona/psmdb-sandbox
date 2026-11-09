@@ -1244,6 +1244,10 @@ func saveEnvironmentHandler(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, 400, "invalid platform")
 		return
 	}
+	if err := validateDockerPlatform(payload.Platform, payload.Config); err != nil {
+		jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if payload.Platform == "gcp" && !gcpEnvNameRe.MatchString(payload.EnvID) {
 		jsonError(w, 400, "invalid GCP environment name: it must start with a lowercase letter and contain only lowercase letters and digits (max 14 chars)")
 		return

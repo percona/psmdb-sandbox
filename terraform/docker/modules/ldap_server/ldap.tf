@@ -9,6 +9,7 @@ locals {
 }
 
 resource "docker_image" "ldap" {
+  platform      = var.docker_platform
   name          = "${local.ldap_repository}@${data.docker_registry_image.ldap.sha256_digest}"
   pull_triggers = [data.docker_registry_image.ldap.sha256_digest]
   keep_locally  = true
@@ -88,6 +89,7 @@ data "docker_registry_image" "ldap_admin" {
 }
 
 resource "docker_image" "ldap_admin" {
+  platform      = var.docker_platform
   name          = "${local.ldap_admin_repository}@${data.docker_registry_image.ldap_admin.sha256_digest}"
   pull_triggers = [data.docker_registry_image.ldap_admin.sha256_digest]
   keep_locally  = true

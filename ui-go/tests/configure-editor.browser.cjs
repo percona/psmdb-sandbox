@@ -188,6 +188,21 @@ const { chromium } = require('playwright');
       assert.equal(await page.getByText('Default MongoDB credentials are in use. Test environments only.', {exact: true}).count(), 0);
       assert.deepEqual(await save(), legacyPayload, `${platform}: organizing the form must not change its save payload`);
 
+      if (platform === 'docker') {
+        await panel('basics');
+        const architecture = page.locator('#docker_platform');
+        assert.equal(await architecture.inputValue(), '');
+        assert.equal((await save()).config.docker_platform, undefined, 'Native must omit the Terraform override');
+        for (const value of ['linux/amd64', 'linux/arm64']) {
+          await architecture.selectOption(value);
+          assert.equal((await save()).config.docker_platform, value, 'the selected architecture must be submitted');
+        }
+        await architecture.selectOption('');
+        assert.equal((await save()).config.docker_platform, undefined, 'switching back to Native must clear the override');
+      } else {
+        assert.equal(await page.locator('#docker_platform').count(), 0);
+      }
+
       await panel('mongodb');
       assert.equal(await page.getByRole('button', { name: 'Clusters & replica sets', exact: true }).count(), 1);
       const cluster = page.locator('#clusters-container > .component-block').first();
@@ -317,6 +332,7 @@ const { chromium } = require('playwright');
       await page.locator('#editor-service-choice').selectOption('load');
       assert.equal(await page.locator('#enable_plgm').isChecked(), true);
       await panel('basics');
+      if (platform === 'docker') await page.locator('#docker_platform').selectOption('linux/amd64');
       const modifiedPayload = await save();
       assert.equal(modifiedPayload.config.enable_plgm, true, 'hidden panel values must survive saving');
       assert.equal(modifiedPayload.config.clusters.cl01.shard_count, 3);
@@ -331,6 +347,7 @@ const { chromium } = require('playwright');
       assert.equal(profilePayload.name, 'Reusable test lab');
       assert.equal(profilePayload.platform, platform);
       assert.equal(profilePayload.config.clusters.cl01.shard_count, 3);
+      if (platform === 'docker') assert.equal(profilePayload.config.docker_platform, 'linux/amd64', 'profiles must retain architecture');
       assert.equal(await page.locator('#environment-starter').inputValue(), 'profile:testprofile');
       const beforeDeleteURL = page.url();
       const beforeDeleteForm = await page.locator('#config-form').evaluate(form => Array.from(new FormData(form).entries()));

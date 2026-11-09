@@ -28,9 +28,10 @@ resource "terraform_data" "tls_validation" {
 }
 
 module "certificate_authority" {
-  count          = var.enable_ca ? 1 : 0
-  source         = "./modules/certificate_authority"
-  name           = "${local.name_prefix}mongodb"
-  environment_id = var.prefix
-  depends_on     = [terraform_data.tls_validation]
+  docker_platform = var.docker_platform
+  count           = var.enable_ca ? 1 : 0
+  source          = "./modules/certificate_authority"
+  name            = "${local.name_prefix}mongodb"
+  environment_id  = var.prefix
+  depends_on      = [terraform_data.tls_validation]
 }

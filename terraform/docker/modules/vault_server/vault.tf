@@ -1,4 +1,5 @@
 resource "docker_image" "vault" {
+  platform     = var.docker_platform
   name         = var.image
   keep_locally = true
 }

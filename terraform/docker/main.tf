@@ -26,6 +26,7 @@ locals {
 }
 
 module "mongodb_clusters" {
+  docker_platform       = var.docker_platform
   environment_id        = var.prefix
   source                = "./modules/mongodb_cluster"
   for_each              = var.clusters
@@ -76,6 +77,7 @@ module "mongodb_clusters" {
 }
 
 module "mongodb_replsets" {
+  docker_platform        = var.docker_platform
   environment_id         = var.prefix
   source                 = "./modules/mongodb_replset"
   for_each               = var.replsets
@@ -127,6 +129,7 @@ module "mongodb_replsets" {
 }
 
 module "pmm_server" {
+  docker_platform   = var.docker_platform
   environment_id    = var.prefix
   source            = "./modules/pmm_server"
   for_each          = var.pmm_servers
@@ -150,6 +153,7 @@ module "pmm_server" {
 }
 
 module "pmm_bare_clients" {
+  docker_platform    = var.docker_platform
   environment_id     = var.prefix
   source             = "./modules/pmm_bare_client"
   for_each           = var.pmm_bare_clients
@@ -169,6 +173,7 @@ module "pmm_bare_clients" {
 }
 
 module "seaweedfs_server" {
+  docker_platform      = var.docker_platform
   environment_id       = var.prefix
   source               = "./modules/seaweedfs_server"
   for_each             = var.seaweedfs_servers
@@ -184,6 +189,7 @@ module "seaweedfs_server" {
 }
 
 module "ldap_server" {
+  docker_platform     = var.docker_platform
   environment_id      = var.prefix
   source              = "./modules/ldap_server"
   for_each            = var.ldap_servers

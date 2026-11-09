@@ -10,6 +10,7 @@ locals {
 }
 
 resource "docker_image" "renderer" {
+  platform      = var.docker_platform
   name          = "${local.renderer_repository}@${data.docker_registry_image.renderer.sha256_digest}"
   pull_triggers = [data.docker_registry_image.renderer.sha256_digest]
   keep_locally  = true
@@ -42,8 +43,10 @@ data "docker_registry_image" "watchtower" {
 }
 
 resource "docker_image" "watchtower" {
-  name          = "${local.watchtower_repository}@${data.docker_registry_image.watchtower.sha256_digest}"
-  platform      = "linux/amd64"
+  name = "${local.watchtower_repository}@${data.docker_registry_image.watchtower.sha256_digest}"
+  # percona/watchtower:latest currently publishes amd64 only. An explicit
+  # override allows using a replacement image that supports another platform.
+  platform      = var.docker_platform != null ? var.docker_platform : "linux/amd64"
   pull_triggers = [data.docker_registry_image.watchtower.sha256_digest]
   keep_locally  = true
 }
@@ -87,7 +90,7 @@ data "docker_registry_image" "pmm" {
 
 resource "docker_image" "pmm" {
   name          = "${local.pmm_repository}@${data.docker_registry_image.pmm.sha256_digest}"
-  platform      = "linux/amd64"
+  platform      = var.docker_platform
   pull_triggers = [data.docker_registry_image.pmm.sha256_digest]
   keep_locally  = true
 }

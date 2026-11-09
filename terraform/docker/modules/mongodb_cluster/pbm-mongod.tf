@@ -21,6 +21,7 @@ data "docker_registry_image" "psmdb" {
 }
 
 resource "docker_image" "psmdb" {
+  platform      = var.docker_platform
   name          = "${local.psmdb_repository}@${data.docker_registry_image.psmdb.sha256_digest}"
   pull_triggers = [data.docker_registry_image.psmdb.sha256_digest]
   keep_locally  = true
@@ -38,6 +39,7 @@ data "docker_registry_image" "pbm" {
 }
 
 resource "docker_image" "pbm" {
+  platform      = var.docker_platform
   name          = "${local.pbm_repository}@${data.docker_registry_image.pbm.sha256_digest}"
   pull_triggers = [data.docker_registry_image.pbm.sha256_digest]
   keep_locally  = true
@@ -48,6 +50,7 @@ data "docker_registry_image" "base_os" {
 }
 
 resource "docker_image" "base_os" {
+  platform      = var.docker_platform
   name          = "${local.base_os_repository}@${data.docker_registry_image.base_os.sha256_digest}"
   pull_triggers = [data.docker_registry_image.base_os.sha256_digest]
   keep_locally  = true
@@ -58,6 +61,7 @@ data "docker_registry_image" "mongot" {
 }
 
 resource "docker_image" "mongot" {
+  platform      = var.docker_platform
   name          = "${local.mongot_repository}@${data.docker_registry_image.mongot.sha256_digest}"
   pull_triggers = [data.docker_registry_image.mongot.sha256_digest]
   keep_locally  = true
@@ -71,6 +75,7 @@ resource "local_file" "pbm_mongod_image_dockerfile_content" {
 
 # Build PBM custom Docker image 
 resource "docker_image" "pbm_mongod" {
+  platform = var.docker_platform
   depends_on = [
     local_file.pbm_mongod_image_dockerfile_content,
     docker_image.psmdb,
@@ -84,6 +89,7 @@ resource "docker_image" "pbm_mongod" {
     base_os_digest = data.docker_registry_image.base_os.sha256_digest
   }
   build {
+    platform   = var.docker_platform
     context    = path.module
     dockerfile = "${var.cluster_name}-${replace(var.pbm_mongod_image, "/", "-")}.Dockerfile"
   }

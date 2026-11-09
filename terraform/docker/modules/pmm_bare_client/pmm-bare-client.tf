@@ -3,13 +3,15 @@ locals {
 }
 
 resource "docker_image" "client" {
-  name = "${var.client_name}-os"
+  platform = var.docker_platform
+  name     = "${var.client_name}-os"
   triggers = {
     build_args = jsonencode([var.base_image, var.pmm_client_repo, var.pmm_client_version])
     sources    = sha1(join("", [for f in fileset(local.image_dir, "*") : filesha1("${local.image_dir}/${f}")]))
   }
   build {
-    context = local.image_dir
+    platform = var.docker_platform
+    context  = local.image_dir
     build_args = {
       BASE_IMAGE         = var.base_image
       PMM_CLIENT_REPO    = var.pmm_client_repo

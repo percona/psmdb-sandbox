@@ -123,6 +123,13 @@ the plgm load generator Web UI when enabled).
     Basics, Clusters & replica sets, Resources,
     Optional services, Security, and Advanced. Sections that do not apply to the platform
     are omitted (for example, Docker has no cloud Resources section).
+    - For Docker, **Basics → Docker Settings → Image architecture** selects
+      **Native** (default), **AMD64**, or **ARM64**. Native matches the Docker
+      daemon; forcing a different architecture requires Docker emulation and
+      compatible image tags. The selection is saved with the environment and
+      reusable profiles. Watchtower defaults to AMD64 and plgm always uses AMD64.
+      Forcing ARM64 requires a compatible replacement Watchtower image. Use this
+      setting for new environments, not to migrate existing data volumes.
     - **Customize** and advanced-settings panels start collapsed, including when
       editing saved configurations. Collapsing never clears their values.
       Validation can open a panel to reveal a setting that needs attention.
