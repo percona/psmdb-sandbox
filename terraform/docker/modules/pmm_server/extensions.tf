@@ -37,6 +37,7 @@ data "docker_registry_image" "extensions" {
 }
 
 resource "docker_image" "extensions" {
+  platform      = var.docker_platform
   count         = var.enable_extensions ? 1 : 0
   name          = "${replace(data.docker_registry_image.extensions[0].name, "/(@sha256:[a-f0-9]+|:[^/]+)$/", "")}@${data.docker_registry_image.extensions[0].sha256_digest}"
   pull_triggers = [data.docker_registry_image.extensions[0].sha256_digest]

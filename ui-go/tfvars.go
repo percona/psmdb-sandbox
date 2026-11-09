@@ -47,6 +47,9 @@ func formatHCLVal(v interface{}) string {
 
 // writeTfvars generates the <env_id>.tfvars file in the platform's terraform directory.
 func writeTfvars(envID, platform string, cfg Config) error {
+	if err := validateDockerPlatform(platform, cfg); err != nil {
+		return err
+	}
 	if err := validateVaultConfig(platform, cfg); err != nil {
 		return err
 	}
@@ -415,6 +418,7 @@ func writeTfvars(envID, platform string, cfg Config) error {
 		}
 	} else {
 		// Docker-only
+		writeOptStr("docker_platform", cfg.DockerPlatform)
 		writeVar("enable_ca", boolDefault(cfg.EnableCA, false))
 		writeVar("ca_placement", strDefault(cfg.CAPlacement, "dedicated"))
 		writeOptStr("network_name", cfg.NetworkName)

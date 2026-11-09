@@ -8,12 +8,14 @@ variable "name" { type = string }
 variable "environment_id" { type = string }
 
 resource "docker_image" "signer" {
-  name = "psmdb-sandbox-tls-signer:alpine-3.22"
+  platform = var.docker_platform
+  name     = "psmdb-sandbox-tls-signer:alpine-3.22"
   triggers = {
     dockerfile = filesha256("${path.module}/Dockerfile")
   }
   build {
-    context = path.module
+    platform = var.docker_platform
+    context  = path.module
   }
   keep_locally = true
 }

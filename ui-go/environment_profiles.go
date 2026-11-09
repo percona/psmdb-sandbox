@@ -28,7 +28,7 @@ func profileConfig(cfg Config) Config {
 	data, _ := json.Marshal(cfg)
 	var source map[string]json.RawMessage
 	_ = json.Unmarshal(data, &source)
-	clean := selectProfileFields(source, `mongo_release mongodb_distribution mongo_version mongo_repo pbm_version pbm_repo pmm_client_version pmm_client_repo
+	clean := selectProfileFields(source, `docker_platform mongo_release mongodb_distribution mongo_version mongo_repo pbm_version pbm_repo pmm_client_version pmm_client_repo
 		enable_plgm use_tls enable_ca ca_placement plgm_image plgm_os_image vault_encryption vault_version vault_image vault_type vault_volume_size vault_cpu_cores vault_memory_gb
 		region location subnet_cidr subnet_count use_spot_instances enable_pmm pmm_type pmm_volume_size pmm_image pmm_image_channel pmm_disk_type enable_extensions extensions_image
 		enable_backup create_backup_bucket backup_retention machine_image enable_seaweedfs delete_after_days os_image

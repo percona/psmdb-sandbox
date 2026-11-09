@@ -76,6 +76,23 @@
   </section>
 
   <!-- ──────────── Platform-specific settings ──────────── -->
+  {{if eq $p "docker"}}
+  <section class="form-section" data-editor-group="basics">
+    <h2>Docker Settings</h2>
+    <div class="form-row">
+      <div class="form-group form-group-full">
+        <label for="docker_platform">Image architecture <span class="field-tip" data-tip="Native selects the Docker daemon's architecture, including ARM64 on Apple Silicon. A different architecture requires Docker emulation and can reduce performance. Selected image tags must support the requested architecture. Use this setting for new environments, not to migrate existing data volumes.">ⓘ</span></label>
+        <select id="docker_platform" name="docker_platform" aria-describedby="docker-platform-exceptions">
+          <option value="" {{if eq .Config.DockerPlatform ""}}selected{{end}}>Native — match the Docker host (recommended)</option>
+          <option value="linux/amd64" {{if eq .Config.DockerPlatform "linux/amd64"}}selected{{end}}>AMD64 — emulate on ARM hosts</option>
+          <option value="linux/arm64" {{if eq .Config.DockerPlatform "linux/arm64"}}selected{{end}}>ARM64 — emulate on x86 hosts</option>
+        </select>
+        <small id="docker-platform-exceptions">Exceptions: plgm always uses AMD64. Watchtower defaults to AMD64 because the Percona image is AMD64-only; forcing ARM64 also requires a compatible Watchtower image.</small>
+      </div>
+    </div>
+  </section>
+  {{end}}
+
   {{if eq $p "gcp"}}
   <section class="form-section" data-editor-group="basics">
     <h2>GCP Settings</h2>
@@ -4960,6 +4977,7 @@ document.getElementById('config-form').addEventListener('submit', async (e) => {
 
   // Simple scalar fields
   const simpleFields = [
+    'docker_platform',
     'region','location',
     'subnet_cidr','subnet_count','source_ranges','default_vpc_name',
     'enable_ssh_gateway','ssh_gateway_name','port_to_forward',

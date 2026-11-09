@@ -6,6 +6,7 @@ locals {
 }
 
 resource "docker_image" "pcsm" {
+  platform     = var.docker_platform
   count        = var.enable_pcsm ? 1 : 0
   name         = var.pcsm_image
   keep_locally = true
@@ -17,6 +18,7 @@ data "docker_registry_image" "pcsm_pmm_client" {
 }
 
 resource "docker_image" "pcsm_pmm_client" {
+  platform      = var.docker_platform
   count         = var.enable_pcsm ? 1 : 0
   name          = "${replace(data.docker_registry_image.pcsm_pmm_client[0].name, "/(@sha256:[a-f0-9]+|:[^/]+)$/", "")}@${data.docker_registry_image.pcsm_pmm_client[0].sha256_digest}"
   pull_triggers = [data.docker_registry_image.pcsm_pmm_client[0].sha256_digest]

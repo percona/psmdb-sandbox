@@ -7,6 +7,7 @@ locals {
 }
 
 resource "docker_image" "seaweedfs" {
+  platform      = var.docker_platform
   name          = "${local.seaweedfs_repository}@${data.docker_registry_image.seaweedfs.sha256_digest}"
   pull_triggers = [data.docker_registry_image.seaweedfs.sha256_digest]
   keep_locally  = true

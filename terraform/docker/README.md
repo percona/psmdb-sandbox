@@ -46,6 +46,49 @@ ldap_servers  = {}
 
 Apply it with `terraform apply -var-file=minimum.tfvars`.
 
+### Image architecture
+
+Image pulls and custom builds use the Docker daemon's native platform by default,
+except for the amd64-only components noted below.
+For example, Docker Desktop on Apple Silicon selects `linux/arm64`, not macOS
+images. This also works when Terraform itself runs under emulation or connects
+to a remote Docker daemon.
+
+In the web UI, the equivalent selector is **Basics → Docker Settings → Image
+architecture**: choose **Native** (default), **AMD64**, or **ARM64**. The selection
+is retained when editing, duplicating, or saving a reusable profile.
+
+For standalone Terraform, set the platform in your `tfvars`:
+
+```hcl
+docker_platform = "linux/amd64" # or "linux/arm64"; omit for native selection
+```
+
+The override applies to MongoDB, PBM (including its custom multi-stage image),
+PMM and supporting services, bare-client builds, and the TLS signer. Registry
+digest pinning is preserved: a multi-platform index still lets Docker select
+the matching architecture. A single-platform digest or tag must already match
+the requested platform. Not every component/version publishes ARM64 images;
+choose a compatible tag or explicitly request an emulated platform when needed.
+Two components currently need amd64 emulation on ARM hosts:
+
+- Watchtower defaults to `linux/amd64` because `percona/watchtower:latest` only
+  publishes amd64. An explicit `docker_platform` overrides this too; to request
+  ARM64, also provide a compatible `pmm_servers.<name>.watchtower_image`.
+- plgm remains `linux/amd64` because its integration uses an amd64-only release
+  binary, regardless of `docker_platform`.
+
+This setting is intended for new environments, not an architecture migration of
+existing data volumes. The Terraform Docker provider can reuse locally cached
+images without checking their architecture, even with an explicit platform.
+If an image was previously pulled for another architecture, use a matching
+architecture-specific digest or pre-pull the intended platform before creating
+the environment. Do not remove images used by running environments.
+
+Run the plan-only platform regression tests with `terraform init` followed by
+`terraform test -filter=tests/platform.tftest.hcl`. Providers are mocked; the
+tests do not pull images, build containers, or change running environments.
+
 ### TLS and X.509 member authentication
 
 Docker uses the same **Provision certificate authority** and per-topology

@@ -45,15 +45,16 @@ resource "terraform_data" "vault_validation" {
 }
 
 module "vault" {
-  environment_id = var.prefix
-  count          = local.vault_enabled ? 1 : 0
-  source         = "./modules/vault_server"
-  name           = "${local.name_prefix}vault"
-  image          = var.vault_image
-  network_name   = docker_network.mongo_network.name
-  topologies     = local.vault_topologies
-  controller_dir = var.vault_controller_dir != "" ? abspath(var.vault_controller_dir) : abspath("${path.module}/.vault/${var.prefix != "" ? var.prefix : "default"}")
-  depends_on     = [terraform_data.vault_validation]
+  docker_platform = var.docker_platform
+  environment_id  = var.prefix
+  count           = local.vault_enabled ? 1 : 0
+  source          = "./modules/vault_server"
+  name            = "${local.name_prefix}vault"
+  image           = var.vault_image
+  network_name    = docker_network.mongo_network.name
+  topologies      = local.vault_topologies
+  controller_dir  = var.vault_controller_dir != "" ? abspath(var.vault_controller_dir) : abspath("${path.module}/.vault/${var.prefix != "" ? var.prefix : "default"}")
+  depends_on      = [terraform_data.vault_validation]
 }
 
 module "vault_recovery" {
