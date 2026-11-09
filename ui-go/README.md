@@ -19,7 +19,8 @@ Supported platforms:
 MongoDB 9.0 is available as an explicit Community/Enterprise package selection
 for fresh VM environments. PSMDB releases and Docker images depend on published
 Percona artifacts. See [MongoDB 9.0 deployment notes](../docs/mongodb-9.0.md) for
-integration compatibility and examples. Default versions are retained.
+integration compatibility and examples. New configurations default to the latest
+available GA PSMDB release.
 
 ## Requirements
 
@@ -127,12 +128,12 @@ the plgm load generator Web UI when enabled).
       Validation can open a panel to reveal a setting that needs attention.
     - Collapsed topology cards summarize the distribution/image, member counts,
       monitoring, backups, Search, and TLS. **Edit** exposes the topology and
-      distribution → major version → minor/package version. New clusters and
-      replica sets open for editing and require those selections in that order.
+      major and minor/package versions. New clusters and replica sets open for
+      editing with the latest available PSMDB in the release (GA) channel selected.
       Docker offers PSMDB only, with versions derived from available image tags.
       Environment tags sit beside the topology name; member counts are grouped
       under **Topology**. Audit logging sits alongside the other feature checkboxes.
-      **Advanced settings & packages** holds OS images, repository channels,
+      **Advanced Settings & Packages** holds MongoDB distribution, OS images, repository channels,
       agent package pins, custom images, audit filters, and port overrides.
       PMM/PBM major selectors are initialized from cached package versions while
       live metadata loads. Refreshes preserve valid version pins. Empty and failed
@@ -147,6 +148,14 @@ the plgm load generator Web UI when enabled).
       unchecking that service removes its clients. The info tooltip explains this
       and where to find Search and security settings. Search is configured
       per topology in Clusters & replica sets; TLS/CA, encryption, LDAP, and credentials are in Security.
+      PMM clients without MongoDB are available on Docker, CHAOS, AWS, GCP, and Azure.
+      AWS, GCP, and Azure clients use the environment machine image and replica set
+      machine type, with a boot disk and no separate MongoDB data disk. Each client
+      can override its PMM package channel and version. Clients require a PMM server,
+      which the editor enables automatically.
+    - New AWS and GCP configurations use the **Dev** hardware preset and automatically
+      select **Ubuntu 24.04** when it is available in the machine image list. Saved
+      image selections and hardware settings are preserved.
     - CHAOS compute/storage controls appear once in Resources, since they are
       shared by node role across the environment. Network rules and lifetime are
       directly editable, without a redundant Customize toggle.

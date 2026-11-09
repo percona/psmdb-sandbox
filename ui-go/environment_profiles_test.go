@@ -137,6 +137,19 @@ func TestStarterEnvironments(t *testing.T) {
 			if cfg.Prefix != "" || len(cfg.AnsibleVars) != 0 {
 				t.Fatal("starter templates must not include an identity or credentials")
 			}
+			if (platform == "aws" || platform == "gcp") && cfg.HardwarePreset != "dev" {
+				t.Fatal("new cloud starters must use the Dev hardware preset")
+			}
+			for _, cluster := range cfg.Clusters {
+				if cluster.MongoRelease != "" {
+					t.Fatal("starters must resolve the latest GA release in the editor instead of pinning an old major")
+				}
+			}
+			for _, replset := range cfg.Replsets {
+				if replset.MongoRelease != "" {
+					t.Fatal("starters must resolve the latest GA release in the editor instead of pinning an old major")
+				}
+			}
 			if kind == "sharded" {
 				if len(cfg.Clusters) != 1 || cfg.Clusters["cl01"].ShardsvrReplicas != 3 || *cfg.Clusters["cl01"].ArbitersPerReplset != 0 {
 					t.Fatal("invalid sharded starter topology")

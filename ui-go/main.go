@@ -85,6 +85,7 @@ var funcMap = template.FuncMap{
 	"upper":         strings.ToUpper,
 	"hasPrefix":     strings.HasPrefix,
 	"join":          strings.Join,
+	"imageName":     func(image string) string { return image[strings.LastIndex(image, "/")+1:] },
 	"defaultRegion": func(platform string) string { return defaultCloudRegion[platform] },
 	// Benchmark hardware tunables (see hardware.go).
 	"hardwarePresets":     hardwarePresets,
@@ -114,12 +115,8 @@ var funcMap = template.FuncMap{
 		}
 		return false
 	},
+	"preferredPSMDBImage": preferredPSMDBImage,
 	"preferredPSMDBRelease": func(versions []string) string {
-		for _, version := range versions {
-			if version == "psmdb-80" {
-				return version
-			}
-		}
 		if len(versions) > 0 {
 			return versions[0]
 		}

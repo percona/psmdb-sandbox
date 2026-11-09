@@ -27,8 +27,7 @@
     <h2 class="profiles-title">Templates <button type="button" id="environment-profiles-tip" class="field-tip" aria-label="Profiles are shared by this sandbox UI and scoped to the platform. Credentials, Ansible overrides, external storage details, host ports, and environment identity are excluded. Starting points open a new configuration; they never deploy or change an existing environment." data-tip="Profiles are shared by this sandbox UI and scoped to the platform. Credentials, Ansible overrides, external storage details, host ports, and environment identity are excluded. Starting points open a new configuration; they never deploy or change an existing environment.">ⓘ</button></h2>
     <div class="form-row">
       <div class="form-group">
-        <label for="environment-starter">Start a new configuration (optional)</label>
-        <select id="environment-starter">
+        <select id="environment-starter" aria-label="Configuration template">
           <option value="">No starting point — configure manually</option>
           <optgroup label="Starter templates">
             <option value="template:replica-set">Three-node replica set</option>
@@ -60,7 +59,7 @@
     <h2>General</h2>
     <div class="form-row">
       <div class="form-group">
-        <label for="env_id_field">Name <span class="field-tip" data-tip="Unique identifier for this environment. Leave blank to auto-generate. Also used as the resource prefix and tfvars filename prefix.">ⓘ</span></label>
+        <label for="env_id_field">Environment Name <span class="field-tip" data-tip="Unique identifier for this environment. Leave blank to auto-generate. Also used as the resource prefix and tfvars filename prefix.">ⓘ</span></label>
         <input type="text" id="env_id_field" name="env_id" placeholder="e.g. dev01"
                value="{{.EnvID}}" maxlength="{{if eq $p "gcp"}}14{{else}}16{{end}}" pattern="{{if eq $p "gcp"}}[a-z][a-z0-9]*{{else}}[a-z0-9]+{{end}}"
                title="{{if eq $p "gcp"}}Must start with a lowercase letter; lowercase letters and digits only, max 14 characters{{else}}Lowercase letters and digits only, max 16 characters{{end}}">
@@ -68,7 +67,7 @@
     </div>
     <div class="form-row" id="encryption-settings">
       <div class="form-group form-group-checkbox">
-        <label><input type="checkbox" name="vault_encryption" {{if .Config.VaultEncryption}}checked{{end}}> Encryption at rest (PSMDB / Vault)
+        <label><input type="checkbox" name="vault_encryption" {{if .Config.VaultEncryption}}checked{{end}}> Enable encryption at rest (PSMDB)
           <span class="field-tip" data-tip="When enabled, every cluster and replica set in this environment uses its dedicated Vault. All MongoDB topologies must use PSMDB.">ⓘ</span></label>
       </div>
     </div>
@@ -99,7 +98,7 @@
           <select id="machine_image" name="machine_image" style="flex:1"
                   onchange="toggleMachineImageCustom(this)">
             <option value="">— select a region first —</option>
-            {{if .Config.MachineImage}}<option value="{{.Config.MachineImage}}" selected>{{.Config.MachineImage}}</option>{{end}}
+            {{if .Config.MachineImage}}<option value="{{.Config.MachineImage}}" selected>{{imageName .Config.MachineImage}}</option>{{end}}
             <option value="__custom__">Custom…</option>
           </select>
           <a href="#" onclick="reloadImages(event)" style="white-space:nowrap">↻ Refresh</a>
@@ -590,9 +589,9 @@
               </select>
             </div>
             <div class="form-group">
-              <label>MongoDB Major Version <span class="field-tip" data-tip="Defaults to PSMDB 8.0. PSMDB 8.3 and newer lines must be selected explicitly. Releases are filtered by package availability for the selected OS and channel.">ⓘ</span></label>
-              <select name="cluster_mongo_release[]" onchange="onMongoReleaseChange(this); onPackageMongoReleaseChange(this)">
-                {{$curRel := .Config.MongoRelease}}
+              <label>MongoDB Major Version <span class="field-tip" data-tip="Defaults to the latest PSMDB available in the GA channel for the selected OS.">ⓘ</span></label>
+              <select name="cluster_mongo_release[]" {{if and (not .Config.MongoRelease) (not $.Config.MongoRelease)}}data-default-latest="true"{{end}} onchange="delete this.dataset.defaultLatest; onMongoReleaseChange(this); onPackageMongoReleaseChange(this)">
+                {{$curRel := strDefault .Config.MongoRelease $.Config.MongoRelease}}
                 {{$defaultRel := preferredPSMDBRelease $.PSMDBVersions}}
                 {{range $.PSMDBVersions}}
                 <option value="{{.}}" {{if or (eq $curRel .) (and (eq $curRel "") (eq $defaultRel .))}}selected{{end}}>{{.}}</option>
@@ -696,7 +695,7 @@
           <div class="form-row">
             <div class="form-group image-field" data-image-repo="percona-server-mongodb">
               <label>PSMDB Image <span class="field-tip" data-tip="Percona Server for MongoDB Docker image tag used for all nodes in this cluster.">ⓘ</span></label>
-              {{$cur := .Config.PsmdbImage}}{{$ns := imageNamespace $cur "percona"}}
+              {{$cur := strDefault .Config.PsmdbImage (printf "percona/percona-server-mongodb:%s" (preferredPSMDBImage $.PSMDBImages))}}{{$ns := imageNamespace $cur "percona"}}
               <div class="image-namespace-row">
                 <select class="docker-namespace-select" onchange="onDockerImageNamespaceChange(this)">
                   <option value="percona" {{if eq $ns "percona"}}selected{{end}}>percona</option>
@@ -901,7 +900,7 @@
   <!-- ──────────── Replica Sets ──────────── -->
   <section class="form-section" data-editor-group="mongodb">
     <div class="section-header">
-      <h2>Standalone Replica Sets <span class="field-tip" data-tip="Optional: standalone replica sets separate from the sharded clusters above.">ⓘ</span></h2>
+      <h2>Replica Sets <span class="field-tip" data-tip="Optional: replica sets separate from the sharded clusters above.">ⓘ</span></h2>
       <button type="button" class="btn btn-outline btn-sm" onclick="addReplset()">+ Add Replica Set</button>
     </div>
     <div id="replsets-container">
@@ -1025,9 +1024,9 @@
               </select>
             </div>
             <div class="form-group">
-              <label>MongoDB Major Version <span class="field-tip" data-tip="Defaults to PSMDB 8.0. PSMDB 8.3 and newer lines must be selected explicitly. Releases are filtered by package availability for the selected OS and channel.">ⓘ</span></label>
-              <select name="replset_mongo_release[]" onchange="onMongoReleaseChange(this); onPackageMongoReleaseChange(this)">
-                {{$curRel := .Config.MongoRelease}}
+              <label>MongoDB Major Version <span class="field-tip" data-tip="Defaults to the latest PSMDB available in the GA channel for the selected OS.">ⓘ</span></label>
+              <select name="replset_mongo_release[]" {{if and (not .Config.MongoRelease) (not $.Config.MongoRelease)}}data-default-latest="true"{{end}} onchange="delete this.dataset.defaultLatest; onMongoReleaseChange(this); onPackageMongoReleaseChange(this)">
+                {{$curRel := strDefault .Config.MongoRelease $.Config.MongoRelease}}
                 {{$defaultRel := preferredPSMDBRelease $.PSMDBVersions}}
                 {{range $.PSMDBVersions}}
                 <option value="{{.}}" {{if or (eq $curRel .) (and (eq $curRel "") (eq $defaultRel .))}}selected{{end}}>{{.}}</option>
@@ -1131,7 +1130,7 @@
           <div class="form-row">
             <div class="form-group image-field" data-image-repo="percona-server-mongodb">
               <label>PSMDB Image <span class="field-tip" data-tip="Percona Server for MongoDB Docker image tag for this replica set.">ⓘ</span></label>
-              {{$cur := .Config.PsmdbImage}}{{$ns := imageNamespace $cur "percona"}}
+              {{$cur := strDefault .Config.PsmdbImage (printf "percona/percona-server-mongodb:%s" (preferredPSMDBImage $.PSMDBImages))}}{{$ns := imageNamespace $cur "percona"}}
               <div class="image-namespace-row">
                 <select class="docker-namespace-select" onchange="onDockerImageNamespaceChange(this)">
                   <option value="percona" {{if eq $ns "percona"}}selected{{end}}>percona</option>
@@ -1548,8 +1547,7 @@
     {{end}}
   </section>
 
-  <!-- ──────────── PMM clients without MongoDB (Docker and CHAOS) ──────────── -->
-  {{if or (eq $p "docker") (eq $p "chaos")}}
+  <!-- ──────────── PMM clients without MongoDB ──────────── -->
   <section class="form-section" data-editor-group="services" data-editor-service="clients">
     <div class="section-header">
       <h2>PMM Clients Without MongoDB <span class="field-tip" data-tip="Hosts with only a PMM client, registered with the PMM server. PMM Extensions can install MongoDB on them.">ⓘ</span></h2>
@@ -1557,7 +1555,6 @@
     </div>
     <div id="bare-clients-container"></div>
   </section>
-  {{end}}
 
   <!-- ──────────── Backup (CHAOS only) ──────────── -->
   {{if eq $p "chaos"}}
@@ -1767,12 +1764,12 @@
   <!-- ──────────── LDAP Servers (Docker only) ──────────── -->
   <section class="form-section" data-editor-group="security">
     <div class="section-header">
-      <h2>LDAP Servers</h2>
+      <h2>LDAP</h2>
       <label class="toggle-label">
         <input type="checkbox" id="enable-ldap-docker"
                {{if .SortedLdap}}checked{{end}}
                onchange="toggleDockerSingleServer('ldap-servers-container', this, addLdapServer); toggleCredentialRow('cred-ldap-row', this.checked)">
-        Include LDAP Server
+        Configure LDAP authentication
       </label>
     </div>
     <div id="ldap-servers-container">
@@ -2084,7 +2081,7 @@
   {{if ne $p "docker"}}
   <section class="form-section" data-editor-group="security">
     <div class="section-header">
-      <h2>LDAP Server</h2>
+      <h2>LDAP</h2>
     </div>
     <div class="form-row" style="margin-bottom:0.5rem">
       <div class="form-group form-group-checkbox">
@@ -2092,7 +2089,7 @@
         <input type="checkbox" id="enable_ldap" name="enable_ldap" value="true"
                 {{if .SortedLdap}}checked{{end}}
                 onchange="toggleCloudLdapSection(this)">
-        Include LDAP <span class="field-tip" data-tip="Creates one OpenLDAP server and phpLDAPadmin host. All MongoDB clusters and replica sets in this environment use it for PLAIN authentication.">ⓘ</span>
+        Configure LDAP authentication <span class="field-tip" data-tip="Creates one OpenLDAP server and phpLDAPadmin host. All MongoDB clusters and replica sets in this environment use it for PLAIN authentication.">ⓘ</span>
       </label>
       </div>
     </div>
@@ -2479,7 +2476,7 @@ function dependencyRules() {
       tickDependentsOnEnable: docker,
       dependents: [
         checkboxDependent('enable_pmm', 'PMM agent'),
-        ...(docker || PLATFORM === 'chaos' ? [bareClientsDependent()] : []),
+        bareClientsDependent(),
         ...(managedTLS ? [caOnPmmDependent()] : []),
       ],
     },
@@ -3276,6 +3273,11 @@ async function refreshPackageVersions(block, prefix, product) {
         const previousRelease = releaseSel.value;
         releaseSel.dataset.minorVersions = JSON.stringify(data.minor_versions || {});
         setSelectOptionsNoEmpty(releaseSel, data.major_versions || []);
+        if (releaseSel.dataset.defaultLatest && distribution === 'psmdb' && channel === 'release' && data.major_versions?.length) {
+          releaseSel.value = data.major_versions[0];
+          packageSelect(block, prefix, 'mongo_version').value = '';
+          delete releaseSel.dataset.defaultLatest;
+        }
         onMongoReleaseChange(releaseSel);
         if (releaseSel.value !== previousRelease) onPackageMongoReleaseChange(releaseSel);
       }
@@ -3745,7 +3747,9 @@ function selectedPmmServerImageValue() {
 function buildDockerImageRows(type) {
   if (type !== 'cluster' && type !== 'replset') return '';
   const namespaceControl = (defaultNs = 'percona', mongot = false) => `<div class="image-namespace-row"><select class="docker-namespace-select" onchange="${mongot ? 'onDockerMongotNamespaceChange' : 'onDockerImageNamespaceChange'}(this)"><option value="percona"${defaultNs === 'percona' ? ' selected' : ''}>percona</option><option value="perconalab"${defaultNs === 'perconalab' ? ' selected' : ''}>perconalab</option><option value="mongodb"${defaultNs === 'mongodb' ? ' selected' : ''}>mongodb</option><option value="__custom__">custom</option></select><input type="text" class="docker-namespace-custom" placeholder="namespace" style="display:none" oninput="onDockerImageNamespaceChange(this)"></div>`;
-  const psmdbSel = PSMDB_IMAGES.map(t => `<option value="${escHtml(t)}"${t === 'latest' ? ' selected' : ''}>percona/percona-server-mongodb:${escHtml(t)}</option>`).join('') +
+  const psmdbDefault = PSMDB_IMAGES.filter(t => /^\d+\.\d+\.\d+(-\d+)?$/.test(t))
+    .sort((a, b) => b.localeCompare(a, undefined, {numeric: true}))[0] || 'latest';
+  const psmdbSel = PSMDB_IMAGES.map(t => `<option value="${escHtml(t)}"${t === psmdbDefault ? ' selected' : ''}>percona/percona-server-mongodb:${escHtml(t)}</option>`).join('') +
     `<option value="__custom__">Custom…</option>`;
   const pbmSel   = PBM_IMAGES.map(t => `<option value="${escHtml(t)}"${t === 'latest' ? ' selected' : ''}>percona/percona-backup-mongodb:${escHtml(t)}</option>`).join('') +
     `<option value="__custom__">Custom…</option>`;
@@ -3775,7 +3779,7 @@ function buildDockerImageRows(type) {
 
 function buildPackageOverrideRows(type) {
   if (PLATFORM === 'docker' || (type !== 'cluster' && type !== 'replset')) return '';
-  const defaultMongoRelease = PSMDB_VERSIONS.includes('psmdb-80') ? 'psmdb-80' : PSMDB_VERSIONS[0];
+  const defaultMongoRelease = PSMDB_VERSIONS[0];
   const mongoReleaseOptions = PSMDB_VERSIONS.map(v => `<option value="${escHtml(v)}"${v === defaultMongoRelease ? ' selected' : ''}>${escHtml(v)}</option>`).join('');
   const pbmVersionOptions = PBM_VERSIONS.map(v => `<option value="${escHtml(v)}">${escHtml(v)}</option>`).join('');
   const pmmClientVersionOptions = PMM_CLIENT_IMAGES.map(v => `<option value="${escHtml(v)}">${escHtml(v)}</option>`).join('');
@@ -3813,8 +3817,8 @@ function buildPackageOverrideRows(type) {
         </select></div>
       <div class="form-group" data-mongodb-repo><label>MongoDB Repository Channel <span class="field-tip" data-tip="PSMDB repository channel for this ${label}. Defaults to release (GA).">ⓘ</span></label>
         <select name="${type}_mongo_repo[]" onchange="onPackageRepoChange(this, 'psmdb')">${repoOptions}</select></div>
-      <div class="form-group"><label>MongoDB Major Version <span class="field-tip" data-tip="Defaults to PSMDB 8.0. PSMDB 8.3 and newer lines must be selected explicitly. Releases are filtered by package availability for the selected OS and channel.">ⓘ</span></label>
-        <select name="${type}_mongo_release[]" onchange="onMongoReleaseChange(this); onPackageMongoReleaseChange(this)">${mongoReleaseOptions}</select></div>
+      <div class="form-group"><label>MongoDB Major Version <span class="field-tip" data-tip="Defaults to the latest PSMDB available in the GA channel for the selected OS.">ⓘ</span></label>
+        <select name="${type}_mongo_release[]" data-default-latest="true" onchange="delete this.dataset.defaultLatest; onMongoReleaseChange(this); onPackageMongoReleaseChange(this)">${mongoReleaseOptions}</select></div>
       <div class="form-group"><label>MongoDB Minor Version <span class="field-tip" data-tip="PSMDB minor/package version pin for this ${label}. Defaults to the newest package from the selected release/channel.">ⓘ</span></label>
         <select name="${type}_mongo_version[]"></select></div>
     </div>
@@ -4178,7 +4182,7 @@ function addBareClient(name, cfg = {}) {
   row.innerHTML = `
     <div class="form-group"><label>Name</label>
       <input type="text" name="bare_client_name[]" value="${escHtml(name)}"></div>
-    <div class="form-group"><label>${docker ? 'Base Image' : 'OS Image'} <span class="field-tip" data-tip="${docker ? 'Debian, Ubuntu or RHEL-compatible image the client is built on.' : 'CHAOS OS image. default uses the same OS as the other VMs.'}">ⓘ</span></label>
+    <div class="form-group"${!docker && PLATFORM !== 'chaos' ? ' hidden' : ''}><label>${docker ? 'Base Image' : 'OS Image'} <span class="field-tip" data-tip="${docker ? 'Debian, Ubuntu or RHEL-compatible image the client is built on.' : 'CHAOS OS image. default uses the same OS as the other VMs.'}">ⓘ</span></label>
       <select name="bare_client_image[]" onchange="this.nextElementSibling.style.display = this.value === '__custom__' ? '' : 'none'">${imageOptions}</select>
       <input type="text" name="bare_client_image_custom[]" value="${listed ? '' : escHtml(image)}" placeholder="${docker ? 'registry/repo:tag' : 'CHAOS OS image'}" style="${listed ? 'display:none;' : ''}margin-top:0.3rem"></div>
     ${clientFields}
@@ -4659,10 +4663,14 @@ async function loadImages(refresh = false) {
   } catch (e) {
     imgSel.innerHTML = '<option value="">— image fetch failed —</option>';
     if (currentVal) {
-      const opt = new Option(currentVal, currentVal, true, true);
+      const opt = new Option(imageOptionLabel(currentVal), currentVal, true, true);
       imgSel.insertBefore(opt, imgSel.firstChild);
     }
   }
+}
+
+function imageOptionLabel(image) {
+  return PLATFORM === 'gcp' ? image.substring(image.lastIndexOf('/') + 1) : image;
 }
 
 function renderImageOptions(imgSel, groups, currentVal) {
@@ -4670,7 +4678,7 @@ function renderImageOptions(imgSel, groups, currentVal) {
   if (osNames.length === 0) {
     imgSel.innerHTML = '<option value="">— no images found —</option>';
     if (currentVal) {
-      const opt = new Option(currentVal, currentVal, false, true);
+      const opt = new Option(imageOptionLabel(currentVal), currentVal, false, true);
       imgSel.insertBefore(opt, imgSel.firstChild);
     }
     appendCustomImageOption(imgSel, currentVal);
@@ -4682,8 +4690,8 @@ function renderImageOptions(imgSel, groups, currentVal) {
     const grp = document.createElement('optgroup');
     grp.label = os;
     (groups[os] || []).forEach(img => {
-      const label = img.name || img.id;
-      const opt = new Option(label + ' (' + img.id + ')', img.id);
+      const label = imageOptionLabel(img.name || img.id);
+      const opt = new Option(PLATFORM === 'gcp' ? label : label + ' (' + img.id + ')', img.id);
       if (img.id === currentVal) { opt.selected = true; matched = true; }
       grp.appendChild(opt);
     });
@@ -4691,10 +4699,15 @@ function renderImageOptions(imgSel, groups, currentVal) {
   });
   // Keep stale saved value visible even if not in the freshly-fetched list.
   if (currentVal && currentVal !== '__custom__' && !matched) {
-    const opt = new Option(currentVal, currentVal, true, true);
+    const opt = new Option(imageOptionLabel(currentVal), currentVal, true, true);
     imgSel.insertBefore(opt, imgSel.firstChild);
   }
   appendCustomImageOption(imgSel, currentVal);
+  if (!currentVal) {
+    const ubuntu = osNames.find(os => /ubuntu.*24/i.test(os));
+    const image = ubuntu && groups[ubuntu]?.[0];
+    if (image) imgSel.value = image.id;
+  }
 }
 
 function appendCustomImageOption(imgSel, currentVal) {
@@ -5265,7 +5278,7 @@ document.getElementById('config-form').addEventListener('submit', async (e) => {
   }
 
   // PMM clients without MongoDB
-  if (PLATFORM === 'docker' || PLATFORM === 'chaos') {
+  {
     config.pmm_bare_clients = {};
     for (const row of document.querySelectorAll('#bare-clients-container .bare-client-row')) {
       const name = getBlockFieldValue(row, 'bare_client_name[]').trim();

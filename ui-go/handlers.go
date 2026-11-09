@@ -326,6 +326,9 @@ func configureHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		startingPoint = kind
 	}
+	if envID == "" && duplicateOf == "" && startingPoint == "" && (platform == "aws" || platform == "gcp") {
+		cfg.HardwarePreset = "dev"
+	}
 	normalizeTopologyUseTLS(&cfg)
 	normalizeCAProvisioning(&cfg)
 	if platform == "chaos" && envID == "" && duplicateOf == "" && startingPoint == "" {
@@ -1155,7 +1158,7 @@ func normalizeCAProvisioning(cfg *Config) {
 	}
 }
 
-// pmmClientsInventory is the CHAOS inventory of the PMM server and the PMM clients without MongoDB.
+// pmmClientsInventory contains the PMM server and PMM clients without MongoDB on VM platforms.
 const pmmClientsInventory = "pmm_clients"
 
 // cloudInventoryNames lists the Ansible inventories Terraform generates for an environment.

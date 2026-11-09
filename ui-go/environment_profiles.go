@@ -192,11 +192,14 @@ func starterEnvironment(kind, platform string) (Config, error) {
 	if platform == "chaos" {
 		cfg.DeleteAfterDays = 7
 	}
+	if platform == "aws" || platform == "gcp" {
+		cfg.HardwarePreset = "dev"
+	}
 	replica := ReplsetConfig{EnvTag: "test", DataNodesPerReplset: 3, ArbitersPerReplset: &zero}
 	cluster := ClusterConfig{EnvTag: "test", ConfigsvrCount: 3, MongosCount: 2, ShardCount: 2, ShardsvrReplicas: 3, ArbitersPerReplset: &zero}
 	if platform != "docker" {
-		replica.MongoDBDistribution, replica.MongoRelease = "psmdb", "psmdb-80"
-		cluster.MongoDBDistribution, cluster.MongoRelease = "psmdb", "psmdb-80"
+		replica.MongoDBDistribution = "psmdb"
+		cluster.MongoDBDistribution = "psmdb"
 	}
 	switch kind {
 	case "replica-set":

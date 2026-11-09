@@ -20,6 +20,7 @@ const { chromium } = require('playwright');
       let holdPmmRequests = false;
       let failExperimental = true;
       let dismissNextDialog = false;
+      let latestPSMDB = false;
       const heldPmmRequests = [];
       page.on('pageerror', error => errors.push(error.message));
       const handleDialog = dialog => {
@@ -65,7 +66,10 @@ const { chromium } = require('playwright');
           return route.fulfill({ json: { ok: true } });
         }
         if (url.pathname.startsWith('/api/regions/')) return route.fulfill({ json: { regions: ['us-east-1', 'us-central1', 'eastus'] } });
-        if (url.pathname.startsWith('/api/images/')) return route.fulfill({ json: { images: {} } });
+        if (url.pathname.startsWith('/api/images/')) return route.fulfill({ json: { images: {
+          'Debian 12': [{id: 'debian-test', name: 'Debian'}],
+          'Ubuntu 24.04 LTS': [{id: 'ubuntu24-test', name: 'Ubuntu 24.04'}],
+        } } });
         if (url.pathname === '/api/package-versions') {
           const product = url.searchParams.get('product');
           const channel = url.searchParams.get('channel');
@@ -82,6 +86,10 @@ const { chromium } = require('playwright');
           if (product === 'pmm_client') return route.fulfill({json: {versions: ['3.10.0', '3.9.0', '2.44.0']}});
           if (product === 'pbm') return route.fulfill({json: {versions: ['2.11.0', '2.10.0', '1.9.0']}});
           const official = ['community', 'enterprise'].includes(url.searchParams.get('distribution'));
+          if (!official && latestPSMDB) return route.fulfill({json: {
+            major_versions: ['psmdb-83', 'psmdb-80'],
+            minor_versions: {'psmdb-83': ['8.3.2-1', '8.3.1-1'], 'psmdb-80': ['8.0.12-4']},
+          }});
           return route.fulfill({ json: {
             versions: ['8.0.12-4'], major_versions: official ? ['8.0', '7.0'] : ['psmdb-80'],
             minor_versions: official ? {'8.0': ['8.0.12'], '7.0': ['7.0.18']} : {'psmdb-80': ['8.0.12-4']},
@@ -147,6 +155,37 @@ const { chromium } = require('playwright');
       assert.equal(await page.locator('#editor-panel-basics').isVisible(), true);
       assert.equal(await page.locator('[data-editor-service]:visible').count(), 0);
       assert.equal(await page.locator('#editor-summary-topology').textContent(), '1 cluster · 1 replica set · 14 MongoDB nodes (including arbiters and routers)');
+      if (['aws', 'gcp'].includes(platform)) assert.equal(await page.locator('#machine_image').inputValue(), 'ubuntu24-test');
+      const preservedImages = await page.evaluate(() => {
+        const select = document.createElement('select');
+        const groups = {'Ubuntu 24.04 LTS': [{id: 'ubuntu24-test'}], 'Debian 12': [{id: 'debian-test'}]};
+        return ['debian-test', 'saved-unlisted-image', '__custom__'].map(value => {
+          renderImageOptions(select, groups, value);
+          return select.value;
+        });
+      });
+      assert.deepEqual(preservedImages, ['debian-test', 'saved-unlisted-image', '__custom__']);
+      if (platform === 'gcp') {
+        const imageOptions = await page.evaluate(() => {
+          const select = document.createElement('select');
+          const id = 'https://www.googleapis.com/compute/v1/projects/ubuntu-os-cloud/global/images/ubuntu-2404-test';
+          const groups = {'Ubuntu 24.04 LTS': [{id, name: 'ubuntu-2404-test'}]};
+          const options = [];
+          for (const images of [groups, {'Ubuntu 24.04 LTS': [{id}]}, {}, {'Debian 12': [{id: 'debian-test'}]}]) {
+            renderImageOptions(select, images, id);
+            options.push({value: select.value, label: select.selectedOptions[0].textContent});
+          }
+          return {id, options};
+        });
+        assert.deepEqual(imageOptions.options, Array(4).fill({value: imageOptions.id, label: 'ubuntu-2404-test'}));
+      }
+      await panel('security');
+      const securityHeadings = await page.locator('#editor-panel-security > section h2').allTextContents();
+      assert.match(securityHeadings.at(-1), /^Credentials/);
+      assert.equal(securityHeadings.includes('LDAP'), true);
+      assert.equal(await page.getByLabel('Configure LDAP authentication', {exact: false}).count(), 1);
+      assert.equal(await page.getByLabel('Enable encryption at rest (PSMDB)', {exact: false}).count(), 1);
+      assert.equal(await page.getByText('Default MongoDB credentials are in use. Test environments only.', {exact: true}).count(), 0);
       assert.deepEqual(await save(), legacyPayload, `${platform}: organizing the form must not change its save payload`);
 
       await panel('mongodb');
@@ -158,7 +197,8 @@ const { chromium } = require('playwright');
       assert.equal(await cluster.locator('.package-block-body').isVisible(), false, 'editing a topology must not automatically expand advanced settings');
       assert.equal(await cluster.locator('.component-feature-row').isVisible(), true);
       const essential = platform === 'docker' ? '[data-docker-version="distribution"]' : '[name="cluster_mongodb_distribution[]"]';
-      assert.equal(await cluster.locator(essential).isVisible(), true);
+      assert.equal(await cluster.locator(essential).isVisible(), false, 'distribution belongs in advanced settings');
+      assert.equal(await cluster.locator('.package-block-body').locator(essential).count(), 1);
       const version = platform === 'docker' ? '[data-docker-version="minor"]' : '[name="cluster_mongo_version[]"]';
       assert.equal(await cluster.locator(version).isVisible(), true);
       assert.equal(await cluster.locator('.component-block-header [name="cluster_env_tag[]"]').isVisible(), true);
@@ -176,6 +216,7 @@ const { chromium } = require('playwright');
       assert.match(await cluster.locator('.editor-topology-summary').textContent(), /3 shards/);
 
       // Dynamically added blocks receive the same controls and live summaries.
+      latestPSMDB = true;
       await page.getByRole('button', { name: '+ Add Replica Set', exact: true }).click();
       assert.deepEqual(errors, [], `${platform}: adding a topology`);
       assert.equal(await page.locator('#replsets-container > .component-block').count(), 2);
@@ -183,38 +224,30 @@ const { chromium } = require('playwright');
       const distro = replset.locator(platform === 'docker' ? '[data-docker-version="distribution"]' : '[name="replset_mongodb_distribution[]"]');
       const major = replset.locator(platform === 'docker' ? '[data-docker-version="major"]' : '[name="replset_mongo_release[]"]');
       const minor = replset.locator(platform === 'docker' ? '[data-docker-version="minor"]' : '[name="replset_mongo_version[]"]');
-      assert.equal(await distro.inputValue(), '');
-      assert.equal(await major.isDisabled(), true);
-      assert.equal(await minor.isDisabled(), true);
-      assert.equal(await distro.evaluate(el => el === document.activeElement), true);
+      await page.waitForLoadState('networkidle');
+      assert.equal(await distro.inputValue(), 'psmdb');
+      await page.waitForFunction(el => !el.disabled, await major.elementHandle());
+      assert.equal(await major.isDisabled(), false);
+      assert.equal(await minor.isDisabled(), false);
+      assert.equal(await major.inputValue(), platform === 'docker' ? '8.0' : 'psmdb-83');
+      assert.equal(await minor.inputValue(), platform === 'docker' ? '8.0.12-4' : '8.3.2-1');
+      assert.equal(await distro.isVisible(), false);
+      await replset.locator('.package-toggle-btn').click();
       const audit = replset.locator('[name="replset_enable_audit[]"]');
       await audit.check();
-      await distro.selectOption(platform === 'docker' ? 'psmdb' : 'community');
-      await page.waitForFunction(el => !el.disabled, await major.elementHandle());
-      await page.locator('#versions-loading-modal').waitFor({state: 'hidden'});
-      assert.equal(await major.isDisabled(), false);
-      assert.equal(await major.inputValue(), '', 'major version must be explicitly chosen');
-      assert.equal(await minor.isDisabled(), true);
       if (platform !== 'docker') {
+        await distro.selectOption('community');
+        await page.waitForFunction(el => !el.disabled, await major.elementHandle());
+        await page.locator('#versions-loading-modal').waitFor({state: 'hidden'});
+        assert.equal(await major.inputValue(), '8.0');
+        assert.equal(await minor.inputValue(), '8.0.12');
         assert.equal(await audit.isDisabled(), true);
         assert.equal(await audit.isChecked(), false, 'Community must turn off unsupported audit logging');
-      }
-      await major.selectOption('8.0');
-      await page.waitForFunction(el => !el.disabled, await minor.elementHandle());
-      await page.locator('#versions-loading-modal').waitFor({state: 'hidden'});
-      assert.equal(await minor.isDisabled(), false);
-      assert.equal(await minor.inputValue(), '', 'minor version must be explicitly chosen');
-      await minor.selectOption(platform === 'docker' ? '8.0.12-4' : '8.0.12');
-      if (platform !== 'docker') {
         await distro.selectOption('psmdb');
         await page.waitForFunction(el => !el.disabled, await major.elementHandle());
         await page.locator('#versions-loading-modal').waitFor({state: 'hidden'});
-        assert.equal(await major.inputValue(), '', 'changing distribution must reset the major');
-        assert.equal(await minor.isDisabled(), true, 'changing distribution must reset the minor');
-        await major.selectOption('psmdb-80');
-        await page.waitForFunction(el => !el.disabled, await minor.elementHandle());
-        await page.locator('#versions-loading-modal').waitFor({state: 'hidden'});
-        await minor.selectOption('8.0.12-4');
+        assert.equal(await major.inputValue(), 'psmdb-80', 'switching distributions preserves the corresponding major when available');
+        assert.equal(await minor.inputValue(), '8.0.12-4');
         assert.equal(await audit.isDisabled(), false, 'switching back to PSMDB restores audit availability');
       }
       await replset.locator('[name="replset_arbiters[]"]').fill('0');
@@ -222,6 +255,7 @@ const { chromium } = require('playwright');
       await page.waitForFunction(() => document.getElementById('enable_ca').checked);
       await page.waitForFunction(() => document.getElementById('editor-summary-warnings').textContent.includes('preferTLS'));
       await replset.getByRole('button', { name: 'Remove', exact: true }).click();
+      latestPSMDB = false;
       assert.equal(await page.locator('#replsets-container > .component-block').count(), 1);
 
       await panel('services');
@@ -246,11 +280,13 @@ const { chromium } = require('playwright');
       assert.equal(await monitoring.isVisible(), true, 'a disabled service can be selected again');
       assert.equal(await monitoringToggle.isChecked(), true);
       await monitoringToggle.uncheck();
-      if (platform === 'docker' || platform === 'chaos') {
+      {
         await page.locator('#editor-service-choice').selectOption('clients');
         assert.equal(await page.locator('#editor-enable-clients').isChecked(), true);
         assert.equal(await page.locator('#bare-clients-container .bare-client-row').count(), 1);
         assert.equal(await monitoringToggle.isChecked(), true, 'selecting clients must enable their PMM dependency');
+        const clientsPayload = await save();
+        assert.equal(Object.keys(clientsPayload.config.pmm_bare_clients).length, 1);
         dismissNextDialog = true;
         await monitoringToggle.click();
         assert.equal(await monitoringToggle.isChecked(), true, 'canceling dependency removal must keep the service enabled');

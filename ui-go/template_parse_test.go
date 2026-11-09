@@ -223,7 +223,7 @@ func TestPCSMPlaybookUsesDedicatedInventoryHosts(t *testing.T) {
 	}
 }
 
-func TestMongoDBDefaultReleaseUsesPSMDB80(t *testing.T) {
+func TestMongoDBDefaultReleaseUsesLatestPSMDB(t *testing.T) {
 	content, err := os.ReadFile(filepath.Join("templates", "configure.html"))
 	if err != nil {
 		t.Fatalf("read configure template: %v", err)
@@ -231,15 +231,22 @@ func TestMongoDBDefaultReleaseUsesPSMDB80(t *testing.T) {
 	template := string(content)
 	for _, want := range []string{
 		`{{$defaultRel := preferredPSMDBRelease $.PSMDBVersions}}`,
-		`const defaultMongoRelease = PSMDB_VERSIONS.includes('psmdb-80') ? 'psmdb-80' : PSMDB_VERSIONS[0];`,
-		`PSMDB 8.3 and newer lines must be selected explicitly.`,
+		`const defaultMongoRelease = PSMDB_VERSIONS[0];`,
+		`Defaults to the latest PSMDB available in the GA channel`,
 	} {
 		if !strings.Contains(template, want) {
 			t.Fatalf("MongoDB GA release default is missing %q", want)
 		}
 	}
-	if got := funcMap["preferredPSMDBRelease"].(func([]string) string)([]string{"psmdb-83", "psmdb-80", "psmdb-70"}); got != "psmdb-80" {
-		t.Fatalf("preferred PSMDB release = %q, want psmdb-80", got)
+	if got := funcMap["preferredPSMDBRelease"].(func([]string) string)([]string{"psmdb-83", "psmdb-80", "psmdb-70"}); got != "psmdb-83" {
+		t.Fatalf("preferred PSMDB release = %q, want psmdb-83", got)
+	}
+}
+
+func TestPreferredPSMDBImageExcludesPrereleases(t *testing.T) {
+	got := preferredPSMDBImage([]string{"latest", "9.0.0-rc1", "8.0.12-4", "8.3.2-1", "8.3", "8.3.10-1"})
+	if got != "8.3.10-1" {
+		t.Fatalf("preferred PSMDB image = %q, want 8.3.10-1", got)
 	}
 }
 

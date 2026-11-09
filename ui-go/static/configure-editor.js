@@ -73,7 +73,8 @@
     const securityTitle = document.createElement('h2');
     securityTitle.textContent = 'Encryption at rest';
     securitySection.append(securityTitle, document.getElementById('encryption-settings'), document.getElementById('vault-psmdb-warning'));
-    panelsHost.append(securitySection);
+    const credentialsSection = document.getElementById('credentials-body').closest('section');
+    panelsHost.insertBefore(securitySection, credentialsSection);
 
     for (const [key, label] of groups) {
       const sections = Array.from(form.querySelectorAll(`[data-editor-group="${key}"]`));
@@ -215,7 +216,7 @@
       const essentials = document.createElement('div');
       essentials.className = 'form-row editor-topology-essentials';
       // Keep fields inside .customize-body: package/image helpers use that scope.
-      for (const suffix of ['mongodb_distribution', 'mongo_release', 'mongo_version']) {
+      for (const suffix of ['mongo_release', 'mongo_version']) {
         const control = field(suffix);
         if (control) {
           const group = control.closest('.form-group');
@@ -263,7 +264,7 @@
         button.addEventListener('click', () => window.togglePackageBlock(button));
         advancedHeader.append(title, button);
       }
-      advancedHeader.querySelector('.subsection-title').textContent = 'Advanced settings & packages';
+      advancedHeader.querySelector('.subsection-title').textContent = 'Advanced Settings & Packages';
       // OS, repository channels, custom images/ports and audit filters stay in
       // the advanced section. Preserve the original nodes and their handlers.
       for (const child of Array.from(body.children)) {
@@ -272,7 +273,7 @@
         else advanced.append(child);
       }
       body.replaceChildren(essentials, topology, features, advancedHeader, advanced);
-      if (platform === 'docker') setupDockerVersions(block, essentials);
+      if (platform === 'docker') setupDockerVersions(block, essentials, advanced);
       const toggle = block.querySelector('[onclick="toggleCustomizeBlock(this)"]');
       body.id = `editor-topology-${++topologyID}`;
       toggle.setAttribute('aria-controls', body.id);
@@ -285,7 +286,7 @@
       select.value = '';
     }
 
-    function setupDockerVersions(block, essentials) {
+    function setupDockerVersions(block, essentials, advanced) {
       const image = block.querySelector('[name$="_psmdb_image[]"]');
       const controls = {};
       for (const [key, label] of [['distribution', 'Distribution'], ['major', 'Major version'], ['minor', 'Minor version']]) {
@@ -298,7 +299,7 @@
         text.htmlFor = select.id;
         text.textContent = label;
         group.append(text, select);
-        essentials.append(group);
+        (key === 'distribution' ? advanced : essentials).append(group);
         controls[key] = select;
       }
       const {distribution, major, minor} = controls;
@@ -347,17 +348,9 @@
 
     function prepareNewTopology(block) {
       enhanceTopology(block);
-      block.dataset.versionSelectionPending = 'true';
-      const distribution = block.querySelector('[name$="_mongodb_distribution[]"], [data-docker-version="distribution"]');
-      const major = block.querySelector('[name$="_mongo_release[]"], [data-docker-version="major"]');
-      const minor = block.querySelector('[name$="_mongo_version[]"], [data-docker-version="minor"]');
-      choice(distribution, 'Choose a distribution…');
-      choice(major, 'Choose a major version…');
-      choice(minor, 'Choose a minor version…');
-      major.disabled = minor.disabled = true;
       block.querySelector('.customize-body').style.display = '';
       refresh();
-      distribution.focus();
+      block.querySelector('[name$="_name[]"]').focus();
     }
 
     function revealField(field) {
@@ -462,7 +455,6 @@
       const warnings = [];
       if (form.querySelector('[name="use_spot_instances"]')?.checked) warnings.push(warning('Spot instances can be reclaimed. Avoid for benchmarks.', '[name="use_spot_instances"]'));
       if (hasTLS) warnings.push(warning('TLS uses preferTLS: plaintext clients remain allowed.', '#enable_ca'));
-      if (!document.getElementById('cred_mongo_admin_password').value) warnings.push(warning('Default MongoDB credentials are in use. Test environments only.', '#cred_mongo_admin_password'));
       if (serviceEnabled('sync')) warnings.push(warning('Starting ClusterSync replaces selected target collections.', '#enable_pcsm'));
       const hardwareErrors = document.getElementById('hardware-errors');
       if (hardwareErrors?.textContent && hardwareErrors.style.display !== 'none') warnings.push(warning(`Hardware: ${hardwareErrors.textContent}`, '#hardware_preset'));

@@ -39,7 +39,7 @@ func TestConfigureEditorMarkupAndScripts(t *testing.T) {
 				`data-editor-group="basics"`, `data-editor-group="mongodb"`, `data-editor-group="security"`,
 				`data-editor-group="profiles"`, `<h2 class="profiles-title">Templates `,
 				`type="checkbox" id="enable-environment-profile"`, `id="environment-profile-fields" hidden`,
-				`Start a new configuration (optional)`, `No starting point — configure manually`,
+				`aria-label="Configuration template"`, `No starting point — configure manually`, `Environment Name`,
 				`data-editor-service="monitoring"`, `data-editor-service="backups"`,
 				`data-editor-service="load"`, `data-editor-service="sync"`,
 				`id="editor-errors"`, `/static/configure-editor.js`,
@@ -52,7 +52,7 @@ func TestConfigureEditorMarkupAndScripts(t *testing.T) {
 			if platform == "docker" && strings.Contains(page, `data-editor-group="resources"`) {
 				t.Error("Docker must not show a cloud resource panel")
 			}
-			for _, unwanted := range []string{"Templates &amp; reusable profiles", "Starting points are optional.", `id="apply-environment-starter"`, `id="environment-profile-to-delete"`, `id="delete-environment-profile"`} {
+			for _, unwanted := range []string{"Start a new configuration (optional)", "Standalone Replica Sets", "Templates &amp; reusable profiles", "Starting points are optional.", `id="apply-environment-starter"`, `id="environment-profile-to-delete"`, `id="delete-environment-profile"`} {
 				if strings.Contains(page, unwanted) {
 					t.Errorf("unexpected editor markup %q", unwanted)
 				}
@@ -68,6 +68,16 @@ func TestConfigureEditorMarkupAndScripts(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestConfigureGCPImageDisplayName(t *testing.T) {
+	data := editorFixture("gcp")
+	data.Config.MachineImage = "https://www.googleapis.com/compute/v1/projects/ubuntu-os-cloud/global/images/ubuntu-2404-test"
+	page := renderConfigure(t, data)
+	want := `<option value="` + data.Config.MachineImage + `" selected>ubuntu-2404-test</option>`
+	if !strings.Contains(page, want) {
+		t.Error("GCP image selector must display only the image name while retaining the full value")
 	}
 }
 

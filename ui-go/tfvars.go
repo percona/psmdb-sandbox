@@ -208,6 +208,14 @@ func writeTfvars(envID, platform string, cfg Config) error {
 			writeOptStr("plgm_local_port", cfg.PlgmLocalPort)
 		}
 
+		if platform == "aws" || platform == "gcp" || platform == "azure" {
+			writeBareClients(func(c PmmBareClientConfig) [][2]string {
+				return [][2]string{
+					{"pmm_client_repo", c.PmmClientRepo},
+					{"pmm_client_version", c.PmmClientVersion},
+				}
+			})
+		}
 		if platform == "chaos" {
 			// CHAOS-specific vars
 			// Note: chaos_api_token is intentionally NOT written to the tfvars file because
