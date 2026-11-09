@@ -19,7 +19,8 @@ Supported platforms:
 MongoDB 9.0 is available as an explicit Community/Enterprise package selection
 for fresh VM environments. PSMDB releases and Docker images depend on published
 Percona artifacts. See [MongoDB 9.0 deployment notes](../docs/mongodb-9.0.md) for
-integration compatibility and examples. Default versions are retained.
+integration compatibility and examples. New configurations default to the latest
+available GA PSMDB release.
 
 ## Requirements
 
@@ -118,8 +119,55 @@ the plgm load generator Web UI when enabled).
 ## How it works
 
 1. **Platform selection** – choose AWS, GCP, Azure, CHAOS or Docker.
-2. **Configuration wizard** – fill in cluster topology, images/packages, credentials,
-    networking, and (for cloud platforms) per-component instance types and disk sizes.
+2. **Configuration editor** – opens in Templates; move freely between Templates,
+    Basics, Clusters & replica sets, Resources,
+    Optional services, Security, and Advanced. Sections that do not apply to the platform
+    are omitted (for example, Docker has no cloud Resources section).
+    - **Customize** and advanced-settings panels start collapsed, including when
+      editing saved configurations. Collapsing never clears their values.
+      Validation can open a panel to reveal a setting that needs attention.
+    - Collapsed topology cards summarize the distribution/image, member counts,
+      monitoring, backups, Search, and TLS. **Edit** exposes the topology and
+      major and minor/package versions. New clusters and replica sets open for
+      editing with the latest available PSMDB in the release (GA) channel selected.
+      Docker offers PSMDB only, with versions derived from available image tags.
+      Environment tags sit beside the topology name; member counts are grouped
+      under **Topology**. Audit logging sits alongside the other feature checkboxes.
+      **Advanced Settings & Packages** holds MongoDB distribution, OS images, repository channels,
+      agent package pins, custom images, audit filters, and port overrides.
+      PMM/PBM major selectors are initialized from cached package versions while
+      live metadata loads. Refreshes preserve valid version pins. Empty and failed
+      lookups show an explanation and a Retry action instead of blank selectors;
+      saving waits for current lookups and rejects enabled components with no
+      available packages. PMM testing/experimental and OS-specific lookups never
+      substitute Docker release tags for missing packages.
+    - **Optional services → Add an optional service** enables the selected service
+      and shows its checked control and settings. Uncheck it to disable the service
+      and hide its section; select it again to re-enable it. Existing dependency
+      confirmations still apply. Selecting PMM clients adds the first client;
+      unchecking that service removes its clients. The info tooltip explains this
+      and where to find Search and security settings. Search is configured
+      per topology in Clusters & replica sets; TLS/CA, encryption, LDAP, and credentials are in Security.
+      PMM clients without MongoDB are available on Docker, CHAOS, AWS, GCP, and Azure.
+      AWS, GCP, and Azure clients use the environment machine image and replica set
+      machine type, with a boot disk and no separate MongoDB data disk. Each client
+      can override its PMM package channel and version. Clients require a PMM server,
+      which the editor enables automatically.
+    - New AWS and GCP configurations use the **Dev** hardware preset and automatically
+      select **Ubuntu 24.04** when it is available in the machine image list. Saved
+      image selections and hardware settings are preserved.
+    - CHAOS compute/storage controls appear once in Resources, since they are
+      shared by node role across the environment. Network rules and lifetime are
+      directly editable, without a redundant Customize toggle.
+    - A persistent summary shows MongoDB node totals (including arbiters, config
+      servers and routers), hardware selection, services, and relevant warnings.
+      Supporting service hosts are not included in the MongoDB node total.
+    - The sticky **Save & Configure** action saves every section, including hidden
+      settings. Saving does not deploy infrastructure. Validation errors link back
+      to the affected setting and open its section when a field can be identified.
+    - The editor reuses the existing defaults and service dependency rules. PMM
+      agents require a PMM server, PBM agents require backup storage, and TLS
+      requires a CA. Dependency changes are still reported by the form.
     - Image tags are fetched live from Docker Hub on startup and cached for 5 minutes.
     - Docker deployments can change the Percona image namespace, for example from
       `percona` to `perconalab`, while still using the same tag dropdowns.
@@ -157,6 +205,80 @@ the plgm load generator Web UI when enabled).
 PCSM logs in the environment page are displayed as plain text, with terminal color
 and formatting codes removed. This applies to Docker and cloud environments;
 stored ClusterSync passwords remain redacted.
+
+### Starter templates and environment profiles
+
+The **Templates** menu section includes four editable starting
+points. Choosing one is optional; configure the environment directly in the other
+sections to start without a template or profile.
+
+- **Three-node replica set**: three data-bearing nodes, no arbiters.
+- **Two-shard sandbox**: two shards with three data nodes each, three config
+  servers, two routers, no arbiters.
+- **Benchmark lab**: a three-node replica set and a dedicated plgm load generator,
+  with Spot disabled. Review hardware sizing before benchmarking.
+- **Migration lab**: two three-node replica sets and a dedicated ClusterSync
+  service. Starting replication is a separate action; it can replace target data.
+
+Check **Save this configuration as a reusable profile** to reveal the profile name
+and **Save profile** button, then save the validated configuration under a new name.
+Profiles are platform-specific, shared by this UI instance, and stored in
+`UI_DATA_DIR/environment-profiles.json` with private file permissions and atomic
+writes. Duplicate names are rejected rather than silently overwritten. To delete a
+profile, open **Settings → Profiles** on the home page, select the profile, click
+**Delete profile**, and confirm. Profiles from all platforms are listed with their
+platform names, including disabled platforms. Deletion takes effect immediately;
+the Settings **Save** button is not required and **Cancel** does not undo it.
+Existing environments are not modified. Starter templates cannot be deleted.
+
+Profiles retain topology, versions, hardware, and service choices. A server-side
+allowlist excludes credentials, SSH keys and paths, cloud account/project
+identities, arbitrary Ansible overrides, existing storage endpoints and details,
+custom audit filters, labels, firewall rules, environment prefix, and host ports.
+Re-enter those environment-specific settings when using a profile. Existing
+backup storage must be selected/configured again if the profile used it.
+
+Selecting a template or saved profile immediately opens a fresh configuration
+with a blank environment name, discarding unsaved form changes. Applying a template/profile never
+saves, deploys, or modifies an existing environment. Changing the resulting form
+does not update the original profile.
+The info tooltip beside **Templates** summarizes profile
+scope and exclusions; it is available on hover and keyboard focus.
+
+### Configuration editor tests
+
+Run `go test ./...` for the Go suite, rendered JavaScript syntax checks, and
+Node-based topology summary tests (Node checks are skipped if Node.js is absent).
+For optional Chromium browser coverage, install Playwright outside the repository:
+
+```bash
+# Run from ui-go/. Use a temporary directory; no Node dependency is added to the app.
+browser_tools=$(mktemp -d)
+npm install --prefix "$browser_tools" playwright
+"$browser_tools/node_modules/.bin/playwright" install chromium
+UI_BROWSER_TESTS=1 NODE_PATH="$browser_tools/node_modules" go test -run '^TestConfigureEditor' -v
+```
+
+The browser tests render synthetic fixtures for every platform and intercept all
+requests. They check navigation, save-payload parity with the unenhanced form,
+dynamic topology cards, explicit version selection, reusable-profile actions
+(including deletion in home page Settings),
+starter-template navigation, service dependencies, hidden-field validation, and mobile
+layout. They do not read, save, or deploy real environments.
+
+To explore the running GCP replica-set template with real, read-only API responses:
+
+```bash
+UI_LIVE_SOURCE=1 UI_LIVE_ASSERT=1 NODE_PATH="$browser_tools/node_modules" node tests/configure-editor.live.cjs
+```
+
+This targets `http://127.0.0.1:5001/configure/gcp?template=replica-set`. It blocks
+all write requests except advisory hardware validation. `UI_LIVE_SOURCE=1`
+overlays the current local browser helpers, profile tooltip, and static assets
+without restarting the running UI; the rendered defaults and API responses still
+come from that server. Backend changes require rebuilding/restarting the UI to
+take effect. The test exercises distributions, agent versions and channels,
+audit/PBM compatibility, presets, Spot warnings, tooltip focus, and mobile layout.
 
 ### State and operation safety
 

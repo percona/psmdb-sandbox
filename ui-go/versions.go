@@ -208,6 +208,21 @@ func getPMMServerImages() []string {
 	return tags
 }
 
+// preferredPSMDBImage selects a GA version tag, excluding aliases and prereleases.
+func preferredPSMDBImage(tags []string) string {
+	stable := regexp.MustCompile(`^\d+\.\d+\.\d+(-\d+)?$`)
+	best := ""
+	for _, tag := range tags {
+		if stable.MatchString(tag) && (best == "" || semverGreater(strings.ReplaceAll(tag, "-", "."), strings.ReplaceAll(best, "-", "."))) {
+			best = tag
+		}
+	}
+	if best == "" {
+		return "latest"
+	}
+	return best
+}
+
 func getPSMDBImages() []string {
 	tags := getDockerHubTags("percona", "percona-server-mongodb", 30)
 	if len(tags) == 0 {
@@ -628,7 +643,9 @@ func getPBMVersionsFor(channel, osImage string) []string {
 
 func getPMMClientVersionsFor(channel, osImage string) []string {
 	versions := perconaPackageVersions("pmm3-client", "pmm-client", channel, osImage)
-	if len(versions) == 0 {
+	// Docker release tags do not establish package availability in testing,
+	// experimental, or a particular OS repository.
+	if len(versions) == 0 && normalizedRepoChannel(channel) == "release" && strings.TrimSpace(osImage) == "" {
 		versions = getPMMClientImages()
 	}
 	return versions

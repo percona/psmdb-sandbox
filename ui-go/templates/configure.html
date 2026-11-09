@@ -6,25 +6,68 @@
     <a href="/new" class="back-link">← Platforms</a>
     <h1>Configure <span class="platform-badge platform-{{$p}}">{{upper $p}}</span> Environment</h1>
     {{if .DuplicateOf}}<p class="text-muted">Duplicate of <strong>{{.DuplicateOf}}</strong>. Choose a new name for this environment.</p>{{end}}
+    {{if .StartingPoint}}<p class="text-muted">Starting from <strong>{{.StartingPoint}}</strong>. Review the settings and choose a new environment name.</p>{{end}}
   </div>
 </div>
 
 <form id="config-form" class="config-form" data-platform="{{$p}}" data-env-id="{{.EnvID}}">
+  <div id="config-editor-navigation" hidden>
+    <nav aria-label="Configuration sections" id="config-editor-nav"></nav>
+    <aside class="editor-summary" aria-label="Environment summary">
+      <h2>Environment summary</h2>
+      <p id="editor-summary-topology"></p>
+      <p id="editor-summary-hardware"></p>
+      <p id="editor-summary-services"></p>
+      <div id="editor-summary-warnings"></div>
+    </aside>
+  </div>
+  <div id="config-editor-panels">
+  <div id="editor-errors" class="alert alert-warning" role="alert" tabindex="-1" hidden></div>
+  <section class="form-section" data-editor-group="profiles" id="environment-starting-points">
+    <h2 class="profiles-title">Templates <button type="button" id="environment-profiles-tip" class="field-tip" aria-label="Profiles are shared by this sandbox UI and scoped to the platform. Credentials, Ansible overrides, external storage details, host ports, and environment identity are excluded. Starting points open a new configuration; they never deploy or change an existing environment." data-tip="Profiles are shared by this sandbox UI and scoped to the platform. Credentials, Ansible overrides, external storage details, host ports, and environment identity are excluded. Starting points open a new configuration; they never deploy or change an existing environment.">ⓘ</button></h2>
+    <div class="form-row">
+      <div class="form-group">
+        <select id="environment-starter" aria-label="Configuration template">
+          <option value="">No starting point — configure manually</option>
+          <optgroup label="Starter templates">
+            <option value="template:replica-set">Three-node replica set</option>
+            <option value="template:sharded">Two-shard sandbox</option>
+            <option value="template:benchmark">Benchmark lab (replica set + load generator)</option>
+            <option value="template:migration">Migration lab (two replica sets + ClusterSync)</option>
+          </optgroup>
+          <optgroup label="Saved profiles" id="environment-profile-options"></optgroup>
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group form-group-checkbox">
+        <label><input type="checkbox" id="enable-environment-profile"> Save this configuration as a reusable profile</label>
+      </div>
+    </div>
+    <div class="form-row" id="environment-profile-fields" hidden>
+      <div class="form-group">
+        <label for="environment-profile-name">Profile name</label>
+        <input id="environment-profile-name" maxlength="80" placeholder="e.g. Three-node test lab">
+      </div>
+      <button type="button" class="btn btn-outline" id="save-environment-profile">Save profile</button>
+    </div>
+    <p id="environment-profile-status" role="status" class="field-hint"></p>
+  </section>
 
   <!-- ──────────── General ──────────── -->
-  <section class="form-section">
+  <section class="form-section" data-editor-group="basics">
     <h2>General</h2>
     <div class="form-row">
       <div class="form-group">
-        <label for="env_id_field">Name <span class="field-tip" data-tip="Unique identifier for this environment. Leave blank to auto-generate. Also used as the resource prefix and tfvars filename prefix.">ⓘ</span></label>
+        <label for="env_id_field">Environment Name <span class="field-tip" data-tip="Unique identifier for this environment. Leave blank to auto-generate. Also used as the resource prefix and tfvars filename prefix.">ⓘ</span></label>
         <input type="text" id="env_id_field" name="env_id" placeholder="e.g. dev01"
                value="{{.EnvID}}" maxlength="{{if eq $p "gcp"}}14{{else}}16{{end}}" pattern="{{if eq $p "gcp"}}[a-z][a-z0-9]*{{else}}[a-z0-9]+{{end}}"
                title="{{if eq $p "gcp"}}Must start with a lowercase letter; lowercase letters and digits only, max 14 characters{{else}}Lowercase letters and digits only, max 16 characters{{end}}">
       </div>
     </div>
-    <div class="form-row">
+    <div class="form-row" id="encryption-settings">
       <div class="form-group form-group-checkbox">
-        <label><input type="checkbox" name="vault_encryption" {{if .Config.VaultEncryption}}checked{{end}}> Encryption at rest (PSMDB / Vault)
+        <label><input type="checkbox" name="vault_encryption" {{if .Config.VaultEncryption}}checked{{end}}> Enable encryption at rest (PSMDB)
           <span class="field-tip" data-tip="When enabled, every cluster and replica set in this environment uses its dedicated Vault. All MongoDB topologies must use PSMDB.">ⓘ</span></label>
       </div>
     </div>
@@ -34,7 +77,7 @@
 
   <!-- ──────────── Platform-specific settings ──────────── -->
   {{if eq $p "gcp"}}
-  <section class="form-section">
+  <section class="form-section" data-editor-group="basics">
     <h2>GCP Settings</h2>
     <div class="form-row">
       <div class="form-group">
@@ -55,7 +98,7 @@
           <select id="machine_image" name="machine_image" style="flex:1"
                   onchange="toggleMachineImageCustom(this)">
             <option value="">— select a region first —</option>
-            {{if .Config.MachineImage}}<option value="{{.Config.MachineImage}}" selected>{{.Config.MachineImage}}</option>{{end}}
+            {{if .Config.MachineImage}}<option value="{{.Config.MachineImage}}" selected>{{imageName .Config.MachineImage}}</option>{{end}}
             <option value="__custom__">Custom…</option>
           </select>
           <a href="#" onclick="reloadImages(event)" style="white-space:nowrap">↻ Refresh</a>
@@ -67,13 +110,12 @@
         <small>GCP image used for all instances. Images are fetched from GCP and grouped by OS. Select "Custom…" to enter a full image path.</small>
       </div>
     </div>
-    {{$netOpen := (or (and .Config.DefaultVpcName (ne .Config.DefaultVpcName "mongo")) (and .Config.SubnetCIDR (ne .Config.SubnetCIDR "10.128.0.0/20")) .Config.UseSpotInstances)}}
     <div class="subsection-header">
       <span class="subsection-title">Network &amp; Spot Settings</span>
       <button type="button" class="btn btn-outline btn-sm compute-toggle-btn" id="cloud-network-details-toggle"
-              onclick="toggleComputeBlock(this)">{{if $netOpen}}▲ Collapse{{else}}▼ Customize{{end}}</button>
+              onclick="toggleComputeBlock(this)">▼ Customize</button>
     </div>
-    <div class="compute-block-body" id="cloud-network-details" {{if not $netOpen}}style="display:none"{{end}}>
+    <div class="compute-block-body" id="cloud-network-details" style="display:none">
     <div class="form-row">
       <div class="form-group">
         <label for="default_vpc_name">VPC Name <span class="field-tip" data-tip="Base name for the VPC (full name = prefix-vpc_name).">ⓘ</span></label>
@@ -99,7 +141,7 @@
   </section>
 
   {{else if eq $p "aws"}}
-  <section class="form-section">
+  <section class="form-section" data-editor-group="basics">
     <h2>AWS Settings</h2>
     <div class="form-row">
       <div class="form-group">
@@ -131,13 +173,12 @@
                oninput="document.getElementById('machine_image').value='__custom__'">
       </div>
     </div>
-    {{$netOpen := (or (and .Config.DefaultVpcName (ne .Config.DefaultVpcName "mongo")) (and .Config.SubnetCIDR (ne .Config.SubnetCIDR "10.128.0.0/20")) (and .Config.SubnetCount (ne .Config.SubnetCount 3)) .Config.UseSpotInstances)}}
     <div class="subsection-header">
       <span class="subsection-title">Network &amp; Spot Settings</span>
       <button type="button" class="btn btn-outline btn-sm compute-toggle-btn" id="cloud-network-details-toggle"
-              onclick="toggleComputeBlock(this)">{{if $netOpen}}▲ Collapse{{else}}▼ Customize{{end}}</button>
+              onclick="toggleComputeBlock(this)">▼ Customize</button>
     </div>
-    <div class="compute-block-body" id="cloud-network-details" {{if not $netOpen}}style="display:none"{{end}}>
+    <div class="compute-block-body" id="cloud-network-details" style="display:none">
     <div class="form-row">
       <div class="form-group">
         <label for="default_vpc_name">VPC Name <span class="field-tip" data-tip="Base name for the VPC. Full name will be prefix-vpc_name.">ⓘ</span></label>
@@ -168,7 +209,7 @@
   </section>
 
   {{else if eq $p "azure"}}
-  <section class="form-section">
+  <section class="form-section" data-editor-group="basics">
     <h2>Azure Settings</h2>
     <div class="form-row">
       <div class="form-group">
@@ -180,13 +221,12 @@
         <small><a href="#" onclick="reloadRegions(event)">↻ Refresh from Azure</a></small>
       </div>
     </div>
-    {{$netOpen := (or (and .Config.SubnetCIDR (ne .Config.SubnetCIDR "10.0.0.0/16")) .Config.UseSpotInstances)}}
     <div class="subsection-header">
       <span class="subsection-title">Network &amp; Spot Settings</span>
       <button type="button" class="btn btn-outline btn-sm compute-toggle-btn" id="cloud-network-details-toggle"
-              onclick="toggleComputeBlock(this)">{{if $netOpen}}▲ Collapse{{else}}▼ Customize{{end}}</button>
+              onclick="toggleComputeBlock(this)">▼ Customize</button>
     </div>
-    <div class="compute-block-body" id="cloud-network-details" {{if not $netOpen}}style="display:none"{{end}}>
+    <div class="compute-block-body" id="cloud-network-details" style="display:none">
     <div class="form-row">
       <div class="form-group">
         <label for="subnet_cidr">Subnet CIDR <span class="field-tip" data-tip="CIDR block for the Azure VNet subnet (e.g. 10.0.0.0/16).">ⓘ</span></label>
@@ -207,7 +247,7 @@
   {{if or (eq $p "gcp") (eq $p "aws") (eq $p "azure")}}
   {{$bench := or (eq $p "gcp") (eq $p "aws")}}
   {{$typePh := "Standard_B2s"}}{{if eq $p "aws"}}{{$typePh = "t3.medium"}}{{else if eq $p "gcp"}}{{$typePh = "e2-medium"}}{{end}}
-  <section class="form-section" id="compute-storage-section">
+  <section class="form-section" id="compute-storage-section" data-editor-group="resources">
     <div class="section-header">
       <h2>Compute &amp; Storage <span class="field-tip" data-tip="Shared by all clusters and replica sets in this environment. Leave a field blank to use the Terraform default.">ⓘ</span></h2>
     </div>
@@ -226,13 +266,12 @@
     <datalist id="machine-type-suggestions">{{range machineTypes $p}}<option value="{{.}}">{{end}}</datalist>
 
     {{/* Expanded when the saved settings were edited by hand (no preset) */}}
-    {{$hwOpen := and (not .Config.HardwarePreset) (or .Config.ShardsvrType .Config.ConfigsvrType .Config.MongosType .Config.ArbiterType .Config.ReplsetSvrType .Config.ShardsvrVolumeSize .Config.ConfigsvrVolumeSize .Config.ReplsetSvrVolumeSize .Config.DataDiskType .Config.DataDiskIops .Config.DataDiskThroughput .Config.ConfigsvrDiskType .Config.BootDiskType .Config.BootDiskSize .Config.MinCpuPlatform .Config.NicType .Config.Tier1Networking .Config.ZoneMode .Config.Zones .Config.CompactPlacement .Config.ResourceLabels)}}
     <div class="subsection-header" id="hardware-details-header">
       <span class="subsection-title">Machine &amp; Disk Settings</span>
       <button type="button" class="btn btn-outline btn-sm compute-toggle-btn" id="hardware-details-toggle"
-              onclick="toggleComputeBlock(this)">{{if $hwOpen}}▲ Collapse{{else}}▼ Customize{{end}}</button>
+              onclick="toggleComputeBlock(this)">▼ Customize</button>
     </div>
-    <div class="compute-block-body" id="hardware-details" {{if not $hwOpen}}style="display:none"{{end}}>
+    <div class="compute-block-body" id="hardware-details" style="display:none">
 
     <div class="subsection-header"><span class="subsection-title">Machine Types</span></div>
     <div class="form-row">
@@ -389,7 +428,7 @@
   {{end}}
 
   <!-- ──────────── Sharded Clusters ──────────── -->
-  <section class="form-section">
+  <section class="form-section" data-editor-group="mongodb">
     <div class="section-header">
       <h2>Sharded Clusters</h2>
       <button type="button" class="btn btn-outline btn-sm" onclick="addCluster()">+ Add Cluster</button>
@@ -524,13 +563,12 @@
           </div>
           {{end}}
           {{if ne $p "docker"}}
-          {{$packageConfigured := or .Config.MongoDBDistribution .Config.MongoRelease .Config.MongoVersion .Config.MongoRepo .Config.PbmVersion .Config.PbmRepo .Config.PmmClientVersion .Config.PmmClientRepo .Config.MongotRepo .Config.MongotVersion}}
           <div class="subsection-header">
             <span class="subsection-title">Package Overrides</span>
             <button type="button" class="btn btn-outline btn-sm package-toggle-btn"
-                    onclick="togglePackageBlock(this)">{{if $packageConfigured}}▲ Collapse{{else}}▼ Customize{{end}}</button>
+                    onclick="togglePackageBlock(this)">▼ Customize</button>
           </div>
-          <div class="package-block-body" {{if not $packageConfigured}}style="display:none"{{end}}>
+          <div class="package-block-body" style="display:none">
           <div class="form-row">
             <div class="form-group">
               <label>MongoDB Distribution <span class="field-tip" data-tip="Package distribution for this cluster. PSMDB uses Percona repositories; Community and Enterprise use official MongoDB repositories.">ⓘ</span></label>
@@ -551,9 +589,9 @@
               </select>
             </div>
             <div class="form-group">
-              <label>MongoDB Major Version <span class="field-tip" data-tip="Defaults to PSMDB 8.0. PSMDB 8.3 and newer lines must be selected explicitly. Releases are filtered by package availability for the selected OS and channel.">ⓘ</span></label>
-              <select name="cluster_mongo_release[]" onchange="onMongoReleaseChange(this); onPackageMongoReleaseChange(this)">
-                {{$curRel := .Config.MongoRelease}}
+              <label>MongoDB Major Version <span class="field-tip" data-tip="Defaults to the latest PSMDB available in the GA channel for the selected OS.">ⓘ</span></label>
+              <select name="cluster_mongo_release[]" {{if and (not .Config.MongoRelease) (not $.Config.MongoRelease)}}data-default-latest="true"{{end}} onchange="delete this.dataset.defaultLatest; onMongoReleaseChange(this); onPackageMongoReleaseChange(this)">
+                {{$curRel := strDefault .Config.MongoRelease $.Config.MongoRelease}}
                 {{$defaultRel := preferredPSMDBRelease $.PSMDBVersions}}
                 {{range $.PSMDBVersions}}
                 <option value="{{.}}" {{if or (eq $curRel .) (and (eq $curRel "") (eq $defaultRel .))}}selected{{end}}>{{.}}</option>
@@ -657,7 +695,7 @@
           <div class="form-row">
             <div class="form-group image-field" data-image-repo="percona-server-mongodb">
               <label>PSMDB Image <span class="field-tip" data-tip="Percona Server for MongoDB Docker image tag used for all nodes in this cluster.">ⓘ</span></label>
-              {{$cur := .Config.PsmdbImage}}{{$ns := imageNamespace $cur "percona"}}
+              {{$cur := strDefault .Config.PsmdbImage (printf "percona/percona-server-mongodb:%s" (preferredPSMDBImage $.PSMDBImages))}}{{$ns := imageNamespace $cur "percona"}}
               <div class="image-namespace-row">
                 <select class="docker-namespace-select" onchange="onDockerImageNamespaceChange(this)">
                   <option value="percona" {{if eq $ns "percona"}}selected{{end}}>percona</option>
@@ -747,9 +785,9 @@
           <div class="subsection-header">
             <span class="subsection-title">Compute Resources</span>
             <button type="button" class="btn btn-outline btn-sm compute-toggle-btn"
-                    onclick="toggleComputeBlock(this)">{{if or $.Config.ShardsvrCpuCores $.Config.ShardsvrVolumeSize $.Config.ConfigsvrCpuCores $.Config.MongosCpuCores $.Config.ArbiterCpuCores}}▲ Collapse{{else}}▼ Customize{{end}}</button>
+                    onclick="toggleComputeBlock(this)">▼ Customize</button>
           </div>
-          <div class="compute-block-body" {{if not (or $.Config.ShardsvrCpuCores $.Config.ShardsvrVolumeSize $.Config.ConfigsvrCpuCores $.Config.MongosCpuCores $.Config.ArbiterCpuCores)}}style="display:none"{{end}}>
+          <div class="compute-block-body" style="display:none">
             <p class="hint" style="margin-bottom:0.75rem">These compute settings are shared across <strong>all clusters</strong> in this deployment.</p>
             <div class="form-row">
               <div class="form-group">
@@ -860,9 +898,9 @@
   </section>
 
   <!-- ──────────── Replica Sets ──────────── -->
-  <section class="form-section">
+  <section class="form-section" data-editor-group="mongodb">
     <div class="section-header">
-      <h2>Standalone Replica Sets <span class="field-tip" data-tip="Optional: standalone replica sets separate from the sharded clusters above.">ⓘ</span></h2>
+      <h2>Replica Sets <span class="field-tip" data-tip="Optional: replica sets separate from the sharded clusters above.">ⓘ</span></h2>
       <button type="button" class="btn btn-outline btn-sm" onclick="addReplset()">+ Add Replica Set</button>
     </div>
     <div id="replsets-container">
@@ -960,13 +998,12 @@
           </div>
           {{end}}
           {{if ne $p "docker"}}
-          {{$packageConfigured := or .Config.MongoDBDistribution .Config.MongoRelease .Config.MongoVersion .Config.MongoRepo .Config.PbmVersion .Config.PbmRepo .Config.PmmClientVersion .Config.PmmClientRepo .Config.MongotRepo .Config.MongotVersion}}
           <div class="subsection-header">
             <span class="subsection-title">Package Overrides</span>
             <button type="button" class="btn btn-outline btn-sm package-toggle-btn"
-                    onclick="togglePackageBlock(this)">{{if $packageConfigured}}▲ Collapse{{else}}▼ Customize{{end}}</button>
+                    onclick="togglePackageBlock(this)">▼ Customize</button>
           </div>
-          <div class="package-block-body" {{if not $packageConfigured}}style="display:none"{{end}}>
+          <div class="package-block-body" style="display:none">
           <div class="form-row">
             <div class="form-group">
               <label>MongoDB Distribution <span class="field-tip" data-tip="Package distribution for this replica set. PSMDB uses Percona repositories; Community and Enterprise use official MongoDB repositories.">ⓘ</span></label>
@@ -987,9 +1024,9 @@
               </select>
             </div>
             <div class="form-group">
-              <label>MongoDB Major Version <span class="field-tip" data-tip="Defaults to PSMDB 8.0. PSMDB 8.3 and newer lines must be selected explicitly. Releases are filtered by package availability for the selected OS and channel.">ⓘ</span></label>
-              <select name="replset_mongo_release[]" onchange="onMongoReleaseChange(this); onPackageMongoReleaseChange(this)">
-                {{$curRel := .Config.MongoRelease}}
+              <label>MongoDB Major Version <span class="field-tip" data-tip="Defaults to the latest PSMDB available in the GA channel for the selected OS.">ⓘ</span></label>
+              <select name="replset_mongo_release[]" {{if and (not .Config.MongoRelease) (not $.Config.MongoRelease)}}data-default-latest="true"{{end}} onchange="delete this.dataset.defaultLatest; onMongoReleaseChange(this); onPackageMongoReleaseChange(this)">
+                {{$curRel := strDefault .Config.MongoRelease $.Config.MongoRelease}}
                 {{$defaultRel := preferredPSMDBRelease $.PSMDBVersions}}
                 {{range $.PSMDBVersions}}
                 <option value="{{.}}" {{if or (eq $curRel .) (and (eq $curRel "") (eq $defaultRel .))}}selected{{end}}>{{.}}</option>
@@ -1093,7 +1130,7 @@
           <div class="form-row">
             <div class="form-group image-field" data-image-repo="percona-server-mongodb">
               <label>PSMDB Image <span class="field-tip" data-tip="Percona Server for MongoDB Docker image tag for this replica set.">ⓘ</span></label>
-              {{$cur := .Config.PsmdbImage}}{{$ns := imageNamespace $cur "percona"}}
+              {{$cur := strDefault .Config.PsmdbImage (printf "percona/percona-server-mongodb:%s" (preferredPSMDBImage $.PSMDBImages))}}{{$ns := imageNamespace $cur "percona"}}
               <div class="image-namespace-row">
                 <select class="docker-namespace-select" onchange="onDockerImageNamespaceChange(this)">
                   <option value="percona" {{if eq $ns "percona"}}selected{{end}}>percona</option>
@@ -1183,9 +1220,9 @@
           <div class="subsection-header">
             <span class="subsection-title">Compute Resources</span>
             <button type="button" class="btn btn-outline btn-sm compute-toggle-btn"
-                    onclick="toggleComputeBlock(this)">{{if or $.Config.ReplsetSvrCpuCores $.Config.ReplsetSvrVolumeSize $.Config.ArbiterCpuCores}}▲ Collapse{{else}}▼ Customize{{end}}</button>
+                    onclick="toggleComputeBlock(this)">▼ Customize</button>
           </div>
-          <div class="compute-block-body" {{if not (or $.Config.ReplsetSvrCpuCores $.Config.ReplsetSvrVolumeSize $.Config.ArbiterCpuCores)}}style="display:none"{{end}}>
+          <div class="compute-block-body" style="display:none">
             <p class="hint" style="margin-bottom:0.75rem">These compute settings are shared across <strong>all replica sets</strong> in this deployment.</p>
             <div class="form-row">
               <div class="form-group">
@@ -1247,7 +1284,7 @@
   </section>
 
   <!-- ──────────── PMM Server ──────────── -->
-  <section class="form-section">
+  <section class="form-section" data-editor-group="services" data-editor-service="monitoring">
     {{if eq $p "docker"}}
     <div class="section-header">
       <h2>PMM Monitoring Server</h2>
@@ -1324,14 +1361,13 @@
       {{end}}
     </div>
     {{else}}
-    {{$pmmCustomized := or (ptrBoolFalse .Config.EnablePmm) .Config.PmmType .Config.PmmImage .Config.PmmDiskType .Config.PmmCpuCores .Config.PmmMemoryGb}}
     <div class="section-header">
       <h2>PMM Monitoring Server</h2>
       <button type="button" class="btn btn-outline btn-sm"
               id="pmm-toggle"
               onclick="togglePmmSettings()"
               {{if not (boolDefault .Config.EnablePmm false)}}style="display:none"{{end}}
-              >{{if $pmmCustomized}}▲ Collapse{{else}}▼ Customize{{end}}</button>
+              >▼ Customize</button>
     </div>
     <!-- Deploy PMM checkbox always visible, outside the collapsible body -->
     <div class="form-row" style="margin-bottom:0.5rem">
@@ -1341,7 +1377,7 @@
           Deploy PMM monitoring server <span class="field-tip" data-tip="Deploy a dedicated PMM monitoring server alongside MongoDB nodes.">ⓘ</span></label>
       </div>
     </div>
-    <div id="pmm-cloud-body" {{if not $pmmCustomized}}style="display:none"{{end}}>
+    <div id="pmm-cloud-body" style="display:none">
     <div id="pmm-cloud-settings" {{if not (boolDefault .Config.EnablePmm false)}}style="display:none"{{end}}>
     {{$curPmm := strDefault .Config.PmmImage .DefaultImages.PmmServer}}
     {{$pmmSource := imageSource $curPmm "percona"}}
@@ -1511,24 +1547,21 @@
     {{end}}
   </section>
 
-  <!-- ──────────── PMM clients without MongoDB (Docker and CHAOS) ──────────── -->
-  {{if or (eq $p "docker") (eq $p "chaos")}}
-  <section class="form-section">
+  <!-- ──────────── PMM clients without MongoDB ──────────── -->
+  <section class="form-section" data-editor-group="services" data-editor-service="clients">
     <div class="section-header">
       <h2>PMM Clients Without MongoDB <span class="field-tip" data-tip="Hosts with only a PMM client, registered with the PMM server. PMM Extensions can install MongoDB on them.">ⓘ</span></h2>
       <button type="button" class="btn btn-outline btn-sm" onclick="onAddBareClientClick(this)">+ Add Client</button>
     </div>
     <div id="bare-clients-container"></div>
   </section>
-  {{end}}
 
   <!-- ──────────── Backup (CHAOS only) ──────────── -->
   {{if eq $p "chaos"}}
   {{$chaosStorage := chaosBackupStorage .Config}}
   {{$backupOn := ne $chaosStorage ""}}
   {{$useSeaweedFS := boolDefault .Config.CreateBackupBucket true}}
-  {{$seaweedfsDetailsConfigured := or .Config.SeaweedFSAccessKey .Config.SeaweedFSSecretKey .Config.DefaultBucketName .Config.SeaweedFSPort .Config.SeaweedFSAdminPort .Config.BackupRetention .Config.SeaweedFSCpuCores .Config.SeaweedFSMemoryGb .Config.SeaweedFSVolumeSize}}
-  <section class="form-section">
+  <section class="form-section" data-editor-group="services" data-editor-service="backups">
     <h2>Backup (PBM)</h2>
     <div class="form-row" style="margin-bottom:0.5rem">
       <div class="form-group form-group-checkbox">
@@ -1586,9 +1619,9 @@
         <button type="button" class="btn btn-outline btn-sm"
                 id="seaweedfs-details-toggle"
                 onclick="toggleSeaweedFSDetails(this)"
-                >{{if $seaweedfsDetailsConfigured}}▲ Collapse{{else}}▼ Customize{{end}}</button>
+                >▼ Customize</button>
       </div>
-      <div id="seaweedfs-details-body" {{if not $seaweedfsDetailsConfigured}}style="display:none"{{end}}>
+      <div id="seaweedfs-details-body" style="display:none">
         <div class="form-row">
           <div class="form-group">
             <label for="seaweedfs_access_key">SeaweedFS Access Key <span class="field-tip" data-tip="Access key for the SeaweedFS server (passed to Ansible).">ⓘ</span></label>
@@ -1624,13 +1657,12 @@
           </div>
         </div>
         <!-- Compute resources hidden under nested Customize -->
-        {{$seaweedfsComputeConfigured := or .Config.SeaweedFSCpuCores .Config.SeaweedFSMemoryGb .Config.SeaweedFSVolumeSize}}
         <div class="subsection-header">
           <span class="subsection-title">Compute Resources</span>
           <button type="button" class="btn btn-outline btn-sm compute-toggle-btn"
-                  onclick="toggleComputeBlock(this)">{{if $seaweedfsComputeConfigured}}▲ Collapse{{else}}▼ Customize{{end}}</button>
+                  onclick="toggleComputeBlock(this)">▼ Customize</button>
         </div>
-        <div class="compute-block-body" {{if not $seaweedfsComputeConfigured}}style="display:none"{{end}}>
+        <div class="compute-block-body" style="display:none">
           <div class="form-row">
             <div class="form-group">
               <label for="seaweedfs_cpu_cores">SeaweedFS VM vCPU <span class="field-tip" data-tip="Number of virtual CPUs for the SeaweedFS VM.">ⓘ</span></label>
@@ -1671,7 +1703,7 @@
 
   <!-- ──────────── SeaweedFS Servers (Docker only) ──────────── -->
   {{if eq $p "docker"}}
-  <section class="form-section">
+  <section class="form-section" data-editor-group="services" data-editor-service="backups">
     <div class="section-header">
       <h2>SeaweedFS Backup Storage</h2>
       <label class="toggle-label">
@@ -1730,14 +1762,14 @@
   </section>
 
   <!-- ──────────── LDAP Servers (Docker only) ──────────── -->
-  <section class="form-section">
+  <section class="form-section" data-editor-group="security">
     <div class="section-header">
-      <h2>LDAP Servers</h2>
+      <h2>LDAP</h2>
       <label class="toggle-label">
         <input type="checkbox" id="enable-ldap-docker"
                {{if .SortedLdap}}checked{{end}}
                onchange="toggleDockerSingleServer('ldap-servers-container', this, addLdapServer); toggleCredentialRow('cred-ldap-row', this.checked)">
-        Include LDAP Server
+        Configure LDAP authentication
       </label>
     </div>
     <div id="ldap-servers-container">
@@ -1783,7 +1815,7 @@
 
   <!-- ──────────── Backup (cloud only, not CHAOS) ──────────── -->
   {{if and (ne $p "docker") (ne $p "chaos")}}
-  <section class="form-section">
+  <section class="form-section" data-editor-group="services" data-editor-service="backups">
     <h2>Backup (PBM)</h2>
     {{$backupOn := backupEnabled .Config}}
     {{$createBucket := boolDefault .Config.CreateBackupBucket true}}
@@ -1862,7 +1894,7 @@
   {{end}}
 
   {{if or (eq $p "docker") (eq $p "aws") (eq $p "gcp") (eq $p "azure") (eq $p "chaos")}}
-  <section class="form-section">
+  <section class="form-section" data-editor-group="security">
     <div class="section-header">
       <h2>Certificate Authority</h2>
     </div>
@@ -1924,7 +1956,7 @@
   </section>
   {{end}}
 
-  <section class="form-section">
+  <section class="form-section" data-editor-group="services" data-editor-service="load">
     <div class="section-header">
       <h2>Load Generator</h2>
     </div>
@@ -1939,14 +1971,13 @@
       </div>
     </div>
     {{if or (eq $p "gcp") (eq $p "aws") (eq $p "azure")}}
-    {{$plgmOpen := and .Config.PlgmType (not .Config.HardwarePreset)}}
     <div id="plgm-client-wrap" {{if not .Config.EnablePlgm}}style="display:none"{{end}}>
     <div class="subsection-header">
       <span class="subsection-title">plgm Client Settings</span>
       <button type="button" class="btn btn-outline btn-sm compute-toggle-btn" id="plgm-client-details-toggle"
-              onclick="toggleComputeBlock(this)">{{if $plgmOpen}}▲ Collapse{{else}}▼ Customize{{end}}</button>
+              onclick="toggleComputeBlock(this)">▼ Customize</button>
     </div>
-    <div class="compute-block-body" id="plgm-client-details" {{if not $plgmOpen}}style="display:none"{{end}}>
+    <div class="compute-block-body" id="plgm-client-details" style="display:none">
     <div class="form-row">
       <div class="form-group">
         <label for="plgm_type">plgm Client Machine Type <span class="field-tip" data-tip="Size the client so it is not the bottleneck: compute-optimized, at least as many vCPUs as a data node. plgm only ships x86_64 binaries, so pick an x86 machine type. It runs in the first zone, next to replica index 0 of every shard.">ⓘ</span></label>
@@ -1991,7 +2022,7 @@
     {{end}}
   </section>
 
-  <section class="form-section">
+  <section class="form-section" data-editor-group="services" data-editor-service="sync">
     <div class="section-header"><h2>Percona ClusterSync</h2></div>
     <div class="form-row" style="margin-bottom:0.5rem">
       <div class="form-group form-group-checkbox">
@@ -2024,9 +2055,9 @@
       </div>
       <div class="subsection-header">
         <span class="subsection-title">Package Overrides</span>
-        <button type="button" class="btn btn-outline btn-sm package-toggle-btn" onclick="togglePackageBlock(this)">{{if or .Config.ClusterSync.Version .Config.ClusterSync.Repo .Config.ClusterSync.Image}}▲ Collapse{{else}}▼ Customize{{end}}</button>
+        <button type="button" class="btn btn-outline btn-sm package-toggle-btn" onclick="togglePackageBlock(this)">▼ Customize</button>
       </div>
-      <div class="package-block-body" {{if not (or .Config.ClusterSync.Version .Config.ClusterSync.Repo .Config.ClusterSync.Image)}}style="display:none"{{end}}>
+      <div class="package-block-body" style="display:none">
       <div class="form-row">
         {{if ne $p "docker"}}<div class="form-group"><label for="pcsm_repo">Repository Channel</label><select id="pcsm_repo" name="pcsm_repo" onchange="refreshPCSMVersions()"><option value="release" {{if or (eq .Config.ClusterSync.Repo "") (eq .Config.ClusterSync.Repo "release")}}selected{{end}}>release</option><option value="testing" {{if eq .Config.ClusterSync.Repo "testing"}}selected{{end}}>testing</option><option value="experimental" {{if eq .Config.ClusterSync.Repo "experimental"}}selected{{end}}>experimental</option></select></div>{{end}}
         <div class="form-group"><label for="pcsm_version">PCSM Version</label><select id="pcsm_version" name="pcsm_version" data-current="{{.Config.ClusterSync.Version}}">{{ $pcsmVersion := strDefault .Config.ClusterSync.Version "0.9.0" }}{{range .PCSMVersions}}<option value="{{.}}" {{if eq . $pcsmVersion}}selected{{end}}>{{.}}</option>{{end}}{{if and .Config.ClusterSync.Version (not (contains .PCSMVersions .Config.ClusterSync.Version))}}<option value="{{.Config.ClusterSync.Version}}" selected>{{.Config.ClusterSync.Version}}</option>{{end}}</select></div>
@@ -2035,9 +2066,9 @@
       </div>
       <div class="subsection-header">
         <span class="subsection-title">Compute Resources</span>
-        <button type="button" class="btn btn-outline btn-sm compute-toggle-btn" onclick="toggleComputeBlock(this)">{{if or .Config.ClusterSync.InstanceType .Config.ClusterSync.CPUs .Config.ClusterSync.MemoryMB}}▲ Collapse{{else}}▼ Customize{{end}}</button>
+        <button type="button" class="btn btn-outline btn-sm compute-toggle-btn" onclick="toggleComputeBlock(this)">▼ Customize</button>
       </div>
-      <div class="compute-block-body" {{if not (or .Config.ClusterSync.InstanceType .Config.ClusterSync.CPUs .Config.ClusterSync.MemoryMB)}}style="display:none"{{end}}>
+      <div class="compute-block-body" style="display:none">
       <div class="form-row">
         {{if eq $p "aws"}}{{$v := .Config.ClusterSync.InstanceType}}<div class="form-group"><label for="pcsm_instance_type">Instance type</label><select id="pcsm_instance_type" name="pcsm_instance_type"><option value="t3.small" {{if or (eq $v "") (eq $v "t3.small")}}selected{{end}}>t3.small</option><option value="t3.medium" {{if eq $v "t3.medium"}}selected{{end}}>t3.medium</option><option value="t3.large" {{if eq $v "t3.large"}}selected{{end}}>t3.large</option><option value="t3.xlarge" {{if eq $v "t3.xlarge"}}selected{{end}}>t3.xlarge</option></select></div>{{else if eq $p "gcp"}}{{$v := .Config.ClusterSync.InstanceType}}<div class="form-group"><label for="pcsm_instance_type">Instance type</label><select id="pcsm_instance_type" name="pcsm_instance_type"><option value="e2-small" {{if or (eq $v "") (eq $v "e2-small")}}selected{{end}}>e2-small</option><option value="e2-medium" {{if eq $v "e2-medium"}}selected{{end}}>e2-medium</option><option value="e2-standard-2" {{if eq $v "e2-standard-2"}}selected{{end}}>e2-standard-2</option><option value="e2-standard-4" {{if eq $v "e2-standard-4"}}selected{{end}}>e2-standard-4</option></select></div>{{else if eq $p "azure"}}{{$v := .Config.ClusterSync.InstanceType}}<div class="form-group"><label for="pcsm_instance_type">Instance type</label><select id="pcsm_instance_type" name="pcsm_instance_type"><option value="Standard_B2s" {{if or (eq $v "") (eq $v "Standard_B2s")}}selected{{end}}>Standard_B2s</option><option value="Standard_D2s_v3" {{if eq $v "Standard_D2s_v3"}}selected{{end}}>Standard_D2s_v3</option><option value="Standard_D4s_v3" {{if eq $v "Standard_D4s_v3"}}selected{{end}}>Standard_D4s_v3</option></select></div>{{end}}
         <div class="form-group"><label for="pcsm_cpus">CPU limit / cores</label><select id="pcsm_cpus" name="pcsm_cpus" onchange="refreshPCSMeffectiveDefaults()">{{$v := .Config.ClusterSync.CPUs}}<option value="1" {{if eq $v 1}}selected{{end}}>1</option><option value="2" {{if or (eq $v 0) (eq $v 2)}}selected{{end}}>2</option><option value="4" {{if eq $v 4}}selected{{end}}>4</option><option value="8" {{if eq $v 8}}selected{{end}}>8</option><option value="16" {{if eq $v 16}}selected{{end}}>16</option><option value="32" {{if eq $v 32}}selected{{end}}>32</option></select></div>
@@ -2048,9 +2079,9 @@
   </section>
 
   {{if ne $p "docker"}}
-  <section class="form-section">
+  <section class="form-section" data-editor-group="security">
     <div class="section-header">
-      <h2>LDAP Server</h2>
+      <h2>LDAP</h2>
     </div>
     <div class="form-row" style="margin-bottom:0.5rem">
       <div class="form-group form-group-checkbox">
@@ -2058,7 +2089,7 @@
         <input type="checkbox" id="enable_ldap" name="enable_ldap" value="true"
                 {{if .SortedLdap}}checked{{end}}
                 onchange="toggleCloudLdapSection(this)">
-        Include LDAP <span class="field-tip" data-tip="Creates one OpenLDAP server and phpLDAPadmin host. All MongoDB clusters and replica sets in this environment use it for PLAIN authentication.">ⓘ</span>
+        Configure LDAP authentication <span class="field-tip" data-tip="Creates one OpenLDAP server and phpLDAPadmin host. All MongoDB clusters and replica sets in this environment use it for PLAIN authentication.">ⓘ</span>
       </label>
       </div>
     </div>
@@ -2082,7 +2113,7 @@
   {{end}}
 
   <!-- ──────────── Credentials ──────────── -->
-  <section class="form-section">
+  <section class="form-section" data-editor-group="security">
     {{$credConfigured := or (index .Config.AnsibleVars "mongo_admin_user") (index .Config.AnsibleVars "mongo_admin_password") (index .Config.AnsibleVars "pbm_agent_user") (index .Config.AnsibleVars "pbmpwd") .SortedPmmServers .SortedSeaweedFS .SortedLdap}}
     <div class="section-header">
       <h2>Credentials <span class="field-tip" data-tip="Usernames and passwords passed to Ansible and Terraform. Values here populate group_vars or --extra-vars.">ⓘ</span></h2>
@@ -2147,7 +2178,22 @@
   </section>
 
   {{if eq $p "chaos"}}
-  <section class="form-section">
+  <section class="form-section" data-editor-group="resources" id="chaos-shared-hardware">
+    <h2>Shared compute &amp; storage</h2>
+    <p class="field-hint">These settings apply to every node of the selected role across all clusters and replica sets.</p>
+    <div class="form-row">
+      {{range chaosHardwareFields .Config}}
+      {{$field := .}}
+      <div class="form-group">
+        <label for="chaos-{{.Name}}">{{.Label}}</label>
+        <select id="chaos-{{.Name}}" name="{{.Name}}">
+          {{range .Options}}<option value="{{.}}" {{if eq . $field.Value}}selected{{end}}>{{.}}</option>{{end}}
+        </select>
+      </div>
+      {{end}}
+    </div>
+  </section>
+  <section class="form-section" data-editor-group="resources">
     <div class="section-header">
       <h2>CHAOS Settings</h2>
       <button type="button" class="btn btn-outline btn-sm" id="chaos-settings-toggle"
@@ -2187,7 +2233,7 @@
 
   <!-- ──────────── Ansible Variable Overrides (cloud only) ──────────── -->
   {{if ne $p "docker"}}
-  <section class="form-section">
+  <section class="form-section" data-editor-group="advanced">
     <h2>Ansible Variable Overrides <span class="field-tip" data-tip="Values entered here are passed to every ansible-playbook invocation via --extra-vars, overriding defaults in group_vars/all.yml. Typical use: passwords, key material, and cloud storage credentials.">ⓘ</span></h2>
     <div id="ansible-vars-container">
       {{range $k, $v := .Config.AnsibleVars}}
@@ -2218,8 +2264,10 @@
   </section>
   {{end}}
 
+  </div><!-- #config-editor-panels -->
   <!-- ──────────── Submit ──────────── -->
-  <div class="form-actions">
+  <div class="form-actions editor-actions">
+    <span id="editor-save-status" class="text-muted">Saves configuration only. Deploy from the environment page.</span>
     <button type="submit" class="btn btn-primary btn-lg">Save &amp; Configure</button>
     <a href="/" class="btn btn-outline btn-lg">Cancel</a>
   </div>
@@ -2240,6 +2288,7 @@ function stepNumber(btn, delta) {
   const max = input.max !== '' ? parseInt(input.max, 10) : Infinity;
   const cur = parseInt(input.value, 10);
   input.value = Math.min(max, Math.max(min, (isNaN(cur) ? 0 : cur) + delta));
+  input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 const PLATFORM        = {{json .Platform}};
@@ -2427,7 +2476,7 @@ function dependencyRules() {
       tickDependentsOnEnable: docker,
       dependents: [
         checkboxDependent('enable_pmm', 'PMM agent'),
-        ...(docker || PLATFORM === 'chaos' ? [bareClientsDependent()] : []),
+        bareClientsDependent(),
         ...(managedTLS ? [caOnPmmDependent()] : []),
       ],
     },
@@ -2696,6 +2745,16 @@ function refreshOptionConflicts() {
       const prefix = topologyBlockPrefix(block);
       const field = name => block.querySelector(`input[name="${prefix}_${name}[]"]`);
 
+      const audit = field('enable_audit');
+      const community = block.querySelector(`select[name="${prefix}_mongodb_distribution[]"]`)?.value === 'community';
+      if (audit) {
+        if (community && audit.checked) {
+          setCheckboxAndNotify(audit, false);
+          showDependencyNote(audit, 'Audit logging turned off: MongoDB Community does not support it.');
+        }
+        setConflictState(audit, community ? 'MongoDB Community does not support audit logging. Select PSMDB or Enterprise to enable it.' : '');
+      }
+
       const tls = field('use_tls');
       const mongot = field('enable_mongot');
       if (tls && mongot) {
@@ -2922,7 +2981,7 @@ function onPbmAgentFeatureToggle(checkbox) {
 }
 
 function toggleAuditFilter(checkbox) {
-  const body = checkbox.closest('.customize-body');
+  const body = checkbox.closest('.component-block')?.querySelector('.customize-body');
   if (!body) return;
   const row = body.querySelector('[data-audit-filter-row]');
   if (!row) return;
@@ -2936,6 +2995,7 @@ function toggleCustomizeBlock(btn) {
   const hidden = body.style.display === 'none';
   body.style.display = hidden ? '' : 'none';
   btn.textContent = hidden ? '▲ Collapse' : '▼ Customize';
+  if (window.configurationEditor) window.configurationEditor.refresh();
 }
 
 function toggleMachineImageCustom(sel) {
@@ -3039,14 +3099,15 @@ function syncMongoDBDistributionControls(block, prefix) {
 function setSelectOptions(sel, values) {
   if (!sel) return;
   const prev = sel.value;
-  sel.innerHTML = (values || []).map(v => `<option value="${escHtml(v)}"${v === prev ? ' selected' : ''}>${escHtml(v)}</option>`).join('');
+  sel.innerHTML = (values || []).map(v => `<option value="${escHtml(v)}"${v === prev ? ' selected' : ''}>${escHtml(v)}</option>`).join('') || '<option value="">No versions found for this channel / OS</option>';
   if (prev && Array.from(sel.options).some(o => o.value === prev)) sel.value = prev;
 }
 
 function setSelectOptionsNoEmpty(sel, values) {
   if (!sel) return;
   const prev = sel.value;
-  sel.innerHTML = (values || []).map(v => `<option value="${escHtml(v)}"${v === prev ? ' selected' : ''}>${escHtml(v)}</option>`).join('');
+  const placeholder = sel.dataset.requireChoice ? `<option value="">Choose a major version…</option>` : '';
+  sel.innerHTML = placeholder + (values || []).map(v => `<option value="${escHtml(v)}"${v === prev ? ' selected' : ''}>${escHtml(v)}</option>`).join('') || '<option value="">No versions found for this channel / OS</option>';
   if (prev && Array.from(sel.options).some(o => o.value === prev)) sel.value = prev;
 }
 
@@ -3064,20 +3125,14 @@ function packageVersionField(product) {
 }
 
 let packageVersionRefreshDepth = 0;
-let packageVersionDisabledStates = null;
 const packageVersionRefreshSeq = new WeakMap();
+const packageVersionDisabledStates = new WeakMap();
+const pendingPackageVersionLoads = new Set();
+const packageVersionActiveLoads = new WeakMap();
 
 function showPackageVersionDialog() {
   packageVersionRefreshDepth++;
   if (packageVersionRefreshDepth > 1) return;
-  const form = document.getElementById('config-form');
-  packageVersionDisabledStates = [];
-  if (form) {
-    form.querySelectorAll('input, select, textarea, button').forEach(field => {
-      packageVersionDisabledStates.push([field, field.disabled]);
-      field.disabled = true;
-    });
-  }
   const modal = document.getElementById('versions-loading-modal');
   if (modal) modal.style.display = 'flex';
 }
@@ -3088,10 +3143,6 @@ function hidePackageVersionDialog() {
   if (packageVersionRefreshDepth > 0) return;
   const modal = document.getElementById('versions-loading-modal');
   if (modal) modal.style.display = 'none';
-  (packageVersionDisabledStates || []).forEach(([field, disabled]) => {
-    field.disabled = disabled;
-  });
-  packageVersionDisabledStates = null;
 }
 
 async function withPackageVersionDialog(fn) {
@@ -3115,8 +3166,56 @@ function refreshPackageMinorOptions(block, prefix, product) {
   setSelectOptions(versionSel, major ? versions.filter(v => majorFromPackageVersion(v) === major) : versions);
 }
 
+function populateAgentPackageVersions(block, prefix, product, versions) {
+  const majorSel = packageSelect(block, prefix, packageMajorField(product));
+  const versionSel = packageSelect(block, prefix, packageVersionField(product));
+  if (!majorSel || !versionSel) return;
+  const previousMajor = majorSel.value || majorFromPackageVersion(versionSel.value);
+  const majors = Array.from(new Set(versions.map(majorFromPackageVersion).filter(Boolean)));
+  majorSel.dataset.versions = JSON.stringify(versions);
+  setSelectOptionsNoEmpty(majorSel, majors);
+  if (majors.includes(previousMajor)) majorSel.value = previousMajor;
+  refreshPackageMinorOptions(block, prefix, product);
+}
+
+function packageVersionStatus(select, text, retry) {
+  if (!select) return;
+  const group = select.closest('.form-group');
+  let status = group.querySelector('.package-version-status');
+  if (!status) {
+    status = document.createElement('small');
+    status.className = 'package-version-status';
+    status.setAttribute('role', 'status');
+    group.append(status);
+  }
+  status.textContent = text;
+  if (retry) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'btn btn-outline btn-sm';
+    button.textContent = 'Retry';
+    button.addEventListener('click', retry);
+    status.append(' ', button);
+  }
+  status.hidden = !text;
+}
+
+function initializeAgentPackageVersions(block, prefix) {
+  for (const product of ['pbm', 'pmm_client']) {
+    const major = packageSelect(block, prefix, packageMajorField(product));
+    const minor = packageSelect(block, prefix, packageVersionField(product));
+    if (!major || !minor || major.options.length) continue;
+    const cached = Array.from(minor.options).map(option => option.value).filter(value => majorFromPackageVersion(value));
+    populateAgentPackageVersions(block, prefix, product, cached);
+  }
+}
+
 async function refreshPackageVersions(block, prefix, product) {
   if (!block || !prefix || PLATFORM === 'docker') return;
+  // Initial loads pass .component-block; change handlers pass .customize-body.
+  // Use the same request identity so stale responses cannot undo user changes.
+  block = block.closest('.component-block') || block;
+  initializeAgentPackageVersions(block, prefix);
   let refreshes = packageVersionRefreshSeq.get(block);
   if (!refreshes) {
     refreshes = new Map();
@@ -3140,8 +3239,24 @@ async function refreshPackageVersions(block, prefix, product) {
     : product === 'ps4m'
       ? [packageSelect(block, prefix, 'mongot_version')]
     : [packageSelect(block, prefix, packageMajorField(product)), packageSelect(block, prefix, packageVersionField(product))];
-  const affectedStates = affected.map(sel => [sel, sel ? sel.disabled : false]);
-  affected.forEach(sel => { if (sel) sel.disabled = true; });
+  const load = {};
+  let activeLoads = packageVersionActiveLoads.get(block);
+  if (!activeLoads) {
+    activeLoads = new Map();
+    packageVersionActiveLoads.set(block, activeLoads);
+  }
+  pendingPackageVersionLoads.delete(activeLoads.get(product));
+  activeLoads.set(product, load);
+  pendingPackageVersionLoads.add(load);
+  affected.forEach(sel => {
+    if (!sel) return;
+    if (!packageVersionDisabledStates.has(sel)) packageVersionDisabledStates.set(sel, sel.disabled);
+    if (!sel.options.length) sel.add(new Option('Loading available versions…', ''));
+    sel.disabled = true;
+    sel.setAttribute('aria-busy', 'true');
+    sel.dataset.versionLoadState = 'loading';
+    packageVersionStatus(sel, 'Loading available versions…');
+  });
   try {
     const resp = await fetch(`/api/package-versions?${params.toString()}`);
     const data = await resp.json();
@@ -3151,37 +3266,51 @@ async function refreshPackageVersions(block, prefix, product) {
     const currentOsImage = selectedPackageOsImage(block, prefix);
     const currentDistribution = product === 'psmdb' ? selectedMongoDBDistribution(block, prefix) : 'psmdb';
     if (currentChannel !== channel || currentOsImage !== osImage || currentDistribution !== distribution) return;
+    affected.forEach(sel => packageVersionStatus(sel, ''));
     if (product === 'psmdb') {
       const releaseSel = packageSelect(block, prefix, 'mongo_release');
       if (releaseSel) {
         const previousRelease = releaseSel.value;
         releaseSel.dataset.minorVersions = JSON.stringify(data.minor_versions || {});
         setSelectOptionsNoEmpty(releaseSel, data.major_versions || []);
+        if (releaseSel.dataset.defaultLatest && distribution === 'psmdb' && channel === 'release' && data.major_versions?.length) {
+          releaseSel.value = data.major_versions[0];
+          packageSelect(block, prefix, 'mongo_version').value = '';
+          delete releaseSel.dataset.defaultLatest;
+        }
         onMongoReleaseChange(releaseSel);
         if (releaseSel.value !== previousRelease) onPackageMongoReleaseChange(releaseSel);
       }
     } else if (product === 'ps4m') {
       setSelectOptions(packageSelect(block, prefix, 'mongot_version'), data.versions || []);
     } else {
-      const majorSel = packageSelect(block, prefix, packageMajorField(product));
       const versions = data.versions || [];
-      const majors = [];
-      versions.forEach(v => {
-        const major = majorFromPackageVersion(v);
-        if (major && !majors.includes(major)) majors.push(major);
-      });
-      if (majorSel) {
-        majorSel.dataset.versions = JSON.stringify(versions);
-        setSelectOptionsNoEmpty(majorSel, majors);
-      }
-      refreshPackageMinorOptions(block, prefix, product);
+      populateAgentPackageVersions(block, prefix, product, versions);
     }
+    affected.forEach(sel => {
+      if (!sel) return;
+      const available = Array.from(sel.options).some(option => option.value);
+      sel.dataset.versionLoadState = available ? 'ready' : 'empty';
+      if (!available) packageVersionStatus(sel, 'No packages found for this repository channel and OS. Try another channel or OS.', sel === affected[0] ? () => refreshPackageVersions(block, prefix, product) : null);
+    });
   } catch (err) {
     if (refreshes.get(product) !== request) return;
     console.warn(err);
+    affected.forEach(sel => {
+      if (!sel) return;
+      sel.dataset.versionLoadState = 'error';
+      if (!Array.from(sel.options).some(option => option.value)) sel.replaceChildren(new Option('Versions unavailable — retry', ''));
+      packageVersionStatus(sel, 'Could not refresh versions. Existing selections were kept.', sel === affected[0] ? () => refreshPackageVersions(block, prefix, product) : null);
+    });
   } finally {
+    pendingPackageVersionLoads.delete(load);
     if (refreshes.get(product) === request) {
-      affectedStates.forEach(([sel, disabled]) => { if (sel) sel.disabled = disabled; });
+      affected.forEach(sel => {
+        if (!sel) return;
+        sel.disabled = packageVersionDisabledStates.get(sel) || false;
+        packageVersionDisabledStates.delete(sel);
+        sel.removeAttribute('aria-busy');
+      });
     }
   }
 }
@@ -3194,6 +3323,15 @@ function onPackageRepoChange(sel, product) {
 function onMongoDBDistributionChange(sel) {
   const block = packageBlockForField(sel);
   const prefix = packageFieldPrefix(sel);
+  if (sel.closest('.component-block')?.dataset.versionSelectionPending) {
+    const major = packageSelect(block, prefix, 'mongo_release');
+    const minor = packageSelect(block, prefix, 'mongo_version');
+    major.value = '';
+    major.disabled = !sel.value;
+    minor.value = '';
+    minor.disabled = true;
+    if (!sel.value) return;
+  }
   syncMongoDBDistributionControls(block, prefix);
   withPackageVersionDialog(() => refreshPackageVersions(block, prefix, 'psmdb'));
 }
@@ -3220,9 +3358,11 @@ function onPackageMongoReleaseChange(sel) {
 }
 
 function refreshAllPackageVersions(block) {
+  if (block?.dataset.versionSelectionPending && !block.querySelector('[name$="_mongodb_distribution[]"]')?.value) return;
   const marker = block?.querySelector('select[name="cluster_mongo_repo[]"], select[name="replset_mongo_repo[]"]');
   const prefix = packageFieldPrefix(marker);
   if (!prefix) return;
+  initializeAgentPackageVersions(block, prefix);
   syncMongoDBDistributionControls(block, prefix);
   return Promise.all(['psmdb', 'pbm', 'pmm_client', 'ps4m'].map(product => refreshPackageVersions(block, prefix, product)));
 }
@@ -3248,7 +3388,9 @@ function onMongoReleaseChange(sel) {
   const minors = ((scopedMinorVersions || PSMDB_MINOR_VERSIONS) && (scopedMinorVersions || PSMDB_MINOR_VERSIONS)[release]) || [];
   // Keep the currently selected value if it's still valid.
   const prevVal = versionSel.value;
-  versionSel.innerHTML = minors.map(v => `<option value="${escHtml(v)}" ${v === prevVal ? 'selected' : ''}>${escHtml(v)}</option>`).join('');
+  const placeholder = versionSel.dataset.requireChoice ? '<option value="">Choose a minor version…</option>' : '';
+  versionSel.innerHTML = placeholder + minors.map(v => `<option value="${escHtml(v)}" ${v === prevVal ? 'selected' : ''}>${escHtml(v)}</option>`).join('');
+  if (versionSel.dataset.requireChoice) versionSel.disabled = !release;
 }
 
 // Cascade: when the major PBM release changes, repopulate the version dropdown.
@@ -3605,7 +3747,9 @@ function selectedPmmServerImageValue() {
 function buildDockerImageRows(type) {
   if (type !== 'cluster' && type !== 'replset') return '';
   const namespaceControl = (defaultNs = 'percona', mongot = false) => `<div class="image-namespace-row"><select class="docker-namespace-select" onchange="${mongot ? 'onDockerMongotNamespaceChange' : 'onDockerImageNamespaceChange'}(this)"><option value="percona"${defaultNs === 'percona' ? ' selected' : ''}>percona</option><option value="perconalab"${defaultNs === 'perconalab' ? ' selected' : ''}>perconalab</option><option value="mongodb"${defaultNs === 'mongodb' ? ' selected' : ''}>mongodb</option><option value="__custom__">custom</option></select><input type="text" class="docker-namespace-custom" placeholder="namespace" style="display:none" oninput="onDockerImageNamespaceChange(this)"></div>`;
-  const psmdbSel = PSMDB_IMAGES.map(t => `<option value="${escHtml(t)}"${t === 'latest' ? ' selected' : ''}>percona/percona-server-mongodb:${escHtml(t)}</option>`).join('') +
+  const psmdbDefault = PSMDB_IMAGES.filter(t => /^\d+\.\d+\.\d+(-\d+)?$/.test(t))
+    .sort((a, b) => b.localeCompare(a, undefined, {numeric: true}))[0] || 'latest';
+  const psmdbSel = PSMDB_IMAGES.map(t => `<option value="${escHtml(t)}"${t === psmdbDefault ? ' selected' : ''}>percona/percona-server-mongodb:${escHtml(t)}</option>`).join('') +
     `<option value="__custom__">Custom…</option>`;
   const pbmSel   = PBM_IMAGES.map(t => `<option value="${escHtml(t)}"${t === 'latest' ? ' selected' : ''}>percona/percona-backup-mongodb:${escHtml(t)}</option>`).join('') +
     `<option value="__custom__">Custom…</option>`;
@@ -3635,7 +3779,7 @@ function buildDockerImageRows(type) {
 
 function buildPackageOverrideRows(type) {
   if (PLATFORM === 'docker' || (type !== 'cluster' && type !== 'replset')) return '';
-  const defaultMongoRelease = PSMDB_VERSIONS.includes('psmdb-80') ? 'psmdb-80' : PSMDB_VERSIONS[0];
+  const defaultMongoRelease = PSMDB_VERSIONS[0];
   const mongoReleaseOptions = PSMDB_VERSIONS.map(v => `<option value="${escHtml(v)}"${v === defaultMongoRelease ? ' selected' : ''}>${escHtml(v)}</option>`).join('');
   const pbmVersionOptions = PBM_VERSIONS.map(v => `<option value="${escHtml(v)}">${escHtml(v)}</option>`).join('');
   const pmmClientVersionOptions = PMM_CLIENT_IMAGES.map(v => `<option value="${escHtml(v)}">${escHtml(v)}</option>`).join('');
@@ -3673,8 +3817,8 @@ function buildPackageOverrideRows(type) {
         </select></div>
       <div class="form-group" data-mongodb-repo><label>MongoDB Repository Channel <span class="field-tip" data-tip="PSMDB repository channel for this ${label}. Defaults to release (GA).">ⓘ</span></label>
         <select name="${type}_mongo_repo[]" onchange="onPackageRepoChange(this, 'psmdb')">${repoOptions}</select></div>
-      <div class="form-group"><label>MongoDB Major Version <span class="field-tip" data-tip="Defaults to PSMDB 8.0. PSMDB 8.3 and newer lines must be selected explicitly. Releases are filtered by package availability for the selected OS and channel.">ⓘ</span></label>
-        <select name="${type}_mongo_release[]" onchange="onMongoReleaseChange(this); onPackageMongoReleaseChange(this)">${mongoReleaseOptions}</select></div>
+      <div class="form-group"><label>MongoDB Major Version <span class="field-tip" data-tip="Defaults to the latest PSMDB available in the GA channel for the selected OS.">ⓘ</span></label>
+        <select name="${type}_mongo_release[]" data-default-latest="true" onchange="delete this.dataset.defaultLatest; onMongoReleaseChange(this); onPackageMongoReleaseChange(this)">${mongoReleaseOptions}</select></div>
       <div class="form-group"><label>MongoDB Minor Version <span class="field-tip" data-tip="PSMDB minor/package version pin for this ${label}. Defaults to the newest package from the selected release/channel.">ⓘ</span></label>
         <select name="${type}_mongo_version[]"></select></div>
     </div>
@@ -3904,10 +4048,11 @@ function addCluster() {
       ${buildAuditRows('cluster')}${packageRows}${dockerRows}${computeRows}
     </div>`;
   document.getElementById('clusters-container').appendChild(c);
+  if (window.configurationEditor) window.configurationEditor.prepareNewTopology(c);
   selectDefaultImage(c.querySelector('.image-field[data-image-repo="pmm-client"]'), DEFAULT_IMAGES.pmmClient);
   c.querySelectorAll('select[name="cluster_mongo_release[]"]').forEach(onMongoReleaseChange);
   syncPerconaSearchRepoControl(c);
-  if (PLATFORM !== 'docker') refreshAllPackageVersions(c);
+  if (PLATFORM !== 'docker' && !c.dataset.versionSelectionPending) refreshAllPackageVersions(c);
   initTopologyBlockDependencies(c);
 }
 
@@ -3946,10 +4091,11 @@ function addReplset() {
       ${buildAuditRows('replset')}${packageRows}${dockerRows}${computeRows}
     </div>`;
   document.getElementById('replsets-container').appendChild(c);
+  if (window.configurationEditor) window.configurationEditor.prepareNewTopology(c);
   selectDefaultImage(c.querySelector('.image-field[data-image-repo="pmm-client"]'), DEFAULT_IMAGES.pmmClient);
   c.querySelectorAll('select[name="replset_mongo_release[]"]').forEach(onMongoReleaseChange);
   syncPerconaSearchRepoControl(c);
-  if (PLATFORM !== 'docker') refreshAllPackageVersions(c);
+  if (PLATFORM !== 'docker' && !c.dataset.versionSelectionPending) refreshAllPackageVersions(c);
   initTopologyBlockDependencies(c);
 }
 
@@ -4036,7 +4182,7 @@ function addBareClient(name, cfg = {}) {
   row.innerHTML = `
     <div class="form-group"><label>Name</label>
       <input type="text" name="bare_client_name[]" value="${escHtml(name)}"></div>
-    <div class="form-group"><label>${docker ? 'Base Image' : 'OS Image'} <span class="field-tip" data-tip="${docker ? 'Debian, Ubuntu or RHEL-compatible image the client is built on.' : 'CHAOS OS image. default uses the same OS as the other VMs.'}">ⓘ</span></label>
+    <div class="form-group"${!docker && PLATFORM !== 'chaos' ? ' hidden' : ''}><label>${docker ? 'Base Image' : 'OS Image'} <span class="field-tip" data-tip="${docker ? 'Debian, Ubuntu or RHEL-compatible image the client is built on.' : 'CHAOS OS image. default uses the same OS as the other VMs.'}">ⓘ</span></label>
       <select name="bare_client_image[]" onchange="this.nextElementSibling.style.display = this.value === '__custom__' ? '' : 'none'">${imageOptions}</select>
       <input type="text" name="bare_client_image_custom[]" value="${listed ? '' : escHtml(image)}" placeholder="${docker ? 'registry/repo:tag' : 'CHAOS OS image'}" style="${listed ? 'display:none;' : ''}margin-top:0.3rem"></div>
     ${clientFields}
@@ -4517,10 +4663,14 @@ async function loadImages(refresh = false) {
   } catch (e) {
     imgSel.innerHTML = '<option value="">— image fetch failed —</option>';
     if (currentVal) {
-      const opt = new Option(currentVal, currentVal, true, true);
+      const opt = new Option(imageOptionLabel(currentVal), currentVal, true, true);
       imgSel.insertBefore(opt, imgSel.firstChild);
     }
   }
+}
+
+function imageOptionLabel(image) {
+  return PLATFORM === 'gcp' ? image.substring(image.lastIndexOf('/') + 1) : image;
 }
 
 function renderImageOptions(imgSel, groups, currentVal) {
@@ -4528,7 +4678,7 @@ function renderImageOptions(imgSel, groups, currentVal) {
   if (osNames.length === 0) {
     imgSel.innerHTML = '<option value="">— no images found —</option>';
     if (currentVal) {
-      const opt = new Option(currentVal, currentVal, false, true);
+      const opt = new Option(imageOptionLabel(currentVal), currentVal, false, true);
       imgSel.insertBefore(opt, imgSel.firstChild);
     }
     appendCustomImageOption(imgSel, currentVal);
@@ -4540,8 +4690,8 @@ function renderImageOptions(imgSel, groups, currentVal) {
     const grp = document.createElement('optgroup');
     grp.label = os;
     (groups[os] || []).forEach(img => {
-      const label = img.name || img.id;
-      const opt = new Option(label + ' (' + img.id + ')', img.id);
+      const label = imageOptionLabel(img.name || img.id);
+      const opt = new Option(PLATFORM === 'gcp' ? label : label + ' (' + img.id + ')', img.id);
       if (img.id === currentVal) { opt.selected = true; matched = true; }
       grp.appendChild(opt);
     });
@@ -4549,10 +4699,15 @@ function renderImageOptions(imgSel, groups, currentVal) {
   });
   // Keep stale saved value visible even if not in the freshly-fetched list.
   if (currentVal && currentVal !== '__custom__' && !matched) {
-    const opt = new Option(currentVal, currentVal, true, true);
+    const opt = new Option(imageOptionLabel(currentVal), currentVal, true, true);
     imgSel.insertBefore(opt, imgSel.firstChild);
   }
   appendCustomImageOption(imgSel, currentVal);
+  if (!currentVal) {
+    const ubuntu = osNames.find(os => /ubuntu.*24/i.test(os));
+    const image = ubuntu && groups[ubuntu]?.[0];
+    if (image) imgSel.value = image.id;
+  }
 }
 
 function appendCustomImageOption(imgSel, currentVal) {
@@ -4772,8 +4927,31 @@ function copyPackageOverrides(block, target, prefix) {
   });
 }
 
+function showConfigurationError(message, field) {
+  if (window.configurationEditor) window.configurationEditor.showError(message, field);
+  else alert(message);
+}
+
 document.getElementById('config-form').addEventListener('submit', async (e) => {
   e.preventDefault();
+  if (pendingPackageVersionLoads.size) {
+    showConfigurationError('Package versions are still loading. Wait for them to finish before saving.');
+    return;
+  }
+  for (const block of topologyBlocks()) {
+    const prefix = topologyBlockPrefix(block);
+    const products = ['psmdb'];
+    if (block.querySelector(`[name="${prefix}_enable_pbm[]"]`)?.checked) products.push('pbm');
+    if (block.querySelector(`[name="${prefix}_enable_pmm[]"]`)?.checked) products.push('pmm_client');
+    for (const product of products) {
+      const field = packageSelect(block, prefix, product === 'psmdb' ? 'mongo_release' : packageMajorField(product));
+      if (field?.dataset.versionLoadState === 'empty') {
+        showConfigurationError('No package versions are available for an enabled component. Choose a different repository channel or OS.', field);
+        return;
+      }
+    }
+  }
+  const profileName = window.environmentProfileSaveName || '';
   const form = e.target;
   const submitBtn = form.querySelector('[type=submit]');
   const fd = new FormData(form);
@@ -4828,7 +5006,7 @@ document.getElementById('config-form').addEventListener('submit', async (e) => {
     if (config.enable_extensions) {
       config.extensions_image = (fd.get('extensions_image') || '').trim();
       if (!pmmImageSupportsExtensions(config.pmm_image)) {
-        alert(EXTENSIONS_PMM_IMAGE_HINT);
+        showConfigurationError(EXTENSIONS_PMM_IMAGE_HINT, '#enable_extensions');
         return;
       }
     }
@@ -4866,7 +5044,7 @@ document.getElementById('config-form').addEventListener('submit', async (e) => {
   if (PLATFORM !== 'docker' && fd.has('enable_ldap')) {
     const ldapName = (fd.get('ldap_server_name') || 'ldap').trim();
     if (!/^[a-zA-Z0-9_-]+$/.test(ldapName)) {
-      alert('LDAP server name may only use letters, numbers, underscores, and hyphens.');
+      showConfigurationError('LDAP server name may only use letters, numbers, underscores, and hyphens.', '#ldap_server_name');
       return;
     }
     config.ldap_servers = {
@@ -4890,7 +5068,7 @@ document.getElementById('config-form').addEventListener('submit', async (e) => {
   {
     const mongotErrors = validateMongotVersions();
     if (mongotErrors.length > 0) {
-      alert('Cannot save: mongot requires mongod 8.2 or higher.\n\n' + mongotErrors.join('\n'));
+      showConfigurationError('Cannot save: mongot requires mongod 8.2 or higher.\n\n' + mongotErrors.join('\n'), '[name="cluster_enable_mongot[]"]:checked, [name="replset_enable_mongot[]"]:checked');
       submitBtn.disabled = false;
       submitBtn.textContent = 'Save & Configure';
       return;
@@ -4900,7 +5078,7 @@ document.getElementById('config-form').addEventListener('submit', async (e) => {
 	if (PLATFORM !== 'docker') {
     const anyPmmAgent = Array.from(document.querySelectorAll('input[name="cluster_enable_pmm[]"], input[name="replset_enable_pmm[]"]')).some(cb => cb.checked);
     if (anyPmmAgent && !fd.has('enable_pmm')) {
-      alert('Enable the PMM monitoring server or disable PMM agents for all clusters and replica sets.');
+      showConfigurationError('Enable the PMM monitoring server or disable PMM agents for all clusters and replica sets.', '#enable_pmm');
       submitBtn.disabled = false;
       submitBtn.textContent = 'Save & Configure';
       return;
@@ -4939,7 +5117,7 @@ document.getElementById('config-form').addEventListener('submit', async (e) => {
         if (!secret) missing.push(PLATFORM === 'gcp' ? 'HMAC Secret' : 'Secret Access Key');
       }
       if (missing.length) {
-        alert(`Existing backup ${PLATFORM === 'azure' ? 'container' : 'bucket'} requires: ${missing.join(', ')}`);
+        showConfigurationError(`Existing backup ${PLATFORM === 'azure' ? 'container' : 'bucket'} requires: ${missing.join(', ')}`, '#existing_bucket_name');
         submitBtn.disabled = false;
         submitBtn.textContent = 'Save & Configure';
         return;
@@ -5090,23 +5268,23 @@ document.getElementById('config-form').addEventListener('submit', async (e) => {
   if (['docker', 'aws', 'gcp', 'azure', 'chaos'].includes(PLATFORM)) {
     config.use_tls = [...Object.values(config.clusters), ...Object.values(config.replsets)].some(item => item.use_tls);
     if (config.use_tls && !config.enable_ca) {
-      alert('Provision a certificate authority before enabling TLS on a cluster or replica set.');
+      showConfigurationError('Provision a certificate authority before enabling TLS on a cluster or replica set.', '#enable_ca');
       return;
     }
     if (config.enable_ca && config.ca_placement === 'pmm' && !fd.has('enable_pmm')) {
-      alert('Enable the PMM server or select a dedicated CA server.');
+      showConfigurationError('Enable the PMM server or select a dedicated CA server.', '#ca_placement');
       return;
     }
   }
 
   // PMM clients without MongoDB
-  if (PLATFORM === 'docker' || PLATFORM === 'chaos') {
+  {
     config.pmm_bare_clients = {};
     for (const row of document.querySelectorAll('#bare-clients-container .bare-client-row')) {
       const name = getBlockFieldValue(row, 'bare_client_name[]').trim();
       if (!name) continue;
       if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(name) || config.pmm_bare_clients[name]) {
-        alert(`PMM client name "${name}" must be unique and use lowercase letters, digits and hyphens.`);
+        showConfigurationError(`PMM client name "${name}" must be unique and use lowercase letters, digits and hyphens.`, '[name="bare_client_name[]"]');
         return;
       }
       const imageSelect = getBlockFieldValue(row, 'bare_client_image[]');
@@ -5137,7 +5315,7 @@ document.getElementById('config-form').addEventListener('submit', async (e) => {
       };
     });
     if (Object.values(config.pmm_servers).some(s => s.enable_extensions && !pmmImageSupportsExtensions(s.pmm_server_image))) {
-      alert(EXTENSIONS_PMM_IMAGE_HINT);
+      showConfigurationError(EXTENSIONS_PMM_IMAGE_HINT, '[name="pmm_server_enable_extensions[]"]');
       return;
     }
 
@@ -5192,11 +5370,11 @@ document.getElementById('config-form').addEventListener('submit', async (e) => {
 
   const envId = ((fd.get('env_id') || document.querySelector('[data-env-id]').dataset.envId || '') + '').trim();
   if (envId && !/^[a-z0-9]{1,16}$/.test(envId)) {
-    alert('Environment name must use lowercase letters and digits only, up to 16 characters.');
+    showConfigurationError('Environment name must use lowercase letters and digits only, up to 16 characters.', '#env_id_field');
     return;
   }
   if (PLATFORM === 'gcp' && envId && !/^[a-z][a-z0-9]{0,13}$/.test(envId)) {
-    alert('GCP environment name must start with a lowercase letter and be at most 14 characters.');
+    showConfigurationError('GCP environment name must start with a lowercase letter and be at most 14 characters.', '#env_id_field');
     return;
   }
   if (envId) config.prefix = envId;
@@ -5206,14 +5384,14 @@ document.getElementById('config-form').addEventListener('submit', async (e) => {
 
   const bareClientError = validateBareClients(config);
   if (bareClientError) {
-    alert(bareClientError);
+    showConfigurationError(bareClientError, '[name="bare_client_name[]"]');
     return;
   }
 
   if (PLATFORM === 'docker') {
     const portError = validateDockerPortConflicts(config);
     if (portError) {
-      alert(portError);
+      showConfigurationError(portError, '[name="replset_port[]"], [name="pmm_server_port[]"]');
       return;
     }
   }
@@ -5221,24 +5399,30 @@ document.getElementById('config-form').addEventListener('submit', async (e) => {
   submitBtn.disabled = true;
   submitBtn.textContent = 'Saving…';
   try {
-    const resp = await fetch('/api/environment', {
+    const resp = await fetch(profileName ? '/api/environment-profiles' : '/api/environment', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(profileName ? {name: profileName, platform: PLATFORM, config} : payload),
     });
     const data = await resp.json();
     if (resp.ok) {
-      window.location.href = `/environment/${data.env_id}`;
+      if (profileName) {
+        await window.environmentProfiles.saved(data);
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Save & Configure';
+      } else window.location.href = `/environment/${data.env_id}`;
     } else {
-      alert('Error: ' + (data.error || 'Unknown error'));
+      showConfigurationError('Error: ' + (data.error || 'Unknown error'));
       submitBtn.disabled = false;
       submitBtn.textContent = 'Save & Configure';
     }
   } catch (err) {
-    alert('Network error: ' + err.message);
+    showConfigurationError('Network error: ' + err.message);
     submitBtn.disabled = false;
     submitBtn.textContent = 'Save & Configure';
   }
 });
 </script>
+<script src="/static/configure-editor.js"></script>
+<script src="/static/environment-profiles.js"></script>
 {{end}}

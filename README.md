@@ -16,7 +16,8 @@ and Percona ClusterSync for MongoDB (PCSM).
 
 - Replica sets and sharded clusters, including multiple topologies in one environment.
 - Backup and restore environments using PBM and provider object storage or SeaweedFS.
-- Monitoring environments with PMM.
+- Monitoring environments with PMM, including PMM clients without MongoDB on Docker,
+  CHAOS, AWS, GCP, and Azure.
 - Cluster synchronization scenarios with PCSM.
 - Workload experiments using [plgm](https://github.com/Percona-Lab/percona-load-generator-mongodb) (Percona Load Generator for MongoDB).
 - Environments with TLS, audit logging, LDAP authentication, or Vault-backed PSMDB

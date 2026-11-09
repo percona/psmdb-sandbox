@@ -1,0 +1,22 @@
+[pmm]
+${hostname_pmm} ansible_host=${ip_pmm}
+
+[pmm_bare_client]
+%{ for name, client in pmm_bare_clients ~}
+${name} ansible_host=${client.ip}%{ if client.pmm_client_repo != "" } pmm_client_repo="${client.pmm_client_repo}"%{ endif }%{ if client.pmm_client_version != "" } pmm_client_version=${client.pmm_client_version}%{ endif }
+%{ endfor ~}
+
+[all:vars]
+ansible_user=${my_ssh_user}
+%{ if ssh_private_key_path != "" ~}
+ansible_ssh_private_key_file=${ssh_private_key_path}
+%{ endif ~}
+ansible_ssh_common_args=-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+enable_pmm=true
+pmm_image=${pmm_image}
+%{ if pmm_client_version != "" ~}
+pmm_client_version=${pmm_client_version}
+%{ endif ~}
+%{ if pmm_client_repo != "" ~}
+pmm_client_repo=${pmm_client_repo}
+%{ endif ~}

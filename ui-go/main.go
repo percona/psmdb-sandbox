@@ -85,13 +85,15 @@ var funcMap = template.FuncMap{
 	"upper":         strings.ToUpper,
 	"hasPrefix":     strings.HasPrefix,
 	"join":          strings.Join,
+	"imageName":     func(image string) string { return image[strings.LastIndex(image, "/")+1:] },
 	"defaultRegion": func(platform string) string { return defaultCloudRegion[platform] },
 	// Benchmark hardware tunables (see hardware.go).
-	"hardwarePresets":    hardwarePresets,
-	"hardwareFormFields": func() []string { return hardwareFormFields },
-	"diskTypes":          diskTypesFor,
-	"machineTypes":       suggestedMachineTypes,
-	"cpuPlatforms":       func() []string { return gcpCPUPlatforms },
+	"hardwarePresets":     hardwarePresets,
+	"hardwareFormFields":  func() []string { return hardwareFormFields },
+	"chaosHardwareFields": chaosHardwareFields,
+	"diskTypes":           diskTypesFor,
+	"machineTypes":        suggestedMachineTypes,
+	"cpuPlatforms":        func() []string { return gcpCPUPlatforms },
 	// Render a label/tag map as "key=value" lines (sorted) for a textarea.
 	"labelsText": func(m map[string]string) string {
 		keys := make([]string, 0, len(m))
@@ -113,12 +115,8 @@ var funcMap = template.FuncMap{
 		}
 		return false
 	},
+	"preferredPSMDBImage": preferredPSMDBImage,
 	"preferredPSMDBRelease": func(versions []string) string {
-		for _, version := range versions {
-			if version == "psmdb-80" {
-				return version
-			}
-		}
 		if len(versions) > 0 {
 			return versions[0]
 		}
@@ -640,6 +638,9 @@ func main() {
 	mux.HandleFunc("POST /api/provider-auth/{platform}", providerAuthHandler)
 	mux.HandleFunc("GET /api/provider-auth/{platform}/status", providerAuthStatusHandler)
 	mux.HandleFunc("POST /api/environment", saveEnvironmentHandler)
+	mux.HandleFunc("GET /api/environment-profiles", environmentProfilesHandler)
+	mux.HandleFunc("POST /api/environment-profiles", environmentProfilesHandler)
+	mux.HandleFunc("DELETE /api/environment-profiles/{profile_id}", deleteEnvironmentProfileHandler)
 	mux.HandleFunc("DELETE /api/environment/{env_id}", deleteEnvironmentHandler)
 	mux.HandleFunc("GET /api/environment/{env_id}/tfvars", getTfvarsHandler)
 	mux.HandleFunc("GET /api/environment/{env_id}/inventory", getInventoryHandler)
