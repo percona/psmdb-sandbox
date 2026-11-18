@@ -37,7 +37,7 @@ func profileConfig(cfg Config) Config {
 		shardsvr_type shardsvr_volume_size configsvr_type configsvr_volume_size mongos_type arbiter_type replsetsvr_type replsetsvr_volume_size data_disk_type
 		hardware_preset data_disk_iops data_disk_throughput configsvr_disk_type boot_disk_type boot_disk_size min_cpu_platform nic_type tier1_networking zone_mode compact_placement plgm_type`)
 	topologyFields := `env_tag mongodb_distribution mongo_release mongo_version mongo_repo pbm_version pbm_repo pmm_client_version pmm_client_repo os_image
-		enable_pmm enable_pbm enable_mongot use_tls mongot_source mongot_repo mongot_version psmdb_image pbm_image pmm_client_image mongot_image bind_to_localhost enable_audit
+		enable_pmm enable_pbm enable_toolkit enable_mongot use_tls mongot_source mongot_repo mongot_version psmdb_image pbm_image pmm_client_image mongot_image bind_to_localhost enable_audit
 		configsvr_count mongos_count shard_count shardsvr_replicas arbiters_per_replset data_nodes_per_replset`
 	for key, fields := range map[string]string{
 		"clusters": topologyFields, "replsets": topologyFields,

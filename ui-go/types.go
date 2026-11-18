@@ -28,9 +28,11 @@ type ClusterConfig struct {
 	PmmClientRepo       string `json:"pmm_client_repo,omitempty"`
 	OsImage             string `json:"os_image,omitempty"`
 	// Per-topology PMM/PBM toggles. Docker uses them for containers; non-Docker uses them for agents.
+	// EnableToolkit installs percona-toolkit on every MongoDB host and is non-Docker only.
 	EnablePmm     *bool  `json:"enable_pmm,omitempty"`
 	EnablePbm     *bool  `json:"enable_pbm,omitempty"`
 	EnableMongot  *bool  `json:"enable_mongot,omitempty"`
+	EnableToolkit *bool  `json:"enable_toolkit,omitempty"`
 	UseTLS        *bool  `json:"use_tls,omitempty"`
 	MongotSource  string `json:"mongot_source,omitempty"`
 	MongotRepo    string `json:"mongot_repo,omitempty"`
@@ -67,9 +69,11 @@ type ReplsetConfig struct {
 	ArbiterPort     int `json:"arbiter_port,omitempty"`
 	ArbiterBasePort int `json:"arbiter_base_port,omitempty"`
 	// Per-topology PMM/PBM toggles. Docker uses them for containers; non-Docker uses them for agents.
+	// EnableToolkit installs percona-toolkit on every MongoDB host and is non-Docker only.
 	EnablePmm     *bool  `json:"enable_pmm,omitempty"`
 	EnablePbm     *bool  `json:"enable_pbm,omitempty"`
 	EnableMongot  *bool  `json:"enable_mongot,omitempty"`
+	EnableToolkit *bool  `json:"enable_toolkit,omitempty"`
 	UseTLS        *bool  `json:"use_tls,omitempty"`
 	MongotSource  string `json:"mongot_source,omitempty"`
 	MongotRepo    string `json:"mongot_repo,omitempty"`

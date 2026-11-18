@@ -182,6 +182,20 @@ Only digits and `* / , -` are accepted, so names such as `mon` are rejected, and
 
 The generated inventories may include `enable_audit` and `audit_filter` values from Terraform. Review `group_vars` and the inventory if you want to enable or customize PSMDB audit logging.
 
+### Percona Toolkit
+
+The web UI adds an **Install Percona Toolkit** checkbox to each cluster and replica set on AWS, GCP, Azure, and CHAOS. It is off by default. Terraform writes `enable_toolkit` into the generated inventory, and Ansible installs `percona-toolkit` (for example `pt-mongodb-summary`, `pt-mongodb-query-digest` and `pt-summary`) on every host of that topology, including config servers, arbiters, and mongos routers.
+
+* `enable_toolkit` (default `false`) turns the installation on for the inventory.
+* `toolkit_repo` (default `release`) selects the `percona-release` channel for the `tools` repository.
+* Percona publishes the package for x86_64 only. The play fails with a clear message on other architectures, because the distribution package lacks the MongoDB tools.
+* Docker environments do not support the toolkit.
+
+To add it to an existing deployment, set `enable_toolkit=true` in the inventory and run:
+```
+ansible-playbook main.yml -i inventory --tags toolkit
+```
+
 ### LDAP
 
 AWS, GCP, Azure, and CHAOS can provision one or more LDAP hosts using `ldap_servers`. Select an LDAP host for a cluster or replica set by setting its `ldap_server` to the corresponding map key. The generated inventory adds the LDAP host, installs OpenLDAP and phpLDAPadmin on the same OS image as the MongoDB hosts, seeds the configured LDAP users, and enables MongoDB `PLAIN` authentication.
@@ -349,6 +363,8 @@ controller paths, Docker/Libvirt workflows, and destruction semantics.
     - Runs the `sh.addShard()` command on a mongos router
   - backup
     - Deploys & configures the PBM agent, configures backup crons
+  - toolkit
+    - Enables the Percona `tools` repository and installs Percona Toolkit when `enable_toolkit` is true
   - pmm_server
     - Deploys a PMM server using Docker
   - monitoring

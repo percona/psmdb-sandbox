@@ -463,6 +463,7 @@ func writeTfvars(envID, platform string, cfg Config) error {
 			if platform != "docker" {
 				write(fmt.Sprintf("    enable_pmm = %s", formatHCLVal(boolDefault(c.EnablePmm, false))))
 				write(fmt.Sprintf("    enable_pbm = %s", formatHCLVal(boolDefault(c.EnablePbm, false))))
+				write(fmt.Sprintf("    enable_toolkit = %s", formatHCLVal(boolDefault(c.EnableToolkit, false))))
 				write(fmt.Sprintf("    enable_mongot = %s", formatHCLVal(boolDefault(c.EnableMongot, false))))
 				if c.MongotSource != "" {
 					write(fmt.Sprintf("    mongot_source = %s", formatHCLVal(c.MongotSource)))
@@ -551,6 +552,7 @@ func writeTfvars(envID, platform string, cfg Config) error {
 			if platform != "docker" {
 				write(fmt.Sprintf("    enable_pmm = %s", formatHCLVal(boolDefault(r.EnablePmm, false))))
 				write(fmt.Sprintf("    enable_pbm = %s", formatHCLVal(boolDefault(r.EnablePbm, false))))
+				write(fmt.Sprintf("    enable_toolkit = %s", formatHCLVal(boolDefault(r.EnableToolkit, false))))
 				write(fmt.Sprintf("    enable_mongot = %s", formatHCLVal(boolDefault(r.EnableMongot, false))))
 				if r.MongotSource != "" {
 					write(fmt.Sprintf("    mongot_source = %s", formatHCLVal(r.MongotSource)))

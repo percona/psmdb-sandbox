@@ -1,0 +1,29 @@
+---
+- name: Verify Percona Toolkit selection
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - ../group_vars/all.yml
+  tasks:
+    - name: Verify the toolkit is not installed unless selected
+      ansible.builtin.assert:
+        that:
+          - not (toolkit_enabled | bool)
+          - toolkit_package == ['percona-toolkit']
+
+    - name: Verify the toolkit selection is honoured for boolean and string values
+      ansible.builtin.assert:
+        that:
+          - toolkit_enabled | bool
+      vars:
+        enable_toolkit: "{{ item }}"
+      loop: [true, "True", "true"]
+
+    - name: Verify an explicit false keeps the toolkit disabled
+      ansible.builtin.assert:
+        that:
+          - not (toolkit_enabled | bool)
+      vars:
+        enable_toolkit: "{{ item }}"
+      loop: [false, "False"]

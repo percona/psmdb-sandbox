@@ -33,6 +33,7 @@
       `TLS ${topology.tls ? 'on' : 'off'}`,
     ];
     if (topology.search) features.push('Search on');
+    if (topology.toolkit) features.push('Toolkit on');
     return { nodes, description, features: features.join(' · ') };
   }
 
@@ -192,7 +193,7 @@
         shards: value('shard_count'), members: value(prefix === 'cluster' ? 'shardsvr_replicas' : 'data_nodes'),
         arbiters: value(prefix === 'cluster' ? 'arbiters_per_replset' : 'arbiters'),
         configs: value('configsvr_count'), routers: value('mongos_count'),
-        monitoring: enabled('enable_pmm'), backups: enabled('enable_pbm'), tls: enabled('use_tls'), search: enabled('enable_mongot'),
+        monitoring: enabled('enable_pmm'), backups: enabled('enable_pbm'), tls: enabled('use_tls'), search: enabled('enable_mongot'), toolkit: enabled('enable_toolkit'),
       };
     }
 
