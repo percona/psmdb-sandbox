@@ -390,6 +390,9 @@ func TestWriteTfvarsCloudAgentToggles(t *testing.T) {
 			},
 		},
 	}
+	cl := cfg.Clusters["cl01"]
+	cl.EnableToolkit = boolPtr(true)
+	cfg.Clusters["cl01"] = cl
 
 	if err := writeTfvars("cloud-agent-toggles", "gcp", cfg); err != nil {
 		t.Fatalf("writeTfvars failed: %v", err)
@@ -408,10 +411,34 @@ func TestWriteTfvarsCloudAgentToggles(t *testing.T) {
 		`"rs01" = {`,
 		`enable_pmm = true`,
 		`enable_pbm = false`,
+		`enable_toolkit = true`,
+		`enable_toolkit = false`,
 	} {
 		if !strings.Contains(tfvars, want) {
 			t.Fatalf("expected %q in tfvars:\n%s", want, tfvars)
 		}
+	}
+}
+
+func TestWriteTfvarsToolkitIsNotWrittenForDocker(t *testing.T) {
+	dir := t.TempDir()
+	origTerraformDir := terraformDir
+	terraformDir = dir
+	t.Cleanup(func() { terraformDir = origTerraformDir })
+
+	cfg := Config{
+		Clusters: map[string]ClusterConfig{"cl01": {EnvTag: "test", EnableToolkit: boolPtr(true)}},
+		Replsets: map[string]ReplsetConfig{"rs01": {EnvTag: "test", EnableToolkit: boolPtr(true)}},
+	}
+	if err := writeTfvars("docker-toolkit", "docker", cfg); err != nil {
+		t.Fatalf("writeTfvars failed: %v", err)
+	}
+	content, err := os.ReadFile(tfvarsPath("docker-toolkit", "docker"))
+	if err != nil {
+		t.Fatalf("read tfvars failed: %v", err)
+	}
+	if strings.Contains(string(content), "enable_toolkit") {
+		t.Fatalf("Docker tfvars must not contain enable_toolkit:\n%s", content)
 	}
 }
 

@@ -363,6 +363,9 @@ func TestCloudInventoriesUseCanonicalTLSVariable(t *testing.T) {
 				if strings.Count(template, "enable_pmm=${enable_pmm}") != 1 {
 					t.Errorf("%s must emit enable_pmm exactly once", path)
 				}
+				if strings.Count(template, "enable_toolkit=${enable_toolkit}") != 1 {
+					t.Errorf("%s must emit enable_toolkit exactly once", path)
+				}
 			})
 		}
 	}

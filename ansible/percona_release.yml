@@ -1,6 +1,6 @@
 ---
 - name: Prepare nodes
-  tags: os_conf,install,backup,monitoring
+  tags: os_conf,install,backup,monitoring,toolkit
   hosts: cfg:shards:replsets:mongos
   gather_facts: "{{ not (skip_repeated_facts | default(false) | bool) }}"
   become: yes
@@ -161,6 +161,10 @@
       when:
         - pbm_enabled | bool
         - "'cfg' in group_names or 'shards' in group_names or 'replsets' in group_names"
+
+    - name: Enable Percona Toolkit repository
+      command: "/usr/bin/percona-release enable tools {{ toolkit_repo | default('release') }}"
+      when: toolkit_enabled | bool
 
     - name: Enable PMM client repository
       command: "/usr/bin/percona-release enable {{ pmm_client_repo | default('pmm3-client') }}"

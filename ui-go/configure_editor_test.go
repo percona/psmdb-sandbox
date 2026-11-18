@@ -52,6 +52,11 @@ func TestConfigureEditorMarkupAndScripts(t *testing.T) {
 			if platform == "docker" && strings.Contains(page, `data-editor-group="resources"`) {
 				t.Error("Docker must not show a cloud resource panel")
 			}
+			for _, name := range []string{`name="cluster_enable_toolkit[]"`, `name="replset_enable_toolkit[]"`} {
+				if has := strings.Contains(page, name); has == (platform == "docker") {
+					t.Errorf("%s: Percona Toolkit checkbox %s present=%v", platform, name, has)
+				}
+			}
 			for _, unwanted := range []string{"Start a new configuration (optional)", "Standalone Replica Sets", "Templates &amp; reusable profiles", "Starting points are optional.", `id="apply-environment-starter"`, `id="environment-profile-to-delete"`, `id="delete-environment-profile"`} {
 				if strings.Contains(page, unwanted) {
 					t.Errorf("unexpected editor markup %q", unwanted)
@@ -138,6 +143,8 @@ result = topologySummary({kind: 'cluster', shards: '2', members: '3', arbiters: 
 assert.equal(result.nodes, 11);
 assert.match(result.description, /2 shards × 3 data nodes \+ 0 arbiters/);
 assert.match(result.features, /Monitoring on.*Search on/);
+assert.match(topologySummary({kind: 'replset', toolkit: true}).features, /Toolkit on/);
+assert.doesNotMatch(topologySummary({kind: 'replset'}).features, /Toolkit/);
 assert.equal(topologySummary({kind: 'cluster'}).nodes, 11);
 assert.equal(topologySummary({kind: 'replset', members: '', arbiters: ''}).nodes, 3);
 `)

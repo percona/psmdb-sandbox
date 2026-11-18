@@ -96,6 +96,7 @@ resource "local_file" "AnsibleInventoryCluster" {
     enable_pmm_agent     = var.enable_pmm && var.clusters[each.key].enable_pmm
     pmm_image            = var.pmm_image
     enable_pbm           = var.clusters[each.key].enable_pbm
+    enable_toolkit       = var.clusters[each.key].enable_toolkit
     enable_mongot        = var.clusters[each.key].enable_mongot
     mongot_source        = var.clusters[each.key].mongot_source
     mongot_repo          = var.clusters[each.key].mongot_repo != "" ? var.clusters[each.key].mongot_repo : var.mongot_repo
@@ -186,6 +187,7 @@ resource "local_file" "AnsibleInventoryRS" {
     enable_pmm_agent     = var.enable_pmm && var.replsets[each.key].enable_pmm
     pmm_image            = var.pmm_image
     enable_pbm           = var.replsets[each.key].enable_pbm
+    enable_toolkit       = var.replsets[each.key].enable_toolkit
     enable_mongot        = var.replsets[each.key].enable_mongot
     mongot_source        = var.replsets[each.key].mongot_source
     mongot_repo          = var.replsets[each.key].mongot_repo != "" ? var.replsets[each.key].mongot_repo : var.mongot_repo
