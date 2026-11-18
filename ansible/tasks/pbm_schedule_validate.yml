@@ -1,0 +1,10 @@
+---
+- name: Validate {{ schedule_name }}
+  ansible.builtin.assert:
+    that:
+      - schedule_value is string
+      - schedule_value is match('^[0-9*/,\- ]+$')
+      - schedule_value.split() | length == 5
+    fail_msg: >-
+      {{ schedule_name }} must be a 5-field cron expression (minute hour day-of-month month day-of-week)
+      using only digits and the characters * / , - ; got '{{ schedule_value }}'.

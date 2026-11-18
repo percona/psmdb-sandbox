@@ -161,6 +161,23 @@ You should review and modify these files as needed before making the deployment.
 
 Note: The PMM user and password are used to login to PMM UI via the web browser. If you want to change the default PMM credentials (admin/admin), you will need to login to PMM via the web browser and change the PMM password there after deployment finishes.
 
+### Backup schedule
+
+The `backup` tag installs two cron jobs on every data-bearing member (not arbiters): a PBM backup and a cleanup that removes backups older than `pbm_retention_days`. Both are 5-field cron expressions (minute hour day-of-month month day-of-week) set with:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `pbm_backup_schedule` | `2 0 * * *` | When `pbm backup` runs |
+| `pbm_purge_schedule` | `2 0 * * *` | When `pbm cleanup` runs |
+| `pbm_retention_days` | `3` | Age after which backups are removed |
+
+```
+ansible-playbook main.yml -i inventory --tags backup \
+  --extra-vars '{"pbm_backup_schedule": "0 */6 * * *", "pbm_purge_schedule": "30 3 * * 0", "pbm_retention_days": 7}'
+```
+
+Only digits and `* / , -` are accepted, so names such as `mon` are rejected, and an invalid value fails the play before any cron file is changed. Cron uses the host's local time zone (UTC on most cloud images). The older `pbm_backup_hour`, `pbm_backup_minute`, `pbm_purge_hour` and `pbm_purge_minute` variables still work and feed the default schedules.
+
 ### Audit plugin
 
 The generated inventories may include `enable_audit` and `audit_filter` values from Terraform. Review `group_vars` and the inventory if you want to enable or customize PSMDB audit logging.

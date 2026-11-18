@@ -329,11 +329,15 @@ pbm_backup_type_default: "{{ 'physical' if mongodb_distribution_effective == 'ps
 pbm_backup_type_effective: "{{ pbm_backup_type | default(pbm_backup_type_default, true) }}"
 # how long to keep backups
 pbm_retention_days: 3
-# use for the cron job with backup time
+# hour/minute are kept for backwards compatibility and feed the default schedules below
 pbm_backup_hour: 0
 pbm_backup_minute: 2
 pbm_purge_hour: 0
 pbm_purge_minute: 2
+# Backup and purge schedules as 5-field cron expressions: minute hour day-of-month month day-of-week.
+# Cron runs in the host's local time zone. Examples: "0 */6 * * *" (every 6 hours), "30 1 * * 0" (Sundays at 01:30).
+pbm_backup_schedule: "{{ pbm_backup_minute }} {{ pbm_backup_hour }} * * *"
+pbm_purge_schedule: "{{ pbm_purge_minute }} {{ pbm_purge_hour }} * * *"
 # older pbm versions used a dedicated pbm user
 pbm_os_user: "{{ mongo_os_user }}"
 

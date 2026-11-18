@@ -1,0 +1,58 @@
+---
+- name: Verify PBM backup and purge schedules
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - ../group_vars/all.yml
+  tasks:
+    - name: Verify default schedules match the legacy hour and minute defaults
+      ansible.builtin.assert:
+        that:
+          - pbm_backup_schedule == '2 0 * * *'
+          - pbm_purge_schedule == '2 0 * * *'
+
+    - name: Verify legacy hour and minute overrides still drive the schedule
+      ansible.builtin.assert:
+        that:
+          - pbm_backup_schedule == '15 3 * * *'
+          - pbm_purge_schedule == '45 4 * * *'
+      vars:
+        pbm_backup_hour: 3
+        pbm_backup_minute: 15
+        pbm_purge_hour: 4
+        pbm_purge_minute: 45
+
+    - name: Verify valid schedules
+      ansible.builtin.include_tasks: ../tasks/pbm_schedule_validate.yml
+      loop:
+        - '2 0 * * *'
+        - '0 */6 * * *'
+        - '30 1 * * 0'
+        - '0,30 8-18 * * 1-5'
+        - '  5   4 1 * *  '
+      loop_control:
+        loop_var: schedule_value
+      vars:
+        schedule_name: pbm_backup_schedule
+
+    - name: Verify split of a custom schedule
+      ansible.builtin.assert:
+        that:
+          - pbm_backup_schedule.split()[0] == '30'
+          - pbm_backup_schedule.split()[1] == '1'
+          - pbm_backup_schedule.split()[4] == '0'
+      vars:
+        pbm_backup_schedule: '30 1 * * 0'
+
+    - name: Verify invalid schedules are rejected
+      ansible.builtin.include_tasks: pbm_schedule_invalid_case.yml
+      loop:
+        - ''
+        - '* * * *'
+        - '* * * * * *'
+        - '0 0 * * mon'
+        - '0 0 * * *; rm -rf /'
+        - '$(id) 0 * * *'
+      loop_control:
+        loop_var: invalid_schedule

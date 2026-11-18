@@ -37,6 +37,7 @@ Run the tests relevant to the change:
   - `ansible-playbook -i tests/mongodb_inventory.ini tests/mongodb_inventory.yml`
   - `ansible-playbook -i tests/mongot_inventory.ini tests/mongot_templates.yml`
   - `ansible-playbook -i localhost, tests/vault_templates.yml`
+  - `ansible-playbook -i localhost, tests/pbm_schedule.yml`
   - Judge results by `PLAY RECAP` (`failed=0`). `fatal` lines inside `rescued` blocks are expected negative cases.
 - Scripts: `python3 -m unittest discover scripts/tests`
 - Terraform: `terraform fmt -check` and `terraform validate` in the affected platform directory.
