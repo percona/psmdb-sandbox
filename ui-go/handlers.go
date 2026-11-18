@@ -1206,6 +1206,11 @@ func topologyAnsibleVars(cfg Config, platform, name string, extraVars map[string
 		if cfg.VaultVersion != "" {
 			vars["vault_version"] = cfg.VaultVersion
 		}
+		if backupActive(platform, cfg) {
+			for key, value := range backupScheduleAnsibleVars(cfg) {
+				vars[key] = value
+			}
+		}
 	}
 	return vars
 }
@@ -1327,6 +1332,10 @@ func saveEnvironmentHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := validateBackupBucketConfig(payload.Platform, payload.Config); err != nil {
+		jsonError(w, 400, err.Error())
+		return
+	}
+	if err := normalizeAndValidateBackupSchedule(payload.Platform, &payload.Config); err != nil {
 		jsonError(w, 400, err.Error())
 		return
 	}

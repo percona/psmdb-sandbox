@@ -154,11 +154,28 @@
         - pbm_enabled | bool
         - mongodb_primary is defined and mongodb_primary
 
+    - name: Validate backup and purge schedules
+      ansible.builtin.include_tasks: tasks/pbm_schedule_validate.yml
+      loop:
+        - { name: pbm_backup_schedule, value: "{{ pbm_backup_schedule }}" }
+        - { name: pbm_purge_schedule, value: "{{ pbm_purge_schedule }}" }
+      loop_control:
+        loop_var: schedule
+      vars:
+        schedule_name: "{{ schedule.name }}"
+        schedule_value: "{{ schedule.value }}"
+      when:
+        - pbm_enabled | bool
+        - arbiter is not defined
+
     - name: Set up backup cron job
       cron:
         name: pbm backup
-        minute: '{{ pbm_backup_minute }}'
-        hour: '{{ pbm_backup_hour }}'
+        minute: "{{ pbm_backup_schedule.split()[0] }}"
+        hour: "{{ pbm_backup_schedule.split()[1] }}"
+        day: "{{ pbm_backup_schedule.split()[2] }}"
+        month: "{{ pbm_backup_schedule.split()[3] }}"
+        weekday: "{{ pbm_backup_schedule.split()[4] }}"
         user: '{{ pbm_os_user }}'
         job: /usr/bin/pbm backup --type '{{ pbm_backup_type_effective }}' --mongodb-uri '{{ mongodb_uri }}'
         cron_file: pbm_daily_backup
@@ -169,8 +186,11 @@
     - name: Set up purge old backups cron job
       cron:
         name: pbm purge
-        minute: '{{ pbm_purge_minute }}'
-        hour: '{{ pbm_purge_hour }}'
+        minute: "{{ pbm_purge_schedule.split()[0] }}"
+        hour: "{{ pbm_purge_schedule.split()[1] }}"
+        day: "{{ pbm_purge_schedule.split()[2] }}"
+        month: "{{ pbm_purge_schedule.split()[3] }}"
+        weekday: "{{ pbm_purge_schedule.split()[4] }}"
         user: '{{ pbm_os_user }}'
         job: /usr/bin/pbm cleanup --force --older-than $(date -u -d '-{{ pbm_retention_days }} days' +'\%Y-\%m-\%d') --mongodb-uri '{{ mongodb_uri }}'
         cron_file: pbm_purge_old

@@ -239,6 +239,11 @@ type Config struct {
 	CreateBackupBucket *bool  `json:"create_backup_bucket,omitempty"`
 	DefaultBucketName  string `json:"default_bucket_name,omitempty"`
 	BackupRetention    int    `json:"backup_retention,omitempty"`
+	// BackupSchedule and BackupPurgeSchedule are 5-field cron expressions for the
+	// PBM backup and cleanup cron jobs on AWS/GCP/Azure/CHAOS. Empty keeps the
+	// Ansible defaults.
+	BackupSchedule      string `json:"backup_schedule,omitempty"`
+	BackupPurgeSchedule string `json:"backup_purge_schedule,omitempty"`
 	// Existing bucket used for PBM when CreateBackupBucket is false.
 	// AWS: S3 bucket + region + access key ID/secret.
 	// GCP: GCS bucket + HMAC access ID/secret.

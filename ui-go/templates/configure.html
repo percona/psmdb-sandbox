@@ -1671,11 +1671,6 @@
             <input type="number" id="seaweedfs_admin_port" name="seaweedfs_admin_port"
                    value="{{intDefault .Config.SeaweedFSAdminPort 9333}}">
           </div>
-          <div class="form-group">
-            <label for="backup_retention">Retention (days) <span class="field-tip" data-tip="Number of days to retain PBM backups (minimum 1).">ⓘ</span></label>
-            <input type="number" id="backup_retention" name="backup_retention"
-                   value="{{intDefault .Config.BackupRetention 2}}" min="1">
-          </div>
         </div>
         <!-- Compute resources hidden under nested Customize -->
         <div class="subsection-header">
@@ -1715,6 +1710,32 @@
               </select>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+    <div id="backup-schedule-body">
+      <span class="subsection-title">Schedule &amp; Retention</span>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="backup_schedule">Backup schedule <span class="field-tip" data-tip="When PBM takes a backup, as a cron expression: minute hour day-of-month month day-of-week (e.g. 0 */6 * * *). Uses the server's time zone, normally UTC. Leave empty for the default (daily at 00:02).">ⓘ</span></label>
+          <select class="backup-schedule-preset" data-target="backup_schedule" onchange="onBackupSchedulePreset(this)">
+            {{template "backupSchedulePresets"}}
+          </select>
+          <input type="text" id="backup_schedule" name="backup_schedule" value="{{.Config.BackupSchedule}}"
+                 placeholder="2 0 * * *" autocomplete="off" spellcheck="false" oninput="syncBackupSchedulePreset(this)">
+        </div>
+        <div class="form-group">
+          <label for="backup_purge_schedule">Cleanup schedule <span class="field-tip" data-tip="When PBM removes backups older than the retention period, as a cron expression. Leave empty for the default (daily at 00:02).">ⓘ</span></label>
+          <select class="backup-schedule-preset" data-target="backup_purge_schedule" onchange="onBackupSchedulePreset(this)">
+            {{template "backupSchedulePresets"}}
+          </select>
+          <input type="text" id="backup_purge_schedule" name="backup_purge_schedule" value="{{.Config.BackupPurgeSchedule}}"
+                 placeholder="2 0 * * *" autocomplete="off" spellcheck="false" oninput="syncBackupSchedulePreset(this)">
+        </div>
+        <div class="form-group">
+          <label for="backup_retention">Retention (days) <span class="field-tip" data-tip="Backups older than this are removed by the cleanup job (minimum 1). A bucket created with the environment also uses it as its lifecycle expiry.">ⓘ</span></label>
+          <input type="number" id="backup_retention" name="backup_retention"
+                 value="{{intDefault .Config.BackupRetention 2}}" min="1">
         </div>
       </div>
     </div>
@@ -1904,10 +1925,31 @@
         <input type="text" id="default_bucket_name" name="default_bucket_name"
                value="{{strDefault .Config.DefaultBucketName "mongo-bkp-storage"}}">
       </div>
-      <div class="form-group">
-        <label for="backup_retention">Retention (days) <span class="field-tip" data-tip="Number of days to retain PBM backups (minimum 1).">ⓘ</span></label>
-        <input type="number" id="backup_retention" name="backup_retention"
-               value="{{intDefault .Config.BackupRetention 2}}" min="1">
+    </div>
+    <div id="backup-schedule-body">
+      <span class="subsection-title">Schedule &amp; Retention</span>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="backup_schedule">Backup schedule <span class="field-tip" data-tip="When PBM takes a backup, as a cron expression: minute hour day-of-month month day-of-week (e.g. 0 */6 * * *). Uses the server's time zone, normally UTC. Leave empty for the default (daily at 00:02).">ⓘ</span></label>
+          <select class="backup-schedule-preset" data-target="backup_schedule" onchange="onBackupSchedulePreset(this)">
+            {{template "backupSchedulePresets"}}
+          </select>
+          <input type="text" id="backup_schedule" name="backup_schedule" value="{{.Config.BackupSchedule}}"
+                 placeholder="2 0 * * *" autocomplete="off" spellcheck="false" oninput="syncBackupSchedulePreset(this)">
+        </div>
+        <div class="form-group">
+          <label for="backup_purge_schedule">Cleanup schedule <span class="field-tip" data-tip="When PBM removes backups older than the retention period, as a cron expression. Leave empty for the default (daily at 00:02).">ⓘ</span></label>
+          <select class="backup-schedule-preset" data-target="backup_purge_schedule" onchange="onBackupSchedulePreset(this)">
+            {{template "backupSchedulePresets"}}
+          </select>
+          <input type="text" id="backup_purge_schedule" name="backup_purge_schedule" value="{{.Config.BackupPurgeSchedule}}"
+                 placeholder="2 0 * * *" autocomplete="off" spellcheck="false" oninput="syncBackupSchedulePreset(this)">
+        </div>
+        <div class="form-group">
+          <label for="backup_retention">Retention (days) <span class="field-tip" data-tip="Backups older than this are removed by the cleanup job (minimum 1). A bucket created with the environment also uses it as its lifecycle expiry.">ⓘ</span></label>
+          <input type="number" id="backup_retention" name="backup_retention"
+                 value="{{intDefault .Config.BackupRetention 2}}" min="1">
+        </div>
       </div>
     </div>
     </div><!-- #backup-settings-body -->
@@ -2844,6 +2886,38 @@ function toggleBackupSettings() {
     el.style.display = el.dataset.backupMode === mode.value ? '' : 'none';
   });
 }
+
+// Backup schedule inputs: the preset dropdown fills the cron text box, and
+// typing in the box selects the matching preset (or "Custom").
+function backupScheduleSelect(input) {
+  return document.querySelector('.backup-schedule-preset[data-target="' + input.id + '"]');
+}
+
+function syncBackupSchedulePreset(input) {
+  const select = backupScheduleSelect(input);
+  if (!select) return;
+  const value = input.value.trim().replace(/\s+/g, ' ');
+  const match = Array.from(select.options).find(o => o.value !== 'custom' && o.value === value);
+  select.value = match ? match.value : 'custom';
+}
+
+function onBackupSchedulePreset(select) {
+  const input = document.getElementById(select.dataset.target);
+  if (!input) return;
+  if (select.value === 'custom') {
+    input.focus();
+    return;
+  }
+  input.value = select.value;
+}
+
+function initBackupSchedulePresets() {
+  ['backup_schedule', 'backup_purge_schedule'].forEach(id => {
+    const input = document.getElementById(id);
+    if (input) syncBackupSchedulePreset(input);
+  });
+}
+document.addEventListener('DOMContentLoaded', initBackupSchedulePresets);
 
 function onDockerPmmFeatureToggle(checkbox) {
   toggleImageGroup(checkbox, 'pmm');
@@ -4987,7 +5061,7 @@ document.getElementById('config-form').addEventListener('submit', async (e) => {
     'subnet_cidr','subnet_count','source_ranges','default_vpc_name',
     'enable_ssh_gateway','ssh_gateway_name','port_to_forward',
     'pmm_type','pmm_volume_size','pmm_port','pmm_image','pmm_image_channel','pmm_disk_type',
-    'default_bucket_name','backup_retention',
+    'default_bucket_name','backup_retention','backup_schedule','backup_purge_schedule',
     'data_disk_type','network_name',
     'machine_image',
     // Per-component instance types and disk sizes
@@ -5116,6 +5190,21 @@ document.getElementById('config-form').addEventListener('submit', async (e) => {
     config.create_backup_bucket = (fd.get('backup_bucket_mode') || 'create') !== 'existing';
     if (PLATFORM === 'chaos') {
       config.enable_seaweedfs = config.enable_backup && config.create_backup_bucket;
+    }
+    if (config.enable_backup) {
+      const cronRe = /^[0-9*\/,\-]+$/;
+      for (const [field, label] of [['backup_schedule', 'Backup schedule'], ['backup_purge_schedule', 'Cleanup schedule']]) {
+        const value = (config[field] || '').trim().replace(/\s+/g, ' ');
+        if (!value) { delete config[field]; continue; }
+        const parts = value.split(' ');
+        if (parts.length !== 5 || !parts.every(p => cronRe.test(p))) {
+          showConfigurationError(label + ' must be a 5-field cron expression (minute hour day-of-month month day-of-week) using only digits and the characters * / , - such as 0 */6 * * *.', '#' + field);
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Save & Configure';
+          return;
+        }
+        config[field] = value;
+      }
     }
     if (config.enable_backup && !config.create_backup_bucket) {
       const val = name => (fd.get(name) || '').trim();
@@ -5451,3 +5540,9 @@ document.getElementById('config-form').addEventListener('submit', async (e) => {
 <script src="/static/configure-editor.js"></script>
 <script src="/static/environment-profiles.js"></script>
 {{end}}
+
+{{define "backupSchedulePresets"}}<option value="">Default (daily at 00:02)</option>
+            <option value="0 */6 * * *">Every 6 hours</option>
+            <option value="0 2 * * *">Daily at 02:00</option>
+            <option value="0 2 * * 0">Weekly, Sunday at 02:00</option>
+            <option value="custom">Custom…</option>{{end}}

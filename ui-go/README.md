@@ -160,6 +160,16 @@ the plgm load generator Web UI when enabled).
       machine type, with a boot disk and no separate MongoDB data disk. Each client
       can override its PMM package channel and version. Clients require a PMM server,
       which the editor enables automatically.
+    - **Backup (PBM)** on AWS, GCP, Azure, and CHAOS includes **Schedule & Retention**.
+      **Backup schedule** and **Cleanup schedule** are 5-field cron expressions
+      (minute hour day-of-month month day-of-week) with presets such as every
+      6 hours or weekly; empty uses the default (daily at 00:02). Cron runs in the
+      hosts' time zone, normally UTC. **Retention (days)** sets how long the cleanup
+      job keeps backups, with new buckets also using it as their lifecycle expiry,
+      and applies to existing buckets too. Values are passed to Ansible as
+      `pbm_backup_schedule`, `pbm_purge_schedule`, and `pbm_retention_days` on the
+      next deploy, and are included in reusable profiles. Docker has no scheduled
+      backups, so the controls are not shown there.
     - New AWS and GCP configurations use the **Dev** hardware preset and automatically
       select **Ubuntu 24.04** when it is available in the machine image list. Saved
       image selections and hardware settings are preserved.

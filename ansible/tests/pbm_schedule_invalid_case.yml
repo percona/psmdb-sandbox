@@ -1,0 +1,15 @@
+---
+- name: Reject invalid schedule
+  block:
+    - name: Validate invalid schedule
+      ansible.builtin.include_tasks: ../tasks/pbm_schedule_validate.yml
+      vars:
+        schedule_name: pbm_backup_schedule
+        schedule_value: "{{ invalid_schedule }}"
+    - name: Fail when an invalid schedule was accepted
+      ansible.builtin.fail:
+        msg: "schedule '{{ invalid_schedule }}' should have been rejected"
+  rescue:
+    - name: Confirm the schedule was rejected by validation
+      ansible.builtin.assert:
+        that: "'must be a 5-field cron expression' in ansible_failed_result.msg"
