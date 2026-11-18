@@ -1,0 +1,21 @@
+---
+- name: Install Percona Toolkit
+  hosts: cfg:shards:replsets:mongos
+  gather_facts: "{{ not (skip_repeated_facts | default(false) | bool) }}"
+  become: yes
+  tags: install,toolkit
+  environment:
+    PERCONA_TELEMETRY_DISABLE: "{{ '1' if disable_telemetry else '0' }}"
+  tasks:
+    - name: Validate Percona Toolkit architecture support
+      assert:
+        that:
+          - ansible_facts['architecture'] == 'x86_64'
+        fail_msg: "Percona publishes percona-toolkit packages for x86_64 only. On {{ ansible_facts['architecture'] }} hosts the distribution package lacks the MongoDB tools, so disable enable_toolkit."
+      when: toolkit_enabled | bool
+
+    - name: Install percona-toolkit
+      package:
+        name: "{{ toolkit_package }}"
+        state: present
+      when: toolkit_enabled | bool

@@ -123,6 +123,9 @@ pbm_package:
 pmm_client_package:
   - pmm-client
 
+toolkit_package:
+  - percona-toolkit
+
 disable_telemetry: false
 
 # Percona ClusterSync is provisioned only when the inventory contains [pcsm].
@@ -318,6 +321,14 @@ watchtower_token: 89220f28d5017b6a5806a7c589485c2b
 ###############
   
 pbm_enabled: "{{ enable_pbm | default(true) | bool }}"
+
+###############
+## Percona Toolkit
+###############
+
+# Install percona-toolkit on every MongoDB host (mongod and mongos) of a topology.
+# toolkit_repo (default release) can be overridden from the inventory.
+toolkit_enabled: "{{ enable_toolkit | default(false) | bool }}"
 
 # PBM database user and password
 pbmuser: pbm

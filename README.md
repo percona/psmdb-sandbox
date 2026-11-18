@@ -19,6 +19,8 @@ and Percona ClusterSync for MongoDB (PCSM).
 - Monitoring environments with PMM, including PMM clients without MongoDB on Docker,
   CHAOS, AWS, GCP, and Azure.
 - Cluster synchronization scenarios with PCSM.
+- Hosts with [Percona Toolkit](https://docs.percona.com/percona-toolkit/) installed on every
+  MongoDB node (AWS, GCP, Azure, and CHAOS).
 - Workload experiments using [plgm](https://github.com/Percona-Lab/percona-load-generator-mongodb) (Percona Load Generator for MongoDB).
 - Environments with TLS, audit logging, LDAP authentication, or Vault-backed PSMDB
   encryption at rest.

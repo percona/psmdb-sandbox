@@ -22,7 +22,7 @@ func TestProfileConfigExcludesSecretsAndIdentity(t *testing.T) {
 		"labels":{"secret-label":"secret-value"},"firewall_rules":[{"cidr":"secret-cidr"}],
 		"region":"us-east-1","hardware_preset":"atlas-m50","enable_plgm":true,
 		"clusters":{"cl01":{"mongo_release":"psmdb-80","mongo_version":"8.0.12-4","shard_count":2,"audit_filter":"secret-filter","enable_audit":true}},
-		"replsets":{"rs01":{"data_nodes_per_replset":3,"arbiters_per_replset":0,"replset_port":29999}},
+		"replsets":{"rs01":{"data_nodes_per_replset":3,"arbiters_per_replset":0,"replset_port":29999,"enable_toolkit":true}},
 		"pmm_servers":{"pmm":{"pmm_server_pwd":"secret-pmm","pmm_server_user":"secret-user","pmm_external_port":8443,"pmm_server_image":"percona/pmm-server:3.10.0"}},
 		"seaweedfs_servers":{"s3":{"seaweedfs_secret_key":"secret-s3","seaweedfs_access_key":"secret-access","seaweedfs_image":"chrislusf/seaweedfs:latest"}},
 		"ldap_servers":{"ldap":{"ldap_admin_password":"secret-ldap","ldap_domain":"secret-domain","ldap_image":"osixia/openldap:latest"}},
@@ -37,6 +37,9 @@ func TestProfileConfigExcludesSecretsAndIdentity(t *testing.T) {
 	}
 	if clean.Region != "us-east-1" || !clean.EnablePlgm || clean.Clusters["cl01"].MongoVersion != "8.0.12-4" {
 		t.Fatal("safe configuration was lost")
+	}
+	if !boolDefault(clean.Replsets["rs01"].EnableToolkit, false) {
+		t.Fatal("the toolkit selection must survive in a profile")
 	}
 	if clean.Replsets["rs01"].ReplsetPort != 0 || *clean.Replsets["rs01"].ArbitersPerReplset != 0 {
 		t.Fatal("ports must be cleared while explicit zero arbiters survive")

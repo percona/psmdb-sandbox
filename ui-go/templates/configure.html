@@ -475,6 +475,9 @@
             <label><input type="checkbox" name="cluster_enable_mongot[]" value="1" {{if boolDefault .Config.EnableMongot false}}checked{{end}} onchange="onMongotFeatureToggle(this)"> Install Search/Vector Search</label>
           </div>
           <div class="form-group form-group-checkbox">
+            <label><input type="checkbox" name="cluster_enable_toolkit[]" value="1" {{if boolDefault .Config.EnableToolkit false}}checked{{end}}> Install Percona Toolkit</label>
+          </div>
+          <div class="form-group form-group-checkbox">
             <label><input type="checkbox" name="cluster_use_tls[]" value="1" {{if boolDefault .Config.UseTLS false}}checked{{end}}> Enable TLS/x.509 <span class="field-tip" data-tip="Uses x.509 for member authentication and preferTLS so TLS and non-TLS clients can coexist.">ⓘ</span></label>
           </div>
         </div>
@@ -938,6 +941,7 @@
           <div class="form-group form-group-checkbox"><label><input type="checkbox" name="replset_enable_pmm[]" value="1" {{if boolDefault .Config.EnablePmm false}}checked{{end}} onchange="onPmmAgentFeatureToggle(this)"> Install PMM agent</label></div>
           <div class="form-group form-group-checkbox"><label><input type="checkbox" name="replset_enable_pbm[]" value="1" {{if boolDefault .Config.EnablePbm false}}checked{{end}} onchange="onPbmAgentFeatureToggle(this)"> Install PBM agent</label></div>
           <div class="form-group form-group-checkbox"><label><input type="checkbox" name="replset_enable_mongot[]" value="1" {{if boolDefault .Config.EnableMongot false}}checked{{end}} onchange="onMongotFeatureToggle(this)"> Install Search/Vector Search</label></div>
+          <div class="form-group form-group-checkbox"><label><input type="checkbox" name="replset_enable_toolkit[]" value="1" {{if boolDefault .Config.EnableToolkit false}}checked{{end}}> Install Percona Toolkit</label></div>
           <div class="form-group form-group-checkbox"><label><input type="checkbox" name="replset_use_tls[]" value="1" {{if boolDefault .Config.UseTLS false}}checked{{end}}> Enable TLS/x.509 <span class="field-tip" data-tip="Uses x.509 for member authentication and preferTLS so TLS and non-TLS clients can coexist.">ⓘ</span></label></div>
         </div>
         {{else}}
@@ -4026,6 +4030,7 @@ function buildFeatureRows(type) {
     <div class="form-group form-group-checkbox"><label><input type="checkbox" name="${type}_enable_pmm[]" value="1" onchange="onPmmAgentFeatureToggle(this)"> Install PMM agent</label></div>
     <div class="form-group form-group-checkbox"><label><input type="checkbox" name="${type}_enable_pbm[]" value="1" onchange="onPbmAgentFeatureToggle(this)"> Install PBM agent</label></div>
     <div class="form-group form-group-checkbox"><label><input type="checkbox" name="${type}_enable_mongot[]" value="1" onchange="onMongotFeatureToggle(this)"> Install Search/Vector Search</label></div>
+    <div class="form-group form-group-checkbox"><label><input type="checkbox" name="${type}_enable_toolkit[]" value="1"> Install Percona Toolkit</label></div>
     <div class="form-group form-group-checkbox"><label><input type="checkbox" name="${type}_use_tls[]" value="1"> Enable TLS/x.509 <span class="field-tip" data-tip="Uses x.509 for member authentication and preferTLS so TLS and non-TLS clients can coexist.">ⓘ</span></label></div>
   </div>`;
 }
@@ -5211,6 +5216,7 @@ document.getElementById('config-form').addEventListener('submit', async (e) => {
     if (PLATFORM !== 'docker') {
       c.enable_pmm = getBlockChecked(block, 'cluster_enable_pmm[]');
       c.enable_pbm = getBlockChecked(block, 'cluster_enable_pbm[]');
+      c.enable_toolkit = getBlockChecked(block, 'cluster_enable_toolkit[]');
       c.enable_mongot = getBlockChecked(block, 'cluster_enable_mongot[]');
       const mongotVersion = getBlockFieldValue(block, 'cluster_mongot_version[]').trim();
       const mongotSource = getBlockFieldValue(block, 'cluster_mongot_source[]').trim();
@@ -5255,6 +5261,7 @@ document.getElementById('config-form').addEventListener('submit', async (e) => {
     if (PLATFORM !== 'docker') {
       r.enable_pmm = getBlockChecked(block, 'replset_enable_pmm[]');
       r.enable_pbm = getBlockChecked(block, 'replset_enable_pbm[]');
+      r.enable_toolkit = getBlockChecked(block, 'replset_enable_toolkit[]');
       r.enable_mongot = getBlockChecked(block, 'replset_enable_mongot[]');
       const mongotVersion = getBlockFieldValue(block, 'replset_mongot_version[]').trim();
       const mongotSource = getBlockFieldValue(block, 'replset_mongot_source[]').trim();

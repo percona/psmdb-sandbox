@@ -23,6 +23,11 @@
           - enable_audit_effective | bool
           - audit_filter_effective == {'atype':'authCheck'}
 
+    - name: Verify the toolkit selection from the inventory is honoured
+      ansible.builtin.assert:
+        that:
+          - toolkit_enabled | bool
+
     - name: Verify audit selection reaches the generated server configuration
       ansible.builtin.assert:
         that:
