@@ -2391,6 +2391,24 @@ func envStatusHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GET /api/environments/status
+func envListStatusHandler(w http.ResponseWriter, r *http.Request) {
+	state, err := loadState()
+	if err != nil {
+		jsonError(w, 500, "state load failed: "+err.Error())
+		return
+	}
+	statuses := make(map[string]interface{}, len(state))
+	for id, env := range state {
+		statuses[id] = map[string]interface{}{
+			"status":                env.Status,
+			"updated_at":            env.UpdatedAt,
+			"operation_in_progress": environmentOperationActive(id),
+		}
+	}
+	writeJSON(w, 200, statuses)
+}
+
 // GET /api/job/{job_id}/status
 func jobStatusHandler(w http.ResponseWriter, r *http.Request) {
 	jobID := r.PathValue("job_id")

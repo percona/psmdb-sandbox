@@ -29,6 +29,7 @@
     <tbody>
       {{range .Environments}}
       <tr class="env-row{{if eq .Env.Status "deleted"}} env-row-deleted{{end}}"
+          data-env-id="{{.ID}}" data-status="{{.Env.Status}}"
           onclick="window.location.href='/environment/{{.ID}}'"
           style="cursor:pointer">
         <td class="env-id-cell">
@@ -51,7 +52,7 @@
         <td class="env-actions-cell" onclick="event.stopPropagation()">
           <a href="/environment/{{.ID}}" class="btn btn-secondary btn-sm">Manage</a>
           <a href="/configure/{{.Env.Platform}}?from={{.ID}}" class="btn btn-outline btn-sm" title="Create a new environment from this definition">Duplicate</a>
-          <button class="btn btn-outline btn-sm btn-danger-outline" title="Remove an undeployed or destroyed environment; otherwise use Destroy first" aria-label="Remove environment {{.ID}}" {{if not (or (eq .Env.Status "configured") (eq .Env.Status "deleted") (eq .Env.Status "destroy_success"))}}disabled{{end}} onclick="deleteEnvironment('{{.ID}}', '{{.Env.Status}}', '{{.Env.Platform}}')">X</button>
+          <button class="btn btn-outline btn-sm btn-danger-outline" title="Remove an undeployed or destroyed environment; otherwise use Destroy first" aria-label="Remove environment {{.ID}}" {{if not (or (eq .Env.Status "configured") (eq .Env.Status "deleted") (eq .Env.Status "destroy_success"))}}disabled{{end}} onclick="deleteEnvironment('{{.ID}}', this.closest('tr').dataset.status, '{{.Env.Platform}}')">X</button>
         </td>
       </tr>
       {{end}}
@@ -276,6 +277,51 @@
 
 <script>
 let settingsProfilesBusy = false;
+
+// Keep the environment list current while jobs run in the background.
+const ENV_STATUS_POLL_MS = 5000;
+const REMOVABLE_STATUSES = new Set(['configured', 'deleted', 'destroy_success']);
+const STATUS_LABEL_OVERRIDES = {
+  'configure_in_progress': 'Installing…',
+  'configure_failed': 'Install Failed',
+  'deleted': 'Destroyed',
+};
+
+function envStatusLabel(status) {
+  return STATUS_LABEL_OVERRIDES[status] || status.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function applyEnvRowStatus(row, status) {
+  if (row.dataset.status === status) return;
+  row.dataset.status = status;
+  row.classList.toggle('env-row-deleted', status === 'deleted');
+  const dot = row.querySelector('.status-dot');
+  if (dot) dot.className = `status-dot status-${status.replace(/:.+$/, '')}`;
+  const label = row.querySelector('.status-label-sm');
+  if (label) label.textContent = envStatusLabel(status);
+  const removeBtn = row.querySelector('.env-actions-cell .btn-danger-outline');
+  if (removeBtn) removeBtn.disabled = !REMOVABLE_STATUSES.has(status);
+}
+
+async function refreshEnvironmentStatuses() {
+  if (document.hidden) return;
+  let statuses;
+  try {
+    statuses = await apiFetch('/api/environments/status');
+  } catch (_) { return; /* keep the last known values */ }
+  const rows = Array.from(document.querySelectorAll('tr[data-env-id]'));
+  const shown = rows.map(row => row.dataset.envId).sort().join('\n');
+  const current = Object.keys(statuses).sort().join('\n');
+  if (shown !== current) {
+    // Environments were added or removed elsewhere; re-render unless the user is editing settings.
+    if (document.getElementById('platform-settings-modal').style.display === 'none') location.reload();
+    return;
+  }
+  rows.forEach(row => applyEnvRowStatus(row, statuses[row.dataset.envId].status || ''));
+}
+
+setInterval(refreshEnvironmentStatuses, ENV_STATUS_POLL_MS);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshEnvironmentStatuses(); });
 
 function openPlatformSettings() {
   initializeUploadedFileDisplays();

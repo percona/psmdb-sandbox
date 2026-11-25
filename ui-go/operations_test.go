@@ -70,6 +70,37 @@ func TestEnvironmentGuards(t *testing.T) {
 	}
 }
 
+func TestEnvironmentListStatus(t *testing.T) {
+	useTempState(t)
+	if err := saveState(map[string]*Environment{
+		"envone": {Platform: "docker", Status: "destroy_in_progress"},
+		"envtwo": {Platform: "aws", Status: "deleted"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	release, ok := tryEnvironmentOperation("envone")
+	if !ok {
+		t.Fatal("could not acquire lock")
+	}
+	defer release()
+	rec := httptest.NewRecorder()
+	envListStatusHandler(rec, httptest.NewRequest(http.MethodGet, "/api/environments/status", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: %d %s", rec.Code, rec.Body.String())
+	}
+	var got map[string]struct {
+		Status              string `json:"status"`
+		OperationInProgress bool   `json:"operation_in_progress"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got["envone"].Status != "destroy_in_progress" || !got["envone"].OperationInProgress ||
+		got["envtwo"].Status != "deleted" || got["envtwo"].OperationInProgress {
+		t.Fatalf("unexpected statuses: %+v", got)
+	}
+}
+
 func TestConcurrentDeploysUseIsolatedTerraformMetadata(t *testing.T) {
 	useTempState(t)
 	oldJobs, oldSettings := jobsDir, settingsFile

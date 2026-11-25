@@ -638,6 +638,7 @@ func main() {
 	mux.HandleFunc("POST /api/provider-auth/{platform}", providerAuthHandler)
 	mux.HandleFunc("GET /api/provider-auth/{platform}/status", providerAuthStatusHandler)
 	mux.HandleFunc("POST /api/environment", saveEnvironmentHandler)
+	mux.HandleFunc("GET /api/environments/status", envListStatusHandler)
 	mux.HandleFunc("GET /api/environment-profiles", environmentProfilesHandler)
 	mux.HandleFunc("POST /api/environment-profiles", environmentProfilesHandler)
 	mux.HandleFunc("DELETE /api/environment-profiles/{profile_id}", deleteEnvironmentProfileHandler)
