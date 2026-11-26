@@ -52,6 +52,71 @@
 #chaos-shared-hardware .form-group { flex-basis: 30%; }
 .editor-service-chooser select { width: 100%; margin: 0.5rem 0; }
 .editor-service-help { margin-bottom: 0.8rem; }
+.visually-hidden { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* Live topology diagram (static/topology-diagram.js) */
+.topology-diagram { --td-data: var(--color-primary); --td-monitoring: var(--color-warning); --td-backup: var(--color-success); --td-security: #c084fc;
+  background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius); padding: 0.5rem 0.8rem; z-index: 15; }
+.topology-diagram > summary { cursor: pointer; font-weight: 600; padding: 0.2rem 0; }
+.td-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.8rem; margin: 0.3rem 0 0.4rem; font-size: 0.78rem; }
+.td-legend-item { display: inline-flex; align-items: center; gap: 0.35rem; font: inherit; color: var(--color-text); background: none; border: 1px solid var(--color-border); border-radius: 999px; padding: 0.1rem 0.6rem; cursor: pointer; }
+.td-legend-item[aria-pressed="false"] { opacity: 0.45; text-decoration: line-through; }
+.td-swatch { width: 20px; height: 0; border-top: 2px solid; }
+.td-legend-data .td-swatch { border-color: var(--td-data); }
+.td-legend-monitoring .td-swatch { border-color: var(--td-monitoring); border-top-style: dashed; }
+.td-legend-backup .td-swatch { border-color: var(--td-backup); border-top-style: dashed; }
+.td-legend-security .td-swatch { border-color: var(--td-security); border-top-style: dotted; }
+.td-hint { color: var(--color-muted); }
+.td-canvas { overflow: auto; }
+.td-svg { display: block; width: 100%; height: auto; max-height: 60vh; font-family: var(--font); }
+.td-svg text { fill: var(--color-text); }
+.td-frame { fill: none; stroke: var(--color-border); stroke-dasharray: 6 4; }
+.td-frame-label, .td-set-label, .td-node-sub, .td-group-sub, .td-empty { fill: var(--color-muted) !important; font-size: 11px; }
+.td-group-box { fill: var(--color-surface2); stroke: var(--color-border); }
+.td-group-label { font-size: 13px; font-weight: 600; }
+.td-set-box { fill: var(--color-bg); stroke: var(--color-border); }
+.td-more .td-set-box, .td-node.td-more .td-box, .td-service.td-more .td-box { stroke-dasharray: 4 3; }
+.td-box { fill: var(--color-surface); stroke: var(--color-muted); }
+.td-primary .td-box { stroke: var(--td-data); stroke-width: 1.5; }
+.td-arbiter .td-box { stroke-dasharray: 3 3; }
+.td-service .td-box { stroke: var(--color-text); }
+.td-bucket .td-box { stroke-dasharray: 5 3; }
+.td-node-label { font-size: 11px; font-weight: 500; }
+.td-proc-box { fill: var(--color-surface2); stroke: var(--color-border); }
+.td-proc-label { font-size: 9px; }
+.td-proc-main .td-proc-label { font-weight: 600; }
+.td-proc-data .td-proc-box { stroke: var(--td-data); }
+.td-proc-monitoring .td-proc-box { stroke: var(--td-monitoring); }
+.td-proc-backup .td-proc-box { stroke: var(--td-backup); }
+.td-sidecar .td-proc-box { stroke-dasharray: 3 2; }
+.td-group, .td-service { cursor: pointer; outline: none; transition: opacity 0.15s; }
+.td-group:hover .td-group-box, .td-group:focus-visible .td-group-box, .td-service:hover .td-box, .td-service:focus-visible .td-box { stroke: var(--color-primary); stroke-width: 2; }
+.td-edge { transition: opacity 0.15s; }
+.td-edge-line { fill: none; stroke-width: 1.5; }
+.td-edge-hit { fill: none; stroke: transparent; stroke-width: 10; }
+.td-edge-data .td-edge-line { stroke: var(--td-data); }
+.td-edge-monitoring .td-edge-line { stroke: var(--td-monitoring); stroke-dasharray: 6 4; }
+.td-edge-backup .td-edge-line { stroke: var(--td-backup); stroke-dasharray: 6 4; }
+.td-edge-security .td-edge-line { stroke: var(--td-security); stroke-dasharray: 2 3; }
+.td-quiet .td-edge-line { stroke-width: 1; opacity: 0.7; }
+.td-arrow-data { fill: var(--td-data); }
+.td-arrow-monitoring { fill: var(--td-monitoring); }
+.td-arrow-backup { fill: var(--td-backup); }
+.td-arrow-security { fill: var(--td-security); }
+.td-edge-label { font-size: 10px; text-anchor: middle; opacity: 0; paint-order: stroke; stroke: var(--color-bg); stroke-width: 3px; pointer-events: none; }
+.td-edge:hover .td-edge-label, .td-few-edges .td-edge-label, .td-has-focus .td-edge:not(.td-dim) .td-edge-label { opacity: 1; }
+.td-dim { opacity: 0.25; }
+.td-hide-data .td-edge-data, .td-hide-monitoring .td-edge-monitoring, .td-hide-backup .td-edge-backup, .td-hide-security .td-edge-security { display: none; }
+.td-pin { margin-left: auto; }
+.td-pin[aria-pressed="true"] { border-color: var(--color-primary); }
+@media (max-width: 800px), (max-height: 699px) { .td-pin { display: none; } }
+@media (min-width: 801px) and (min-height: 700px) {
+  .topology-diagram.td-pinned { position: sticky; top: 76px; }
+  .td-pinned .td-svg { max-height: 34vh; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .td-group, .td-service, .td-edge { transition: none; }
+}
 @media (max-width: 800px) {
   .config-form.config-editor { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
   #config-editor-navigation { position: static; max-height: none; }

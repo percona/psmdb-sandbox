@@ -179,6 +179,21 @@ the plgm load generator Web UI when enabled).
     - A persistent summary shows MongoDB node totals (including arbiters, config
       servers and routers), hardware selection, services, and relevant warnings.
       Supporting service hosts are not included in the MongoDB node total.
+    - The **Topology diagram** above the sections redraws as you edit. It shows
+      the hosts each topology will create (mongos routers, config servers, shards,
+      data nodes and arbiters). Each MongoDB node lists its main process
+      (`mongod` or `mongos`) followed by the optional components deployed beside
+      it: `pmm-agent`, `pbm-agent`, `mongot` and Percona Toolkit. On Docker the
+      agents and `mongot` run as sidecar containers and are drawn dashed. It
+      also shows the supporting hosts: PMM server, backup storage,
+      Vault, CA, LDAP, plgm, PCSM and PMM clients. Arrows show how they
+      interact. Data path, monitoring, backup and security arrows use different
+      colours and line styles, and each family can be hidden from the legend.
+      Large topologies collapse into "+N more" placeholders. Focusing a setting
+      highlights what it affects, and selecting an element opens its settings.
+      **Keep visible while scrolling** pins the diagram on wide screens; it is off
+      by default because a pinned diagram covers part of the form. The diagram is
+      read-only and is not saved with the configuration.
     - The sticky **Save & Configure** action saves every section, including hidden
       settings. Saving does not deploy infrastructure. Validation errors link back
       to the affected setting and open its section when a field can be identified.
@@ -265,7 +280,8 @@ scope and exclusions; it is available on hover and keyboard focus.
 ### Configuration editor tests
 
 Run `go test ./...` for the Go suite, rendered JavaScript syntax checks, and
-Node-based topology summary tests (Node checks are skipped if Node.js is absent).
+Node-based topology summary and topology diagram tests (Node checks are skipped
+if Node.js is absent).
 For optional Chromium browser coverage, install Playwright outside the repository:
 
 ```bash
@@ -278,7 +294,7 @@ UI_BROWSER_TESTS=1 NODE_PATH="$browser_tools/node_modules" go test -run '^TestCo
 
 The browser tests render synthetic fixtures for every platform and intercept all
 requests. They check navigation, save-payload parity with the unenhanced form,
-dynamic topology cards, explicit version selection, reusable-profile actions
+dynamic topology cards, the live topology diagram, explicit version selection, reusable-profile actions
 (including deletion in home page Settings),
 starter-template navigation, service dependencies, hidden-field validation, and mobile
 layout. They do not read, save, or deploy real environments.

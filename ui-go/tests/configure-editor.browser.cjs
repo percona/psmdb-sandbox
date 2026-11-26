@@ -41,7 +41,7 @@ const { chromium } = require('playwright');
         }
         if (url.pathname.startsWith('/static/')) {
           const file = path.basename(url.pathname);
-          if (!['app.js', 'configure-editor.js', 'environment-profiles.js', 'style.css'].includes(file)) return route.abort();
+          if (!['app.js', 'configure-editor.js', 'environment-profiles.js', 'style.css', 'topology-diagram.js'].includes(file)) return route.abort();
           return route.fulfill({ path: path.join('static', file), contentType: file.endsWith('.css') ? 'text/css' : 'application/javascript' });
         }
         if (url.pathname === '/api/environment') {
@@ -230,6 +230,21 @@ const { chromium } = require('playwright');
       await page.waitForFunction(() => document.getElementById('editor-summary-topology').textContent.includes('17 MongoDB nodes'));
       assert.match(await cluster.locator('.editor-topology-summary').textContent(), /3 shards/);
 
+      // The topology diagram follows the form and leads back to the settings.
+      const diagram = page.locator('#topology-diagram');
+      assert.equal(await diagram.isVisible(), true);
+      await page.waitForFunction(() => /3 shards/.test(document.getElementById('topology-diagram-description').textContent));
+      assert.equal(await diagram.locator('.td-group').count(), 2);
+      assert.equal(await diagram.locator('.td-set').filter({ hasText: /^Shard \d/ }).count(), 3);
+      await diagram.locator('.td-group[data-ref="replset:0"]').click();
+      assert.equal(await page.locator('#replsets-container [name="replset_name[]"]').first().evaluate(el => el === document.activeElement), true, 'selecting a topology must focus its settings');
+      await page.waitForFunction(() => document.querySelector('#topology-diagram .td-group[data-ref="cluster:0"]').classList.contains('td-dim'));
+      assert.equal(await diagram.evaluate(el => getComputedStyle(el).position), 'static', 'the diagram must not cover the form unless pinned');
+      await diagram.locator('.td-pin').click();
+      assert.equal(await diagram.evaluate(el => getComputedStyle(el).position), 'sticky');
+      await diagram.locator('.td-pin').click();
+      assert.deepEqual(await page.evaluate(() => Array.from(document.querySelectorAll('#config-form input, #config-form select, #config-form textarea')).filter(el => el.closest('#topology-diagram')).length), 0, 'the diagram must not add form fields');
+
       // Dynamically added blocks receive the same controls and live summaries.
       latestPSMDB = true;
       await page.getByRole('button', { name: '+ Add Replica Set', exact: true }).click();
@@ -287,7 +302,9 @@ const { chromium } = require('playwright');
       assert.equal(await monitoringToggle.evaluate(el => el === document.activeElement), true, 'the revealed service toggle must receive focus');
       assert.equal(await monitoringToggle.isChecked(), true, 'selecting a service must enable it');
       await page.waitForFunction(() => document.getElementById('editor-summary-services').textContent.includes('PMM monitoring'));
+      assert.equal(await page.locator('#topology-diagram .td-service[data-ref="svc:monitoring"]').count(), 1, 'enabling PMM must add the server to the diagram');
       await monitoringToggle.uncheck();
+      await page.waitForFunction(() => !document.querySelector('#topology-diagram .td-service[data-ref="svc:monitoring"]'));
       assert.equal(await monitoring.isVisible(), false);
       assert.equal(await page.locator('#editor-service-choice').evaluate(el => el === document.activeElement), true, 'hiding the disabled service must return focus to the chooser');
       assert.equal(await page.locator('#editor-service-choice option[value="monitoring"]').isDisabled(), false);

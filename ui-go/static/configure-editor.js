@@ -189,7 +189,8 @@
       }
       if (block.querySelector('.editor-topology-essentials select[required]:invalid')) version = 'Choose a distribution, major and minor version';
       return {
-        kind: prefix, version: version || 'PSMDB (default image)',
+        kind: prefix, version: version || 'PSMDB (default image)', name: value('name'),
+        distribution: platform === 'docker' ? 'psmdb' : value('mongodb_distribution') || 'psmdb', audit: enabled('enable_audit'),
         shards: value('shard_count'), members: value(prefix === 'cluster' ? 'shardsvr_replicas' : 'data_nodes'),
         arbiters: value(prefix === 'cluster' ? 'arbiters_per_replset' : 'arbiters'),
         configs: value('configsvr_count'), routers: value('mongos_count'),
@@ -415,13 +416,78 @@
       queueMicrotask(() => { queued = false; refresh(); });
     }
 
+    // Diagram element refs: "cluster:N"/"replset:N" for topologies, "svc:<key>" for services.
+    const diagramRefs = new Map();
+    const securityToggles = {
+      'svc:ca': '#enable_ca',
+      'svc:ldap': platform === 'docker' ? '#enable-ldap-docker' : '#enable_ldap',
+      'svc:vault': '[name="vault_encryption"]',
+    };
+    let diagramFocus = null;
+
+    function diagramRefFor(element) {
+      const block = element.closest(topologySelector);
+      if (block) return Array.from(diagramRefs).find(([, value]) => value === block)?.[0] || null;
+      const service = element.closest('[data-editor-service]');
+      if (service) return `svc:${service.dataset.editorService}`;
+      const section = element.closest('section');
+      for (const [ref, selector] of Object.entries(securityToggles)) {
+        if (section?.querySelector(selector)) return ref;
+      }
+      return null;
+    }
+
+    function selectDiagramItem(ref) {
+      const block = diagramRefs.get(ref);
+      if (block) {
+        revealField(block.querySelector('[name$="_name[]"]'));
+        return;
+      }
+      const key = ref.replace(/^svc:/, '');
+      const field = securityToggles[ref] ? form.querySelector(securityToggles[ref]) : document.getElementById(services[key]?.toggle);
+      revealField(field);
+    }
+
+    const diagram = window.TopologyDiagram?.mount(panelsHost, { onSelect: selectDiagramItem });
+
+    function updateDiagram(topologies) {
+      if (!diagram) return;
+      const pcsm = id => {
+        const select = document.getElementById(id);
+        return select?.value || select?.dataset.current || '';
+      };
+      diagram.update({
+        platform,
+        topologies,
+        services: {
+          monitoring: serviceEnabled('monitoring'),
+          backups: serviceEnabled('backups'),
+          backupMode: document.getElementById('backup_bucket_mode')?.value,
+          load: serviceEnabled('load'),
+          sync: serviceEnabled('sync'),
+          syncSource: pcsm('pcsm_source'),
+          syncTarget: pcsm('pcsm_target'),
+          clients: form.querySelectorAll('#bare-clients-container .bare-client-row').length,
+          vault: !!form.querySelector(securityToggles['svc:vault'])?.checked,
+          ca: !!form.querySelector(securityToggles['svc:ca'])?.checked,
+          caPlacement: document.getElementById('ca_placement')?.value,
+          ldap: !!form.querySelector(securityToggles['svc:ldap'])?.checked,
+        },
+      }, diagramFocus);
+    }
+
     function refresh() {
       // Updating summaries mutates the DOM too; do not observe our own writes.
       observer.disconnect();
       let nodes = 0, clusters = 0, replsets = 0, hasTLS = false, hasSearch = false;
+      const diagramTopologies = [];
+      diagramRefs.clear();
       for (const block of form.querySelectorAll(topologySelector)) {
         enhanceTopology(block);
         const data = topologyData(block);
+        data.ref = `${data.kind}:${data.kind === 'cluster' ? clusters : replsets}`;
+        diagramRefs.set(data.ref, block);
+        diagramTopologies.push(data);
         const summary = topologySummary(data);
         nodes += summary.nodes;
         if (data.kind === 'cluster') clusters++; else replsets++;
@@ -460,10 +526,20 @@
       const hardwareErrors = document.getElementById('hardware-errors');
       if (hardwareErrors?.textContent && hardwareErrors.style.display !== 'none') warnings.push(warning(`Hardware: ${hardwareErrors.textContent}`, '#hardware_preset'));
       document.getElementById('editor-summary-warnings').replaceChildren(...warnings);
+      updateDiagram(diagramTopologies);
       observer.observe(form, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'disabled'] });
     }
 
     form.addEventListener('input', scheduleRefresh);
+    // Highlight what the focused setting controls; the diagram keeps the last
+    // highlight while it has focus itself.
+    form.addEventListener('focusin', event => {
+      if (diagram?.root.contains(event.target)) return;
+      const ref = diagramRefFor(event.target);
+      if (ref === diagramFocus) return;
+      diagramFocus = ref;
+      scheduleRefresh();
+    });
     form.addEventListener('change', event => {
       const section = event.target.closest('[data-editor-service]');
       if (section && event.target.id === services[section.dataset.editorService].toggle && !event.target.checked) {
