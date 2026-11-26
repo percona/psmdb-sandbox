@@ -220,6 +220,7 @@ variable "seaweedfs_servers" {
     seaweedfs_image      = optional(string, "chrislusf/seaweedfs:latest")
     seaweedfs_port       = optional(number, 8333)
     seaweedfs_admin_port = optional(number, 9333)
+    seaweedfs_filer_port = optional(number, 8888) # Host port of the filer UI (object browser)
     seaweedfs_access_key = optional(string, "seaweedfs")
     seaweedfs_secret_key = optional(string, "seaweedfs-secret")
     bucket_name          = optional(string, "mongo-backups")
@@ -245,15 +246,16 @@ variable "seaweedfs_servers" {
 variable "ldap_servers" {
   description = "LDAP Servers to deploy"
   type = map(object({
-    env_tag             = optional(string, "test") # Name of the environment
-    domain_name         = optional(string, "")     # DNS domain name
-    ldap_image          = optional(string, "osixia/openldap:1.5.0")
-    ldap_admin_image    = optional(string, "osixia/phpldapadmin:0.9.0")
-    ldap_port           = optional(number, 389)
-    ldap_admin_port     = optional(number, 80)
-    ldap_domain         = optional(string, "example.com")
-    ldap_org            = optional(string, "Example Inc")
-    ldap_admin_password = optional(string, "admin")
+    env_tag                  = optional(string, "test") # Name of the environment
+    domain_name              = optional(string, "")     # DNS domain name
+    ldap_image               = optional(string, "osixia/openldap:1.5.0")
+    ldap_admin_image         = optional(string, "osixia/phpldapadmin:0.9.0")
+    ldap_port                = optional(number, 389)
+    ldap_admin_port          = optional(number, 80)
+    ldap_external_admin_port = optional(number, 8080) # Host port of the phpLDAPadmin UI
+    ldap_domain              = optional(string, "example.com")
+    ldap_org                 = optional(string, "Example Inc")
+    ldap_admin_password      = optional(string, "admin")
     ldap_users = optional(list(object({
       uid      = string
       cn       = string

@@ -513,7 +513,7 @@ The containers need `SYS_ADMIN`, unconfined seccomp and AppArmor profiles, and t
 docker exec -it cl01-pbm-cli pbm status
 ```
 
-- Browse buckets and objects at `http://127.0.0.1:8888/buckets/`. The SeaweedFS Admin UI is at `http://127.0.0.1:9333`, and the S3 endpoint used by PBM is `http://127.0.0.1:8333`. Default test credentials: `seaweedfs/seaweedfs-secret`.
+- Browse buckets and objects at `http://127.0.0.1:8888/buckets/` (set `seaweedfs_filer_port` to publish the filer UI on another host port). The SeaweedFS Admin UI is at `http://127.0.0.1:9333`, and the S3 endpoint used by PBM is `http://127.0.0.1:8333`. Default test credentials: `seaweedfs/seaweedfs-secret`.
 
 ## Percona ClusterSync for MongoDB
 
@@ -548,7 +548,7 @@ Terraform mounts the file read-only and never reads its contents, so the URIs ar
 
 ## LDAP
 
-- Access the LDAP management interface at `http://127.0.0.1:8080` with `cn=admin,dc=example,dc=com`. Default password: `admin`.
+- Access the LDAP management interface at `http://127.0.0.1:8080` (set `ldap_external_admin_port` to change the host port) with `cn=admin,dc=example,dc=com`. Default password: `admin`.
 
 - By default, the `example.com` organization is created. You can pre-create users with Terraform or add them manually in the management UI.
 

@@ -1781,6 +1781,10 @@
               <label>Console Port <span class="field-tip" data-tip="Host port for the SeaweedFS web console (default: 9001).">ⓘ</span></label>
               <input type="number" name="seaweedfs_admin_port[]" value="{{if .Config.SeaweedFSAdminPort}}{{.Config.SeaweedFSAdminPort}}{{else}}{{$.DockerDefaultSeaweedFSAdminPort}}{{end}}">
             </div>
+            <div class="form-group">
+              <label>Filer UI Port <span class="field-tip" data-tip="Host port for the SeaweedFS filer UI (object browser). Leave empty to use 8888, or the next free port if it is taken.">ⓘ</span></label>
+              <input type="number" name="seaweedfs_filer_port[]" value="{{if .Config.SeaweedFSFilerPort}}{{.Config.SeaweedFSFilerPort}}{{end}}" placeholder="8888">
+            </div>
           </div>
           <div class="form-row">
             <div class="form-group">
@@ -1835,6 +1839,10 @@
             <div class="form-group">
               <label>Port <span class="field-tip" data-tip="Host port for the LDAP service (default: 389).">ⓘ</span></label>
               <input type="number" name="ldap_port[]" value="{{intDefault .Config.LdapPort 389}}">
+            </div>
+            <div class="form-group">
+              <label>Admin UI Port <span class="field-tip" data-tip="Host port for the phpLDAPadmin UI. Leave empty to use 8080, or the next free port if it is taken.">ⓘ</span></label>
+              <input type="number" name="ldap_admin_port[]" value="{{if .Config.LdapAdminPort}}{{.Config.LdapAdminPort}}{{end}}" placeholder="8080">
             </div>
           </div>
           <div class="form-row">
@@ -4325,6 +4333,8 @@ function addSeaweedFSServer() {
           <input type="number" name="seaweedfs_port[]" value="${DOCKER_DEFAULT_SEAWEEDFS_PORT}"></div>
         <div class="form-group"><label>Console Port <span class="field-tip" data-tip="Host port for the SeaweedFS web console (default: 9001).">ⓘ</span></label>
           <input type="number" name="seaweedfs_admin_port[]" value="${DOCKER_DEFAULT_SEAWEEDFS_ADMIN_PORT}"></div>
+        <div class="form-group"><label>Filer UI Port <span class="field-tip" data-tip="Host port for the SeaweedFS filer UI (object browser). Leave empty to use 8888, or the next free port if it is taken.">ⓘ</span></label>
+          <input type="number" name="seaweedfs_filer_port[]" value="" placeholder="8888"></div>
       </div>
       <div class="form-row">
         <div class="form-group"><label>Bucket Name <span class="field-tip" data-tip="Default S3 bucket name for MongoDB backups.">ⓘ</span></label>
@@ -4359,6 +4369,8 @@ function addLdapServer() {
           <input type="text" name="ldap_image[]" value="osixia/openldap:latest"></div>
         <div class="form-group"><label>Port <span class="field-tip" data-tip="Host port for the LDAP service (default: 389).">ⓘ</span></label>
           <input type="number" name="ldap_port[]" value="389"></div>
+        <div class="form-group"><label>Admin UI Port <span class="field-tip" data-tip="Host port for the phpLDAPadmin UI. Leave empty to use 8080, or the next free port if it is taken.">ⓘ</span></label>
+          <input type="number" name="ldap_admin_port[]" value="" placeholder="8080"></div>
       </div>
       <div class="form-row">
         <div class="form-group"><label>Domain <span class="field-tip" data-tip="LDAP base domain (e.g. example.com).">ⓘ</span></label>
@@ -5438,6 +5450,7 @@ document.getElementById('config-form').addEventListener('submit', async (e) => {
     const mImages  = fd.getAll('seaweedfs_image[]');
     const mPorts   = fd.getAll('seaweedfs_port[]');
     const mCPorts  = fd.getAll('seaweedfs_admin_port[]');
+    const mFilerPorts = fd.getAll('seaweedfs_filer_port[]');
     const mBuckets = fd.getAll('seaweedfs_bucket_name[]');
     const mRet     = fd.getAll('seaweedfs_backup_retention[]');
     const mBind    = fd.getAll('seaweedfs_bind_localhost[]');
@@ -5452,6 +5465,7 @@ document.getElementById('config-form').addEventListener('submit', async (e) => {
         seaweedfs_image:        mImages[i]  || 'chrislusf/seaweedfs:latest',
         seaweedfs_port:         parseInt(mPorts[i])  || 8333,
         seaweedfs_admin_port: parseInt(mCPorts[i]) || 9333,
+        seaweedfs_filer_port: parseInt(mFilerPorts[i]) || 0,
         bucket_name:        mBuckets[i] || 'mongo-backups',
         backup_retention:   parseInt(mRet[i])    || 2,
         seaweedfs_access_key:   credSeaweedFSAccess || 'seaweedfs',
@@ -5464,6 +5478,7 @@ document.getElementById('config-form').addEventListener('submit', async (e) => {
     const lNames  = fd.getAll('ldap_server_name[]');
     const lImages = fd.getAll('ldap_image[]');
     const lPorts  = fd.getAll('ldap_port[]');
+    const lAdminPorts = fd.getAll('ldap_admin_port[]');
     const lDomains= fd.getAll('ldap_domain[]');
     const lBind   = fd.getAll('ldap_bind_localhost[]');
     const credLdapPwd = fd.get('cred_ldap_admin_password');
@@ -5475,6 +5490,7 @@ document.getElementById('config-form').addEventListener('submit', async (e) => {
         env_tag: 'test',
         ldap_image:          lImages[i]  || 'osixia/openldap:latest',
         ldap_port:           parseInt(lPorts[i]) || 389,
+        ldap_external_admin_port: parseInt(lAdminPorts[i]) || 0,
         ldap_domain:         lDomains[i] || 'example.com',
         ldap_admin_password: credLdapPwd || 'admin',
         bind_to_localhost:   lBind.some((v,idx) => idx === i && v === '1'),

@@ -25,6 +25,12 @@ variable "seaweedfs_admin_port" {
   default = 9333
 }
 
+variable "seaweedfs_filer_port" {
+  description = "Host port of the SeaweedFS filer UI (object browser)"
+  type        = number
+  default     = 8888
+}
+
 variable "seaweedfs_access_key" {
   type      = string
   sensitive = true

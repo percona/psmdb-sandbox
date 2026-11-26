@@ -440,7 +440,7 @@ func TestConfigServiceURLsIncludesDockerLDAPConsole(t *testing.T) {
 		},
 	}
 	urls := configServiceURLs("test", env)
-	if len(urls) != 1 || urls[0].Label != "LDAP Console: directory" || urls[0].URL != "http://localhost:80" {
+	if len(urls) != 1 || urls[0].Label != "LDAP Console: directory" || urls[0].URL != "http://localhost:8080" {
 		t.Fatalf("LDAP service URLs = %+v, want phpLDAPadmin console URL", urls)
 	}
 }

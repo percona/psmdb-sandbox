@@ -181,6 +181,7 @@ module "seaweedfs_server" {
   seaweedfs_image      = each.value.seaweedfs_image
   seaweedfs_port       = each.value.seaweedfs_port
   seaweedfs_admin_port = each.value.seaweedfs_admin_port
+  seaweedfs_filer_port = each.value.seaweedfs_filer_port
   seaweedfs_access_key = each.value.seaweedfs_access_key
   seaweedfs_secret_key = each.value.seaweedfs_secret_key
   bucket_name          = each.value.bucket_name
@@ -189,21 +190,22 @@ module "seaweedfs_server" {
 }
 
 module "ldap_server" {
-  docker_platform     = var.docker_platform
-  environment_id      = var.prefix
-  source              = "./modules/ldap_server"
-  for_each            = var.ldap_servers
-  ldap_server         = "${local.name_prefix}${each.key}"
-  domain_name         = each.value.domain_name
-  env_tag             = each.value.env_tag
-  ldap_image          = each.value.ldap_image
-  ldap_admin_image    = each.value.ldap_admin_image
-  ldap_port           = each.value.ldap_port
-  ldap_admin_port     = each.value.ldap_admin_port
-  ldap_domain         = each.value.ldap_domain
-  ldap_org            = each.value.ldap_org
-  ldap_admin_password = each.value.ldap_admin_password
-  ldap_users          = each.value.ldap_users
-  network_name        = "${local.name_prefix}${each.value.network_name}"
-  bind_to_localhost   = each.value.bind_to_localhost
+  docker_platform          = var.docker_platform
+  environment_id           = var.prefix
+  source                   = "./modules/ldap_server"
+  for_each                 = var.ldap_servers
+  ldap_server              = "${local.name_prefix}${each.key}"
+  domain_name              = each.value.domain_name
+  env_tag                  = each.value.env_tag
+  ldap_image               = each.value.ldap_image
+  ldap_admin_image         = each.value.ldap_admin_image
+  ldap_port                = each.value.ldap_port
+  ldap_admin_port          = each.value.ldap_admin_port
+  ldap_external_admin_port = each.value.ldap_external_admin_port
+  ldap_domain              = each.value.ldap_domain
+  ldap_org                 = each.value.ldap_org
+  ldap_admin_password      = each.value.ldap_admin_password
+  ldap_users               = each.value.ldap_users
+  network_name             = "${local.name_prefix}${each.value.network_name}"
+  bind_to_localhost        = each.value.bind_to_localhost
 }

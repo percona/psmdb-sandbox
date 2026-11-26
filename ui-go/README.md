@@ -313,6 +313,26 @@ come from that server. Backend changes require rebuilding/restarting the UI to
 take effect. The test exercises distributions, agent versions and channels,
 audit/PBM compatibility, presets, Spot warnings, tooltip focus, and mobile layout.
 
+### Docker host port conflicts
+
+Docker environments publish fixed host ports (replica set members and arbiters,
+PMM, SeaweedFS API/admin/filer UI, the phpLDAPadmin UI and the plgm Web UI).
+Before saving or deploying, the UI looks at the containers currently publishing
+host ports (`docker ps`) and tries to bind every port the environment needs, so
+unrelated containers and local processes are detected as well as other sandbox
+environments. Containers labelled `psmdb-sandbox.environment=<env>` belong to
+that environment and never count as conflicts for it.
+
+- Until an environment has been deployed successfully, a busy port is moved
+  automatically to the next free one, on **Save & Configure** and again at
+  **Deploy**, because a port that was free when the environment was saved may be
+  taken by deploy time. Moves are logged and returned as `notices` by the save
+  API; the new ports appear in the saved configuration.
+- After the first successful deploy ports no longer move, since data and clients
+  depend on them. A conflict is reported with the holder, for example
+  `port 27017 (replica set) is in use by container other-rs01-0`.
+- If the Docker CLI cannot be queried, only the bind check is used.
+
 ### State and operation safety
 
 - On SIGINT/SIGTERM, the UI stops admitting jobs, terminates running job process

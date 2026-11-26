@@ -219,7 +219,7 @@ func starterEnvironment(kind, platform string) (Config, error) {
 
 // Reusable profiles intentionally contain no host ports. Allocate fresh ranges
 // before rendering so a multi-replica-set starter never displays duplicate ports.
-func startingPointDockerPorts(cfg *Config, state map[string]*Environment) error {
+func startingPointDockerPorts(cfg *Config, state map[string]*Environment, scan *dockerHostScan) error {
 	users := make(map[int][]string)
 	for _, env := range state {
 		if env != nil && env.Platform == "docker" && env.Status == "running" {
@@ -233,7 +233,7 @@ func startingPointDockerPorts(cfg *Config, state map[string]*Environment) error 
 	next := 27017
 	for _, item := range sortedReplsets(cfg.Replsets) {
 		rs := item.Config
-		for next <= 65000 && !dockerReplsetPortRangeFree(next, rs, occupied) {
+		for next <= 65000 && !dockerReplsetPortRangeFree(next, rs, occupied, scan.busy) {
 			next += dockerReplsetPortStep
 		}
 		if next > 65000 {

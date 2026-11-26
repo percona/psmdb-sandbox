@@ -344,15 +344,16 @@ func configureHandler(w http.ResponseWriter, r *http.Request) {
 		cfg.CAPlacement = "dedicated"
 	}
 	if platform == "docker" {
+		scan := newDockerHostScan(envID)
 		if startingPoint != "" {
-			if err := startingPointDockerPorts(&cfg, state); err != nil {
+			if err := startingPointDockerPorts(&cfg, state, scan); err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
 		}
 		occupied := dockerOccupiedServicePorts(state, envID)
-		dockerDefaultPmmExternalPort = nextFreeDockerPort(8443, occupied)
-		dockerDefaultSeaweedFSPort, dockerDefaultSeaweedFSAdminPort = nextFreeSeaweedFSPorts(8333, occupied)
+		dockerDefaultPmmExternalPort = nextFreeDockerPort(8443, occupied, scan.busy)
+		dockerDefaultSeaweedFSPort, dockerDefaultSeaweedFSAdminPort = nextFreeSeaweedFSPorts(8333, occupied, scan.busy)
 	}
 
 	osUser := currentLocalUser()
@@ -1265,6 +1266,7 @@ func saveEnvironmentHandler(w http.ResponseWriter, r *http.Request) {
 	defer release()
 	// Resource names use the environment name as their prefix.
 	payload.Config.Prefix = payload.EnvID
+	var portNotices []string
 
 	// For Docker deployments, auto-assign unique port ranges to replica sets
 	// that don't yet have a port assigned, to prevent collisions.
@@ -1314,8 +1316,19 @@ func saveEnvironmentHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if payload.Platform == "docker" {
-		assignDockerReplsetPorts(&payload.Config)
+		scan := newDockerHostScan(payload.EnvID)
+		assignDockerReplsetPorts(&payload.Config, scan.busy)
+		if dockerPortsReassignable(existing) {
+			portNotices = reassignBusyDockerPorts(&payload.Config, scan, dockerStatePorts(state, payload.EnvID))
+			for _, notice := range portNotices {
+				slog.Info("docker host port reassigned", "env", payload.EnvID, "change", notice)
+			}
+		}
 		if err := validateDockerPortConflicts(payload.EnvID, payload.Config, state); err != nil {
+			jsonError(w, 400, err.Error())
+			return
+		}
+		if err := validateDockerHostPorts(payload.Config, scan); err != nil {
 			jsonError(w, 400, err.Error())
 			return
 		}
@@ -1475,7 +1488,11 @@ func saveEnvironmentHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, 200, map[string]string{"env_id": payload.EnvID, "status": "configured"})
+	saved := map[string]any{"env_id": payload.EnvID, "status": "configured"}
+	if len(portNotices) > 0 {
+		saved["notices"] = portNotices
+	}
+	writeJSON(w, 200, saved)
 }
 
 // DELETE /api/environment/{env_id}
@@ -1722,7 +1739,19 @@ func environmentActionHandler(w http.ResponseWriter, r *http.Request) {
 	action := body.Action
 	removeDefinition := action == "destroy" && body.RemoveDefinition
 	if action == "deploy" && env.Platform == "docker" {
+		// Ports free at save time may have been taken since. Until the first
+		// successful deploy they can still move; afterwards a conflict is an error.
+		scan := newDockerHostScan(envID)
+		if dockerPortsReassignable(env) {
+			for _, notice := range reassignBusyDockerPorts(&env.Config, scan, dockerStatePorts(state, envID)) {
+				slog.Info("docker host port reassigned", "env", envID, "change", notice)
+			}
+		}
 		if err := validateDockerPortConflicts(envID, env.Config, state); err != nil {
+			jsonError(w, 400, err.Error())
+			return
+		}
+		if err := validateDockerHostPorts(env.Config, scan); err != nil {
 			jsonError(w, 400, err.Error())
 			return
 		}
@@ -2547,7 +2576,7 @@ func jobPartsHandler(w http.ResponseWriter, r *http.Request) {
 // Each replica set receives a block of 20 ports (enough for 7 data nodes + 3
 // arbiters). Existing non-zero port assignments are preserved; only zero-valued
 // ones receive a new assignment starting above the current maximum.
-func assignDockerReplsetPorts(cfg *Config) {
+func assignDockerReplsetPorts(cfg *Config, busy ...func(int) bool) {
 	if len(cfg.Replsets) == 0 {
 		return
 	}
@@ -2598,7 +2627,7 @@ func assignDockerReplsetPorts(cfg *Config) {
 	for _, nr := range sortedReplsets(cfg.Replsets) {
 		rs := cfg.Replsets[nr.Name]
 		if rs.ReplsetPort == 0 {
-			for !dockerReplsetPortRangeFree(nextPort, rs, occupied) {
+			for !dockerReplsetPortRangeFree(nextPort, rs, occupied, busy...) {
 				nextPort += dockerReplsetPortStep
 			}
 			rs.ReplsetPort = nextPort
@@ -2620,13 +2649,13 @@ func assignDockerReplsetPorts(cfg *Config) {
 	}
 }
 
-func dockerReplsetPortRangeFree(startPort int, rs ReplsetConfig, occupied map[int]struct{}) bool {
+func dockerReplsetPortRangeFree(startPort int, rs ReplsetConfig, occupied map[int]struct{}, busy ...func(int) bool) bool {
 	candidate := rs
 	candidate.ReplsetPort = startPort
 	candidate.ArbiterPort = startPort
 	candidate.ArbiterBasePort = startPort + 10
 	for _, port := range dockerReplsetPorts(candidate) {
-		if _, exists := occupied[port]; exists {
+		if dockerPortBusy(port, occupied, busy) {
 			return false
 		}
 	}
@@ -2694,14 +2723,12 @@ func dockerOccupiedServicePorts(state map[string]*Environment, excludeEnvID stri
 	return occupied
 }
 
-func nextFreeDockerPort(start int, occupied map[int]struct{}) int {
+func nextFreeDockerPort(start int, occupied map[int]struct{}, busy ...func(int) bool) int {
 	port := start
-	for {
-		if _, exists := occupied[port]; !exists {
-			return port
-		}
+	for dockerPortBusy(port, occupied, busy) {
 		port++
 	}
+	return port
 }
 
 func nextFreeDockerPortPair(start int, occupied map[int]struct{}) (int, int) {
@@ -2719,45 +2746,60 @@ func nextFreeDockerPortPair(start int, occupied map[int]struct{}) (int, int) {
 	}
 }
 
-func nextFreeSeaweedFSPorts(start int, occupied map[int]struct{}) (int, int) {
+func nextFreeSeaweedFSPorts(start int, occupied map[int]struct{}, busy ...func(int) bool) (int, int) {
 	apiPort := start
 	for {
 		adminPort := apiPort + 1000
-		if _, exists := occupied[apiPort]; !exists {
-			if _, exists := occupied[adminPort]; !exists {
-				return apiPort, adminPort
-			}
+		if !dockerPortBusy(apiPort, occupied, busy) && !dockerPortBusy(adminPort, occupied, busy) {
+			return apiPort, adminPort
 		}
 		apiPort++
 	}
 }
 
-func addDockerConfigPortUsers(cfg Config, portUsers map[int][]string, labelPrefix string) {
-	addPortUser := func(port int, user string) {
-		if port <= 0 {
-			return
+// dockerPortUse is a host port a configuration wants. Published is false for
+// ports that are not bound to a fixed host port (the LDAP service port is
+// published on a random host port).
+type dockerPortUse struct {
+	Port      int
+	Label     string
+	Published bool
+}
+
+func dockerConfigPortUses(cfg Config, labelPrefix string) []dockerPortUse {
+	var uses []dockerPortUse
+	add := func(port int, published bool, label string) {
+		if port > 0 {
+			uses = append(uses, dockerPortUse{Port: port, Label: labelPrefix + label, Published: published})
 		}
-		portUsers[port] = append(portUsers[port], user)
 	}
 
 	for _, nr := range sortedReplsets(cfg.Replsets) {
 		for _, port := range dockerReplsetPorts(nr.Config) {
-			addPortUser(port, fmt.Sprintf("%sreplica set", labelPrefix))
+			add(port, true, "replica set")
 		}
 	}
 	for _, ns := range sortedPmmServers(cfg.PmmServers) {
-		port := ns.Config.PmmExternalPort
-		if port == 0 {
-			port = ns.Config.PmmPort
-		}
-		addPortUser(port, fmt.Sprintf("%sPMM server", labelPrefix))
+		add(intDefault(ns.Config.PmmExternalPort, ns.Config.PmmPort), true, "PMM server")
 	}
 	for _, ns := range sortedSeaweedFSServers(cfg.SeaweedFSServers) {
-		addPortUser(ns.Config.SeaweedFSPort, fmt.Sprintf("%sSeaweedFS API", labelPrefix))
-		addPortUser(ns.Config.SeaweedFSAdminPort, fmt.Sprintf("%sSeaweedFS admin", labelPrefix))
+		add(ns.Config.SeaweedFSPort, true, "SeaweedFS API")
+		add(ns.Config.SeaweedFSAdminPort, true, "SeaweedFS admin")
+		add(intDefault(ns.Config.SeaweedFSFilerPort, dockerDefaultSeaweedFSFilerPort), true, "SeaweedFS filer")
 	}
 	for _, ns := range sortedLdapServers(cfg.LdapServers) {
-		addPortUser(ns.Config.LdapPort, fmt.Sprintf("%sLDAP server", labelPrefix))
+		add(ns.Config.LdapPort, false, "LDAP server")
+		add(intDefault(ns.Config.LdapAdminPort, dockerDefaultLdapAdminPort), true, "LDAP admin UI")
+	}
+	if cfg.EnablePlgm {
+		add(intDefault(cfg.PlgmExternalPort, plgmDefaultExternalPort), true, "plgm Web UI")
+	}
+	return uses
+}
+
+func addDockerConfigPortUsers(cfg Config, portUsers map[int][]string, labelPrefix string) {
+	for _, use := range dockerConfigPortUses(cfg, labelPrefix) {
+		portUsers[use.Port] = append(portUsers[use.Port], use.Label)
 	}
 }
 

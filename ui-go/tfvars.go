@@ -702,6 +702,9 @@ func writeTfvars(envID, platform string, cfg Config) error {
 				if s.SeaweedFSAdminPort != 0 {
 					write(fmt.Sprintf("    seaweedfs_admin_port = %s", formatHCLVal(s.SeaweedFSAdminPort)))
 				}
+				if s.SeaweedFSFilerPort != 0 {
+					write(fmt.Sprintf("    seaweedfs_filer_port = %s", formatHCLVal(s.SeaweedFSFilerPort)))
+				}
 				if s.SeaweedFSAccessKey != "" {
 					write(fmt.Sprintf("    seaweedfs_access_key = %s", formatHCLVal(s.SeaweedFSAccessKey)))
 				}
@@ -732,6 +735,9 @@ func writeTfvars(envID, platform string, cfg Config) error {
 				}
 				if s.LdapPort != 0 {
 					write(fmt.Sprintf("    ldap_port = %s", formatHCLVal(s.LdapPort)))
+				}
+				if s.LdapAdminPort != 0 {
+					write(fmt.Sprintf("    ldap_external_admin_port = %s", formatHCLVal(s.LdapAdminPort)))
 				}
 				if s.LdapDomain != "" {
 					write(fmt.Sprintf("    ldap_domain = %s", formatHCLVal(s.LdapDomain)))

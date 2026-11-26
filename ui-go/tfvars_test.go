@@ -691,7 +691,8 @@ func TestDockerConfigureDefaultsAvoidRunningEnvironmentServicePorts(t *testing.T
 	}
 }
 
-func TestSaveEnvironmentHandlerDetectsRunningDockerEnvironmentPortConflicts(t *testing.T) {
+func saveDockerPortConflictFixture(t *testing.T, newEnvApplied bool) *httptest.ResponseRecorder {
+	t.Helper()
 	dir := t.TempDir()
 	origStateFile := stateFile
 	origTerraformDir := terraformDir
@@ -702,52 +703,74 @@ func TestSaveEnvironmentHandlerDetectsRunningDockerEnvironmentPortConflicts(t *t
 		terraformDir = origTerraformDir
 	})
 
-	existing := map[string]*Environment{
-		"envrunning": {
-			Platform: "docker",
-			Status:   "running",
-			Config: Config{
-				Prefix: "envrunning",
-				Replsets: map[string]ReplsetConfig{
-					"rs01": {DataNodesPerReplset: 2, ArbitersPerReplset: intPtr(1), ReplsetPort: 27017, ArbiterPort: 27017},
-				},
-				PmmServers: map[string]PmmServerConfig{
-					"pmm-server": {PmmPort: 8443, PmmExternalPort: 8443},
-				},
-				SeaweedFSServers: map[string]SeaweedFSServerConfig{
-					"seaweedfs": {SeaweedFSPort: 8333, SeaweedFSAdminPort: 9333},
-				},
-			},
+	conflicting := Config{
+		Replsets: map[string]ReplsetConfig{
+			"rs01": {DataNodesPerReplset: 2, ArbitersPerReplset: intPtr(1), ReplsetPort: 27017, ArbiterPort: 27017},
 		},
+		PmmServers: map[string]PmmServerConfig{
+			"pmm-server": {PmmPort: 8443, PmmExternalPort: 8443},
+		},
+		SeaweedFSServers: map[string]SeaweedFSServerConfig{
+			"seaweedfs": {SeaweedFSPort: 8333, SeaweedFSAdminPort: 9333},
+		},
+	}
+	running := conflicting
+	running.Prefix = "envrunning"
+	existing := map[string]*Environment{
+		"envrunning": {Platform: "docker", Status: "running", Config: running},
+	}
+	if newEnvApplied {
+		applied := conflicting
+		applied.Prefix = "envnew"
+		existing["envnew"] = &Environment{Platform: "docker", Status: "running", Config: applied, LastAppliedConfig: cloneConfig(applied)}
 	}
 	if err := saveState(existing); err != nil {
 		t.Fatalf("saveState failed: %v", err)
 	}
 
-	payload := map[string]interface{}{
-		"env_id":   "envnew",
-		"platform": "docker",
-		"config": Config{
-			Prefix: "envnew",
-			Replsets: map[string]ReplsetConfig{
-				"rs01": {DataNodesPerReplset: 2, ArbitersPerReplset: intPtr(1), ReplsetPort: 27017, ArbiterPort: 27017},
-			},
-			PmmServers: map[string]PmmServerConfig{
-				"pmm-server": {PmmPort: 8443, PmmExternalPort: 8443},
-			},
-			SeaweedFSServers: map[string]SeaweedFSServerConfig{
-				"seaweedfs": {SeaweedFSPort: 8333, SeaweedFSAdminPort: 9333},
-			},
-		},
-	}
-	body, err := json.Marshal(payload)
+	conflicting.Prefix = "envnew"
+	body, err := json.Marshal(map[string]interface{}{"env_id": "envnew", "platform": "docker", "config": conflicting})
 	if err != nil {
 		t.Fatalf("marshal payload failed: %v", err)
 	}
-
-	req := httptest.NewRequest(http.MethodPost, "/api/environment", strings.NewReader(string(body)))
 	rec := httptest.NewRecorder()
-	saveEnvironmentHandler(rec, req)
+	saveEnvironmentHandler(rec, httptest.NewRequest(http.MethodPost, "/api/environment", strings.NewReader(string(body))))
+	return rec
+}
+
+func TestSaveEnvironmentHandlerReassignsPortsUsedByRunningDockerEnvironment(t *testing.T) {
+	rec := saveDockerPortConflictFixture(t, false)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Notices []string `json:"notices"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response failed: %v", err)
+	}
+	if len(resp.Notices) == 0 || !strings.Contains(strings.Join(resp.Notices, "\n"), "host port 27017") {
+		t.Fatalf("expected notices describing the reassigned ports, got %v", resp.Notices)
+	}
+
+	state, err := loadState()
+	if err != nil {
+		t.Fatalf("loadState failed: %v", err)
+	}
+	cfg := state["envnew"].Config
+	if got := cfg.Replsets["rs01"].ReplsetPort; got == 27017 || got == 0 {
+		t.Fatalf("expected replica set port to move off 27017, got %d", got)
+	}
+	if got := cfg.PmmServers["pmm-server"].PmmExternalPort; got == 8443 || got == 0 {
+		t.Fatalf("expected PMM port to move off 8443, got %d", got)
+	}
+	if sw := cfg.SeaweedFSServers["seaweedfs"]; sw.SeaweedFSPort == 8333 || sw.SeaweedFSAdminPort == 9333 || sw.SeaweedFSFilerPort == 0 {
+		t.Fatalf("expected SeaweedFS ports to be reassigned, got %+v", sw)
+	}
+}
+
+func TestSaveEnvironmentHandlerRejectsPortConflictsForAppliedDockerEnvironment(t *testing.T) {
+	rec := saveDockerPortConflictFixture(t, true)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected status 400, got %d: %s", rec.Code, rec.Body.String())
@@ -775,8 +798,8 @@ func TestSaveEnvironmentHandlerDetectsRunningDockerEnvironmentPortConflicts(t *t
 	if err != nil {
 		t.Fatalf("loadState failed: %v", err)
 	}
-	if _, exists := state["envnew"]; exists {
-		t.Fatal("conflicting environment should not be saved")
+	if got := state["envnew"].Config.Replsets["rs01"].ReplsetPort; got != 27017 {
+		t.Fatalf("rejected save must not change the stored config, got replset port %d", got)
 	}
 }
 

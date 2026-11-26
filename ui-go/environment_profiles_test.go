@@ -219,7 +219,7 @@ func TestChaosHardwarePreservesCustomValues(t *testing.T) {
 func TestStartingPointDockerPortsAvoidExistingAndSiblingRanges(t *testing.T) {
 	cfg, _ := starterEnvironment("migration", "docker")
 	state := map[string]*Environment{"busy": {Platform: "docker", Status: "running", Config: Config{Replsets: map[string]ReplsetConfig{"rs": {ReplsetPort: 27017, DataNodesPerReplset: 3}}}}}
-	if err := startingPointDockerPorts(&cfg, state); err != nil {
+	if err := startingPointDockerPorts(&cfg, state, newDockerHostScan("")); err != nil {
 		t.Fatal(err)
 	}
 	if cfg.Replsets["rs01"].ReplsetPort <= 27019 || cfg.Replsets["rs01"].ReplsetPort == cfg.Replsets["rs02"].ReplsetPort {

@@ -637,19 +637,18 @@ func configServiceURLs(envID string, env *Environment) []ServiceURL {
 				URL:   fmt.Sprintf("https://%s:%d", host, port),
 			})
 		}
-		for svcName := range env.Config.SeaweedFSServers {
-			objectBrowserPort := 8888
+		for svcName, svc := range env.Config.SeaweedFSServers {
 			urls = append(urls, ServiceURL{
 				Name:  prefix + "-" + svcName,
 				Label: "SeaweedFS Object Browser: " + svcName,
-				URL:   fmt.Sprintf("http://%s:%d/buckets/", host, objectBrowserPort),
+				URL:   fmt.Sprintf("http://%s:%d/buckets/", host, intDefault(svc.SeaweedFSFilerPort, dockerDefaultSeaweedFSFilerPort)),
 			})
 		}
-		for svcName := range env.Config.LdapServers {
+		for svcName, svc := range env.Config.LdapServers {
 			urls = append(urls, ServiceURL{
 				Name:  prefix + "-" + svcName,
 				Label: "LDAP Console: " + svcName,
-				URL:   fmt.Sprintf("http://%s:%d", host, 80),
+				URL:   fmt.Sprintf("http://%s:%d", host, intDefault(svc.LdapAdminPort, dockerDefaultLdapAdminPort)),
 			})
 		}
 		if env.Config.EnablePlgm {

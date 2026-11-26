@@ -100,6 +100,7 @@ func duplicateConfig(src Config, platform string, state map[string]*Environment)
 
 	if platform == "docker" {
 		occupied := dockerOccupiedServicePorts(state, "")
+		scan := newDockerHostScan("")
 		if len(src.PmmServers) > 0 {
 			cfg.PmmServers = make(map[string]PmmServerConfig, len(src.PmmServers))
 			for _, ns := range sortedPmmServers(src.PmmServers) {
@@ -108,8 +109,8 @@ func duplicateConfig(src Config, platform string, state map[string]*Environment)
 				if port == 0 {
 					port = svc.PmmPort
 				}
-				if _, taken := occupied[port]; port != 0 && taken {
-					svc.PmmExternalPort = nextFreeDockerPort(port, occupied)
+				if port != 0 && dockerPortBusy(port, occupied, []func(int) bool{scan.busy}) {
+					svc.PmmExternalPort = nextFreeDockerPort(port, occupied, scan.busy)
 					port = svc.PmmExternalPort
 				}
 				if port != 0 {
@@ -122,10 +123,11 @@ func duplicateConfig(src Config, platform string, state map[string]*Environment)
 			cfg.SeaweedFSServers = make(map[string]SeaweedFSServerConfig, len(src.SeaweedFSServers))
 			for _, ns := range sortedSeaweedFSServers(src.SeaweedFSServers) {
 				svc := ns.Config
-				_, apiTaken := occupied[svc.SeaweedFSPort]
-				_, adminTaken := occupied[svc.SeaweedFSAdminPort]
+				hostChecks := []func(int) bool{scan.busy}
+				apiTaken := dockerPortBusy(svc.SeaweedFSPort, occupied, hostChecks)
+				adminTaken := dockerPortBusy(svc.SeaweedFSAdminPort, occupied, hostChecks)
 				if (svc.SeaweedFSPort != 0 && apiTaken) || (svc.SeaweedFSAdminPort != 0 && adminTaken) {
-					svc.SeaweedFSPort, svc.SeaweedFSAdminPort = nextFreeSeaweedFSPorts(svc.SeaweedFSPort, occupied)
+					svc.SeaweedFSPort, svc.SeaweedFSAdminPort = nextFreeSeaweedFSPorts(svc.SeaweedFSPort, occupied, scan.busy)
 				}
 				if svc.SeaweedFSPort != 0 {
 					occupied[svc.SeaweedFSPort] = struct{}{}

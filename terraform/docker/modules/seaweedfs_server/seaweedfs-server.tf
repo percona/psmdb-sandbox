@@ -61,7 +61,7 @@ resource "docker_container" "seaweedfs" {
   # The filer UI provides the bucket and object browser.
   ports {
     internal = 8888
-    external = 8888
+    external = var.seaweedfs_filer_port
     ip       = var.bind_to_localhost ? "127.0.0.1" : "0.0.0.0"
   }
 

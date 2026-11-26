@@ -120,6 +120,7 @@ type SeaweedFSServerConfig struct {
 	SeaweedFSImage     string `json:"seaweedfs_image,omitempty"`
 	SeaweedFSPort      int    `json:"seaweedfs_port,omitempty"`
 	SeaweedFSAdminPort int    `json:"seaweedfs_admin_port,omitempty"`
+	SeaweedFSFilerPort int    `json:"seaweedfs_filer_port,omitempty"` // Docker: host port of the filer UI
 	SeaweedFSAccessKey string `json:"seaweedfs_access_key,omitempty"`
 	SeaweedFSSecretKey string `json:"seaweedfs_secret_key,omitempty"`
 	BucketName         string `json:"bucket_name,omitempty"`
@@ -132,6 +133,7 @@ type LdapServerConfig struct {
 	EnvTag            string `json:"env_tag"`
 	LdapImage         string `json:"ldap_image,omitempty"`
 	LdapPort          int    `json:"ldap_port,omitempty"`
+	LdapAdminPort     int    `json:"ldap_external_admin_port,omitempty"` // Docker: host port of the phpLDAPadmin UI
 	LdapDomain        string `json:"ldap_domain,omitempty"`
 	LdapAdminPassword string `json:"ldap_admin_password,omitempty"`
 	BindToLocalhost   bool   `json:"bind_to_localhost,omitempty"`
