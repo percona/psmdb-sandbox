@@ -382,6 +382,8 @@
           - PMM_WATCHTOWER_HOST=http://watchtower:8080
           - -e
           - "PMM_WATCHTOWER_TOKEN={{ watchtower_token }}"
+          - -e
+          - "GF_AUTH_BASIC_PASSWORD_POLICY={{ pmm_server_password_policy | bool | lower }}"
         # Nomad clients on the other hosts dial the embedded Nomad server on 4647 at PMM_PUBLIC_ADDRESS.
         pmm_extensions_args:
           - --volume

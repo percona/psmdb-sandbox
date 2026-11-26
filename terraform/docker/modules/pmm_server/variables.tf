@@ -37,6 +37,12 @@ variable "pmm_server_pwd" {
   sensitive   = true
 }
 
+variable "pmm_password_policy" {
+  description = "Enforce PMM's admin password policy (12+ characters, mixed case, digit and symbol). Recent PMM images enable it, which rejects the default password"
+  default     = false
+  type        = bool
+}
+
 variable "renderer_tag" {
   description = "Name of the Grafana image renderer container"
   default     = "grafana-renderer"

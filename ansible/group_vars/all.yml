@@ -277,6 +277,10 @@ pmm_dir: /var/lib/docker
 pmm_server_user: admin
 # Warning! This is just an example, replace with your own for prod use!
 pmm_server_pwd: admin
+# Recent PMM images enforce a password policy (12+ characters with upper and lower
+# case, a number and a special character), which rejects the default "admin".
+# Keep it off so the sandbox default works; set to true to enforce the policy.
+pmm_server_password_policy: false
 # Seconds PMM clients wait for the PMM server API before registering. The UI
 # sets up the PMM server in parallel with the MongoDB hosts.
 pmm_server_wait_timeout: 600

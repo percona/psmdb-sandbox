@@ -469,7 +469,7 @@ replsets = {
 
 ## PMM Monitoring
 
-- Access PMM at `https://127.0.0.1:8443`. Default credentials: `admin/admin`.
+- Access PMM at `https://127.0.0.1:8443`. Default credentials: `admin/admin`. PMM's login page prompts you to change the default password; click Skip to keep it.
 
 - Grafana renderer is installed so PMM graphs can be exported as PNG images.
 

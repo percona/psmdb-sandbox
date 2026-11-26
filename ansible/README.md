@@ -159,7 +159,7 @@ The remaining variable files contain per-role overrides you can also adjust.
 
 You should review and modify these files as needed before making the deployment.
 
-Note: The PMM user and password are used to login to PMM UI via the web browser. If you want to change the default PMM credentials (admin/admin), you will need to login to PMM via the web browser and change the PMM password there after deployment finishes.
+Note: The PMM user and password are used to login to PMM UI via the web browser. Recent PMM server images enforce a password policy that rejects the default `admin` password, so the playbook starts the PMM server with the policy off (`pmm_server_password_policy: false`). To enforce the policy, set it to `true` and use a `pmm_server_pwd` that meets it (12+ characters with upper and lower case, a number and a special character). PMM's login page shows a "change password" prompt with a Skip button each time you log in with `admin`/`admin`; that prompt is built into the login page and can't be turned off.
 
 ### Backup schedule
 
