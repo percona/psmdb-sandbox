@@ -519,8 +519,9 @@
   if (typeof document === 'undefined') return;
 
   // Adds the collapsible diagram panel to host. onSelect receives the data-ref
-  // of the activated element ("cluster:0", "svc:monitoring", ...).
-  function mount(host, { onSelect }) {
+  // of the activated element ("cluster:0", "svc:monitoring", ...). The
+  // environment page passes pinnable: false and its own selectHint.
+  function mount(host, { onSelect, pinnable = true, selectHint = 'Select an element to edit it.' }) {
     const root = document.createElement('details');
     root.id = 'topology-diagram';
     root.className = 'topology-diagram';
@@ -549,8 +550,8 @@
     const hint = document.createElement('span');
     hint.className = 'td-hint';
     const hints = {
-      docker: 'Each MongoDB box lists mongod or mongos and its optional components, which run as sidecar containers (dashed). Select an element to edit it.',
-      host: 'Each MongoDB box is a host listing mongod or mongos and the optional components installed beside it. Select an element to edit it.',
+      docker: `Each MongoDB box lists mongod or mongos and its optional components, which run as sidecar containers (dashed). ${selectHint}`,
+      host: `Each MongoDB box is a host listing mongod or mongos and the optional components installed beside it. ${selectHint}`,
     };
     // Pinning keeps the diagram on screen while scrolling, at the cost of
     // covering part of the form, so it is opt-in and remembered per browser.
@@ -564,13 +565,14 @@
     };
     let stored = null;
     try { stored = localStorage.getItem('topologyDiagramPinned'); } catch (err) { /* storage unavailable */ }
-    setPinned(stored === 'true');
+    setPinned(pinnable && stored === 'true');
     pin.addEventListener('click', () => {
       const pinned = pin.getAttribute('aria-pressed') !== 'true';
       setPinned(pinned);
       try { localStorage.setItem('topologyDiagramPinned', String(pinned)); } catch (err) { /* storage unavailable */ }
     });
-    legend.append(hint, pin);
+    legend.append(hint);
+    if (pinnable) legend.append(pin);
     const canvas = document.createElement('div');
     canvas.className = 'td-canvas';
     const list = document.createElement('ul');

@@ -194,6 +194,11 @@ the plgm load generator Web UI when enabled).
       **Keep visible while scrolling** pins the diagram on wide screens; it is off
       by default because a pinned diagram covers part of the form. The diagram is
       read-only and is not saved with the configuration.
+    - The environment page shows the same diagram, built from the saved
+      configuration, under **Configuration Summary**. It reflects the definition
+      rather than live host state. Selecting an element opens **Edit
+      Configuration** at that topology or service; this is disabled while an
+      operation is running.
     - The sticky **Save & Configure** action saves every section, including hidden
       settings. Saving does not deploy infrastructure. Validation errors link back
       to the affected setting and open its section when a field can be identified.

@@ -554,6 +554,7 @@ type EnvironmentData struct {
 	ClusterSync          ClusterSyncConfig
 	ClusterSyncAvailable bool
 	OperationInProgress  bool
+	TopologyDiagram      TopologyDiagramState
 }
 
 // HostInfo describes a single running host or container.

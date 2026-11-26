@@ -571,5 +571,8 @@
     form.classList.add('config-editor');
     showPanel('profiles');
     refresh();
+    // The environment page diagram links here with #select=<diagram ref>.
+    const selected = location.hash.match(/^#select=(.+)$/);
+    if (selected) selectDiagramItem(decodeURIComponent(selected[1]));
   });
 })();

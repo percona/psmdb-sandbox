@@ -421,6 +421,7 @@ func environmentHandler(w http.ResponseWriter, r *http.Request) {
 		ClusterSync:          normalizedClusterSyncConfig(env.Config.ClusterSync),
 		ClusterSyncAvailable: clusterSyncDeploymentReady(env),
 		OperationInProgress:  environmentOperationActive(envID),
+		TopologyDiagram:      environmentTopologyDiagram(env.Platform, env.Config),
 	})
 }
 

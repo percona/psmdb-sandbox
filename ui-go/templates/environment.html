@@ -131,6 +131,8 @@
     {{end}}
   </div>
 
+  <div id="environment-topology-diagram"></div>
+
   {{if .SortedClusters}}
   <h3>Clusters</h3>
   <div class="table-wrapper">
@@ -366,9 +368,29 @@
   </div>
 </div>
 
+<script src="/static/topology-diagram.js"></script>
 <script>
 const ENV_ID   = {{json .EnvID}};
 const PLATFORM = {{json .Env.Platform}};
+
+// Read-only view of the saved configuration; selecting an element opens it in
+// the configuration editor unless an operation has locked editing.
+(() => {
+  const host = document.getElementById('environment-topology-diagram');
+  const editLink = document.getElementById('edit-config-link');
+  const diagram = window.TopologyDiagram?.mount(host, {
+    pinnable: false,
+    selectHint: 'Select an element to open it in Edit Configuration.',
+    onSelect: ref => {
+      if (editLink.style.pointerEvents === 'none') return;
+      location.href = `${editLink.getAttribute('href')}#select=${encodeURIComponent(ref)}`;
+    },
+  });
+  diagram?.update({{json .TopologyDiagram}});
+  // Small topologies stay at their natural size instead of filling the page.
+  const svg = host.querySelector('.td-svg');
+  if (svg) svg.style.maxWidth = `${svg.viewBox.baseVal.width}px`;
+})();
 let activeEventSource = null;
 let currentJobId = null;
 let pcsmStatusPollTimer = null;

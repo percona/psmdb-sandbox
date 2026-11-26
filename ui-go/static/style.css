@@ -642,6 +642,8 @@ a:hover { text-decoration: underline; }
 }
 .config-summary h2 { font-size: 1rem; font-weight: 600; margin-bottom: 1rem; }
 .config-summary h3 { font-size: 0.9rem; font-weight: 600; margin: 1.2rem 0 0.6rem; color: var(--color-muted); }
+#environment-topology-diagram .topology-diagram { margin-top: 1rem; }
+#environment-topology-diagram .td-svg { margin: 0 auto; }
 
 .summary-grid {
   display: grid;
